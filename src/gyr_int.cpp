@@ -29,7 +29,7 @@ static Eigen::Vector3d toGyr(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
 void GyrInt::Integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
 {
   const double t = stamp_sec(imu);
-  const Eigen::Vector3d gyr = toGyr(imu);
+  const Eigen::Vector3d gyr = toGyr(imu) - bias_;
 
   if (v_rot_.empty()) {
     // Anchor identity at the window start, interpolating gyro at that instant.
@@ -39,7 +39,7 @@ void GyrInt::Integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
       const double span = t - t_prev;
       if (span > 1e-9) {
         const double w = (t - start_timestamp_) / span;  // weight on previous
-        gyr_start = w * toGyr(last_imu_) + (1.0 - w) * gyr;
+        gyr_start = w * (toGyr(last_imu_) - bias_) + (1.0 - w) * gyr;
       }
     }
     t_knots_.push_back(start_timestamp_);

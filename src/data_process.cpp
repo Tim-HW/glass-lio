@@ -52,9 +52,16 @@ CloudXYZI::Ptr ImuProcess::Process(const MeasureGroup & meas)
       return R_il_.inverse() * gyr_int_.GetRotAt(t) * R_il_;
     };
 
+  // Rotation of the lidar across this scan: the scan-end frame expressed in the
+  // scan-start frame. Since scans are contiguous, this is also the rotation since
+  // the previous pose -- the prediction registration will start from.
+  const SO3d R_end = lidar_rot_at(t1);
+  last_delta_rot_ = R_end;
+  last_dt_ = t1 - t0;
+
   // Compensate every point into the scan-end frame:
   //   p_end = R_L(t1)^{-1} * R_L(t_i) * p_i
-  const SO3d R_end_inv = lidar_rot_at(t1).inverse();
+  const SO3d R_end_inv = R_end.inverse();
 
   CloudXYZI::Ptr out(new CloudXYZI());
   out->reserve(cloud->size());

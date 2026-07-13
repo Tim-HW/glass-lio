@@ -19,6 +19,23 @@
     # constrains the alignment.
     voxel_leaf_size: 0.5
 
+    # Scan-to-map registration (GICP). This is what produces the pose.
+    registration:
+      # The key knob. ICP only pairs points closer than this. Too small and a fast
+      # motion puts the true correspondence out of reach, so it never converges;
+      # too large and it cheerfully matches a wall to the WRONG wall.
+      max_correspondence_distance: 1.0
+      max_iterations: 30
+      transformation_epsilon: 0.001
+      # Reject an alignment worse than this and coast on the IMU prediction
+      # instead. A wrong pose poisons the map permanently; a stale one recovers.
+      max_fitness_score: 0.5
+      # Constant-velocity translation prior. OFF by default: with a loose
+      # correspondence distance it drove a runaway (GICP accepts a bad guess ->
+      # bad scan poisons the map -> map drifts -> velocity grows). Re-enable only
+      # after confirming the pose is stable without it.
+      use_constant_velocity: false
+
     # Local map: the accumulated world geometry each scan is registered against.
     map:
       # Voxel size (m) of the map's hash grid. Sets the map's spatial resolution.
@@ -30,7 +47,28 @@
       # Radius (m) around the current pose to retain. Geometry beyond this cannot
       # constrain the current alignment; dropping it bounds memory and the cost of
       # the KD-tree GICP builds over the map each scan.
-      max_range: 100.0
+      max_range: 20.0
+
+    imu:
+      # The Livox driver publishes linear_acceleration in *g*, NOT m/s^2 -- this
+      # violates the sensor_msgs/Imu spec. Measured on the test bag: |accel| at
+      # rest = 0.997 (would be 9.81 if it were SI). Leave true for Livox.
+      # Getting this wrong makes every acceleration 9.81x too small.
+      accel_in_g: true
+
+      # Initialization runs on a STATIC window of IMU samples and estimates the
+      # gyro bias + gravity direction. Initializing while moving folds real motion
+      # into both, and the estimator is then silently wrong forever -- so a window
+      # that fails the motion checks is discarded and we keep waiting.
+      init:
+        # Samples the static window must contain. 200 = 1 s at 200 Hz.
+        num_samples: 200
+        # rad/s. Any sample above this means we are rotating. Measured: static
+        # windows peak ~0.04, a turn hits 0.4.
+        max_gyro: 0.1
+        # m/s^2. Per-axis accel std-dev above this means we are translating.
+        # Catches linear motion, which the gyro check alone would miss.
+        max_accel_sd: 0.5
 
     extrinsic:
       # Rigid transform LIDAR -> IMU:  p_imu = R * p_lidar + t

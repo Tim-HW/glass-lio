@@ -66,14 +66,9 @@ sleep 0.5
 
 echo "[run_bag] domain=${ROS_DOMAIN_ID}  bag=${BAG}  rate=${RATE} ${LOOP}"
 
-# STOPGAP: the node does not publish odom->livox_frame yet -- that TF is produced
-# by registration (Phase 2, stage 3). Until then pose_ IS identity, so a static
-# identity TF is truthful and lets RViz place the sensor-frame clouds against the
-# world-frame map. DELETE THIS once the node broadcasts its own TF.
-ros2 run tf2_ros static_transform_publisher \
-  --x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 \
-  --frame-id odom --child-frame-id livox_frame > /dev/null 2>&1 &
-PIDS+=($!)
+# NOTE: the node now broadcasts odom->livox_frame itself (registration, stage 3).
+# The static_transform_publisher stopgap that used to live here was REMOVED --
+# two publishers of the same TF fight each other.
 
 ros2 launch lidar-odom lio.launch.py &
 PIDS+=($!)

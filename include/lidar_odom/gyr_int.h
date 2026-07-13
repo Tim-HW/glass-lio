@@ -33,7 +33,11 @@ public:
 
   bool empty() const {return v_rot_.empty();}
 
+  /// Gyro bias (rad/s), subtracted from every sample. From ImuInit.
+  void set_bias(const Eigen::Vector3d & bias) {bias_ = bias;}
+
 private:
+  Eigen::Vector3d bias_ = Eigen::Vector3d::Zero();
   double start_timestamp_;
   sensor_msgs::msg::Imu::ConstSharedPtr last_imu_;
 

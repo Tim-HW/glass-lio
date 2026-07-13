@@ -57,7 +57,21 @@ public:
     t_il_ = t_il;
   }
 
+  /// Gyro bias from ImuInit, subtracted before integration.
+  void set_gyro_bias(const Eigen::Vector3d & bias) {gyr_int_.set_bias(bias);}
+
+  /// Rotation of the LIDAR frame across the last processed scan, i.e. the new
+  /// scan-end frame expressed in the previous one. Scans are contiguous, so this
+  /// is the IMU's prediction of how the sensor turned since the last pose --
+  /// exactly the initial guess registration needs.
+  const Sophus::SO3d & last_delta_rot() const {return last_delta_rot_;}
+
+  /// Duration (s) of the last processed scan.
+  double last_scan_duration() const {return last_dt_;}
+
 private:
+  Sophus::SO3d last_delta_rot_;
+  double last_dt_ = 0.0;
   Sophus::SO3d R_il_;                                 ///< rotation lidar -> IMU
   Eigen::Vector3d t_il_ = Eigen::Vector3d::Zero();    ///< translation lidar -> IMU (Phase 2/3)
   rclcpp::Logger logger_;
