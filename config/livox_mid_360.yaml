@@ -32,7 +32,11 @@
       # too large and it cheerfully matches a wall to the WRONG wall.
       max_correspondence_distance: 1.0
       max_iterations: 30
+      # Converged once BOTH incremental updates fall below these: translation (m)
+      # and rotation (rad). Not a trust signal -- ICP often plateaus above them on
+      # a perfectly good fit, so hitting max_iterations is accepted, not rejected.
       transformation_epsilon: 0.001
+      rotation_epsilon: 0.0001
       # RMS point-to-plane residual (m). Worse than this and we coast on the IMU
       # prediction instead: a wrong pose poisons the map permanently, a stale one
       # recovers on the next scan.

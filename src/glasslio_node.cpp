@@ -104,15 +104,22 @@ public:
     reg_params_.max_iterations = declare_parameter<int>("registration.max_iterations", 30);
     reg_params_.eps_translation = declare_parameter<double>(
       "registration.transformation_epsilon", 1e-3);
+    reg_params_.eps_rotation = declare_parameter<double>(
+      "registration.rotation_epsilon", 1e-4);
     reg_params_.huber_delta = declare_parameter<double>("registration.huber_delta", 0.2);
     reg_params_.min_correspondences = declare_parameter<int>(
       "registration.min_correspondences", 50);
     max_rmse_ = declare_parameter<double>("registration.max_rmse", 0.5);
-    // Constant-velocity translation prior. DEFAULT OFF: it caused a runaway --
-    // ICP "converges" near a too-far guess, that bad scan is inserted into the
-    // map, the map drifts with it, and velocity grows without bound. Only safe
-    // once max_correspondence_distance is tight enough to reject a bad guess.
-    use_const_vel_ = declare_parameter<bool>("registration.use_constant_velocity", false);
+    // Constant-velocity translation prior. Without it the guess carries NO
+    // translation, so a dropped scan (see max_queue_size) leaves the robot metres
+    // from where ICP starts looking.
+    //
+    // This once caused a runaway -- ICP "converges" near a too-far guess, that bad
+    // scan is inserted into the map, the map drifts with it, velocity grows. That
+    // loop is now BLOCKED: a rejected scan is no longer inserted, so a bad guess
+    // cannot poison the reference it is measured against. If you ever see the pose
+    // accelerating away with a healthy rmse, turn this off first.
+    use_const_vel_ = declare_parameter<bool>("registration.use_constant_velocity", true);
 
     // Worker backlog. Small on purpose: if registration cannot keep up, a stale
     // pose is useless, so drop scans rather than accumulate latency.
@@ -355,7 +362,9 @@ private:
       {
         std::unique_lock<std::mutex> lock(queue_mutex_);
         queue_cv_.wait(
-          lock, [this] {return stop_ || reset_requested_ || !queue_.empty();});
+          lock, [this] {
+            return stop_ || reset_requested_ || init_pending_ || !queue_.empty();
+          });
         if (stop_) {
           return;
         }
@@ -365,6 +374,17 @@ private:
           reset_requested_ = false;
           lock.unlock();
           resetEstimator();
+          continue;
+        }
+        // Both reset and init hand the estimator over here rather than writing it
+        // from a callback, so the worker's exclusive ownership actually holds.
+        if (init_pending_) {
+          init_pending_ = false;
+          const Eigen::Isometry3d init_pose = pending_init_pose_;
+          const Eigen::Vector3d init_bias = pending_init_bias_;
+          lock.unlock();
+          pose_ = init_pose;
+          imu_proc_->set_gyro_bias(init_bias);
           continue;
         }
         meas = std::move(queue_.front());
@@ -457,9 +477,9 @@ private:
     const double dt = imu_proc_->last_scan_duration();
     Eigen::Isometry3d guess = Eigen::Isometry3d::Identity();
     guess.linear() = pose_.linear() * imu_proc_->last_delta_rot().matrix();
-    guess.translation() = use_const_vel_
-      ? (pose_.translation() + velocity_ * dt).eval()
-      : pose_.translation();
+    guess.translation() = use_const_vel_ ?
+      (pose_.translation() + velocity_ * dt).eval() :
+      pose_.translation();
 
     const auto r = alignPointToPlane(*scan, *map_, guess, reg_params_);
     last_rmse_ = r.rmse;
@@ -637,6 +657,10 @@ private:
   bool stop_ = false;
   /// Set by a callback, acted on by the worker: see reset() / resetEstimator().
   bool reset_requested_ = false;
+  /// Init result handed from the callback to the worker: see onInitialized().
+  bool init_pending_ = false;
+  Eigen::Isometry3d pending_init_pose_ = Eigen::Isometry3d::Identity();
+  Eigen::Vector3d pending_init_bias_ = Eigen::Vector3d::Zero();
   std::size_t max_queue_ = 3;
   long dropped_ = 0;
 
@@ -659,7 +683,7 @@ private:
   double max_rmse_ = 0.5;
   double last_rmse_ = 0.0;
   int last_corr_ = 0;
-  bool use_const_vel_ = false;
+  bool use_const_vel_ = true;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_lidar_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;

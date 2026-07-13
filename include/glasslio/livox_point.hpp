@@ -11,7 +11,10 @@ namespace glasslio
 
 /// PCL point matching the livox_ros_driver2 PointCloud2 layout
 /// (xfer_format=0): x,y,z,intensity,tag,line,timestamp. The `timestamp` is the
-/// absolute acquisition time of the point in seconds — this is what we deskew on.
+/// absolute acquisition time of the point in NANOSECONDS — this is what we
+/// deskew on. Header stamps are in seconds; mixing the two lands every point
+/// ~1e9 away from the gyro knots, every lookup clamps, and the deskew silently
+/// becomes a no-op. `intensity` is genuine reflectivity, NOT packed time.
 struct EIGEN_ALIGN16 LivoxPoint
 {
   PCL_ADD_POINT4D;

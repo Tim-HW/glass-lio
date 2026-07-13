@@ -42,13 +42,50 @@ struct RegistrationResult
   double rmse = 0.0;     ///< RMS point-to-plane residual (m) at the solution
 };
 
-/// Point-to-plane ICP of `source` (sensor frame) onto `map` (world frame),
-/// started from `guess`. Solved by Gauss-Newton on the SE(3) manifold.
+/// The point-to-plane residual: signed distance from the transformed source point
+/// `q = T * p` to the plane `(centroid, normal)`.
+///
+///     r(T) = n^T (T p - c)
 ///
 /// Point-to-plane, not point-to-point: a LiDAR never re-samples the same physical
 /// points, it hits the same *surface* in different spots. Penalising only the
-/// distance ALONG the surface normal lets points slide freely across the surface,
-/// which is exactly what the geometry does or does not constrain.
+/// distance ALONG the normal lets points slide freely ACROSS the surface, which is
+/// exactly what a wall does and does not constrain.
+inline double pointToPlaneResidual(
+  const Eigen::Vector3d & q, const Eigen::Vector3d & centroid, const Eigen::Vector3d & normal)
+{
+  return normal.dot(q - centroid);
+}
+
+/// dr/dxi for the residual above, under the LEFT perturbation T <- Exp(xi) * T
+/// used by optimizeSE3 (see gauss_newton.hpp).
+///
+/// Linearise Exp(xi) acting on q, to first order:
+///     Exp(xi) q  ~=  q + rho + phi x q
+///     r(xi)      ~=  r + n^T rho + n^T (phi x q)
+///                 =  r + n^T rho + (q x n)^T phi      [scalar triple product]
+/// so, with xi = [rho; phi]:
+///     J = [ n^T , (q x n)^T ]
+///
+/// The rotation block is (q x n), NOT (n x q): swapping them flips the sign of
+/// every rotational update, and the solver will then walk away from the solution
+/// while still reporting a plausible residual. Pinned by test_jacobian.cpp.
+inline Eigen::Matrix<double, 1, 6> pointToPlaneJacobian(
+  const Eigen::Vector3d & q, const Eigen::Vector3d & normal)
+{
+  Eigen::Matrix<double, 1, 6> J;
+  J.head<3>() = normal.transpose();
+  J.tail<3>() = q.cross(normal).transpose();
+  return J;
+}
+
+/// Point-to-plane ICP of `source` (sensor frame) onto `map` (world frame),
+/// started from `guess`. Solved by Gauss-Newton on the SE(3) manifold.
+///
+/// This function owns only the ICP-specific half of the problem: ASSOCIATION
+/// (which plane does each point belong to) and the residual above. The solve
+/// itself -- normal equations, robust weighting, retraction -- lives in
+/// gauss_newton.hpp and knows nothing about LiDAR.
 RegistrationResult alignPointToPlane(
   const CloudXYZI & source,
   const LocalMap & map,

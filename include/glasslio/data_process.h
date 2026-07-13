@@ -32,7 +32,7 @@ struct MeasureGroup
 /// Rotation-only motion compensation (deskew) driven by integrated gyro.
 ///
 /// Per-point time comes from the LivoxPoint `timestamp` field (absolute
-/// seconds). Every point is rotated into the scan-end frame using the gyro
+/// nanoseconds). Every point is rotated into the scan-end frame using the gyro
 /// orientation interpolated at that point's exact acquisition time.
 ///
 /// Translational distortion is intentionally NOT compensated in Phase 1: that
