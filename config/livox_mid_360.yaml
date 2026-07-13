@@ -1,0 +1,49 @@
+# Parameters for lio_node with a Livox Mid-360.
+# `/**` applies to the node whatever name it is launched under.
+/**:
+  ros__parameters:
+
+    lidar_topic: "/livox/lidar"
+    imu_topic: "/livox/imu"
+    # Sensor frame (deskewed/downsampled clouds) and world frame (local map, odom).
+    output_frame: "livox_frame"
+    world_frame: "odom"
+
+    # IMU coverage required past a scan's header stamp before it is deskewed.
+    # Must exceed the scan period (10 Hz -> 0.1 s), or the tail of each scan is
+    # under-corrected.
+    scan_guard_sec: 0.12
+
+    # Voxel edge length (m) for downsampling before registration. Larger = fewer
+    # points = faster, but erases the thin geometry (poles, railings) that
+    # constrains the alignment.
+    voxel_leaf_size: 0.5
+
+    # Local map: the accumulated world geometry each scan is registered against.
+    map:
+      # Voxel size (m) of the map's hash grid. Sets the map's spatial resolution.
+      # Usually >= voxel_leaf_size; finer means a denser, slower map.
+      voxel_size: 0.5
+      # Density cap per voxel. This IS the map's downsampling — points landing in
+      # a full voxel are dropped, so the map never needs re-quantizing.
+      max_points_per_voxel: 20
+      # Radius (m) around the current pose to retain. Geometry beyond this cannot
+      # constrain the current alignment; dropping it bounds memory and the cost of
+      # the KD-tree GICP builds over the map each scan.
+      max_range: 100.0
+
+    extrinsic:
+      # Rigid transform LIDAR -> IMU:  p_imu = R * p_lidar + t
+      #
+      # This is the sensor-to-sensor extrinsic INSIDE the Mid-360, not the robot
+      # mount. It is a correctness input to the estimator: get it wrong and the
+      # IMU and LiDAR constraints actively disagree. See doc/deskew.md sec. 5.
+      lidar_to_imu:
+        # Mid-360: the internal IMU axes are aligned with the lidar frame, so this
+        # identity is genuinely correct, not a placeholder.
+        quat_xyzw: [0.0, 0.0, 0.0, 1.0]
+
+        # The IMU chip sits a few cm from the optical origin. Verify against your
+        # datasheet. UNUSED today: deskew is rotation-only, and translation only
+        # enters with translational deskew / tight coupling (Phase 2/3).
+        xyz: [-0.011, -0.02329, 0.04412]

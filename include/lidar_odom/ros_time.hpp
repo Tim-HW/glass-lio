@@ -1,0 +1,17 @@
+#pragma once
+
+#include <rclcpp/rclcpp.hpp>
+
+namespace lidar_odom
+{
+
+/// Full-precision timestamp in seconds from any message carrying a std_msgs
+/// header. The original port used `float sec + nano/1e9`, which loses ~3 digits
+/// of precision on Unix epoch time; rclcpp::Time keeps int64 nanoseconds.
+template <typename MsgPtr>
+inline double stamp_sec(const MsgPtr & msg)
+{
+  return rclcpp::Time(msg->header.stamp).seconds();
+}
+
+}  // namespace lidar_odom

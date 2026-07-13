@@ -1,0 +1,110 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Local Map1
+        - /Deskewed1
+      Splitter Ratio: 0.5
+    Tree Height: 700
+
+Visualization Manager:
+  Global Options:
+    Background Color: 32; 32; 36
+    Fixed Frame: odom
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 5
+      Plane Cell Count: 40
+      Color: 70; 70; 78
+      Line Style:
+        Value: Lines
+
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Axes: true
+      Show Names: true
+      Marker Scale: 2
+
+    # The accumulated world map. Until registration lands this SMEARS, because
+    # every scan is inserted at pose = identity.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Local Map
+      Enabled: true
+      Topic:
+        Value: /lio_node/local_map
+        Depth: 1
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+      Use Fixed Frame: true
+      Decay Time: 0
+
+    # Motion-compensated scan, sensor frame. This is the Phase 1 output.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Deskewed
+      Enabled: true
+      Topic:
+        Value: /lio_node/deskewed
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 0; 255; 140
+      Decay Time: 0
+
+    # What registration will actually consume (~25% of the deskewed points).
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Downsampled
+      Enabled: false
+      Topic:
+        Value: /lio_node/downsampled
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Spheres
+      Size (m): 0.12
+      Color Transformer: FlatColor
+      Color: 255; 170; 0
+      Decay Time: 0
+
+    # Raw driver cloud, for A/B against Deskewed while turning.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Raw (distorted)
+      Enabled: false
+      Topic:
+        Value: /livox/lidar
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 255; 60; 60
+      Decay Time: 0
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 45
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Pitch: 0.62
+      Yaw: 2.4
+      Target Frame: odom
