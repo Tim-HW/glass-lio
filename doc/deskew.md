@@ -3,9 +3,12 @@
 Phase 1 of the LIO pipeline. Removes the *rotational* distortion a moving LiDAR
 bakes into every scan, using the IMU gyroscope.
 
-Code: [`src/data_process.cpp`](../src/data_process.cpp) (deskew),
-[`src/gyr_int.cpp`](../src/gyr_int.cpp) (gyro integration),
-[`src/deskew_node.cpp`](../src/deskew_node.cpp) (buffering / sync).
+Code: [`src/lio/data_process.cpp`](../src/lio/data_process.cpp) (deskew),
+[`src/lio/gyr_int.cpp`](../src/lio/gyr_int.cpp) (gyro integration),
+[`src/glasslio_node.cpp`](../src/glasslio_node.cpp) (buffering / sync).
+
+Deskew is **stage 1** of the pipeline, not a standalone node. For the whole
+pipeline see [pipeline.md](pipeline.md).
 
 ---
 
@@ -86,7 +89,7 @@ t1 = max over points of timestamp     (scan end)
 
 ## 4. Integrating the gyro → R(t)
 
-`GyrInt` (in [`gyr_int.cpp`](../src/gyr_int.cpp)) turns discrete gyro samples
+`GyrInt` (in [`gyr_int.cpp`](../src/lio/gyr_int.cpp)) turns discrete gyro samples
 into a continuous orientation function.
 
 ### Why SO(3) and not Euler angles
@@ -109,9 +112,14 @@ velocities — second-order accurate, versus first-order for a naive forward ste
 and free):
 
 ```
+ω_k  = ω_raw,k − b_g                 ← gyro bias, from ImuInit (see pipeline.md)
 Δθ_k = Δt · ½·(ω_k + ω_{k-1})        ← rotation vector for this step
 R_k  = R_{k-1} · Exp(Δθ_k)           ← compose on the manifold
 ```
+
+The bias `b_g` (~0.003 rad/s here) is negligible over one 0.1 s scan — about 0.02°
+— but it is subtracted anyway, because the same integrator feeds the cross-scan
+rotation prior that registration depends on, where it would accumulate.
 
 with `R(t0) = I` by construction. This produces a set of **knots** — timestamped
 orientations, one per IMU sample:
@@ -170,10 +178,17 @@ auto lidar_rot_at = [&](double t) {
   };
 ```
 
-**Currently `R_il = I`** (identity). For a Livox with an internal IMU the true
-offset is small, so deskew works well enough to verify. Set the real value via
-`set_extrinsic_rot()` when you have it. With `R_il = I` the expression degenerates
-to `R_L(t) = R_I(t)`, which is why it works today.
+`R_il` is loaded from `extrinsic.lidar_to_imu.quat_xyzw` in the config and applied
+via `ImuProcess::set_extrinsic(q, t)`.
+
+For the **Mid-360 it is genuinely identity** — the internal IMU axes are aligned
+with the lidar frame — so the expression degenerates to `R_L(t) = R_I(t)`. That is
+correct for this sensor, not a placeholder we are getting away with. On an Avia or
+an external IMU the conjugation does real work, and a wrong `R_il` would *tilt* the
+correction rather than obviously break it — it would still look like a deskew.
+
+(The extrinsic *translation* is parsed and stored but unused: deskew is
+rotation-only.)
 
 ## 6. Compensating the points
 
@@ -233,7 +248,7 @@ translational deskew drops straight into the same loop.
 
 ## 8. Node plumbing
 
-[`deskew_node.cpp`](../src/deskew_node.cpp) buffers both streams and pairs them.
+[`glasslio_node.cpp`](../src/glasslio_node.cpp) buffers both streams and pairs them.
 
 A scan is only processed once the IMU buffer **brackets it on both sides**:
 
@@ -247,16 +262,17 @@ margin). Consumed IMU is *not* eagerly dropped — the samples inside a scan's w
 also bracket the *next* scan's start, so only samples strictly older than the
 current scan start are pruned.
 
-Output: `~/undistort`, a `PointCloud2` in the scan-end frame, one per input scan.
+Output: the deskewed cloud (scan-end frame) feeds straight into downsampling and
+registration. It is also published on `~/deskewed` for inspection.
 
 ## 9. Verifying it
 
 ```bash
-ros2 launch lidar-odom deskew.launch.py
-ros2 bag play src/lidar-odom/data
+./scripts/run_bag.sh          # node + bag + RViz
 ```
 
-The log line is the diagnostic:
+The deskew log line is at DEBUG level (the per-scan INFO line now reports pose and
+map state instead). Enable it with `--ros-args --log-level glasslio_node:=debug`:
 
 ```
 deskew: 20064 pts, scan 0.100s, gyro rot [x,y,z] deg [0.17, -0.24, 2.68]
@@ -269,8 +285,9 @@ Three things to check, in order:
 2. **`gyro rot` ≈ 0 when stationary, non-zero when turning** — the gyro window
    actually lines up with the scan. Permanently `0.00` means the IMU and point
    clocks don't overlap and every lookup is clamping.
-3. **The cloud itself** — overlay `~/undistort` against the raw `/livox/lidar` in
+3. **The cloud itself** — overlay `~/deskewed` against the raw `/livox/lidar` in
    RViz while turning. Straight edges (walls, door frames) should straighten.
+   (The RViz config ships both; the raw layer is off by default.)
 
 On our bag: `2.68°` of yaw within one 100 ms scan through a turn — that's the
 ~2 m of smear at 40 m from §1, removed.

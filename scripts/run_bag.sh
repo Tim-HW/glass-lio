@@ -11,11 +11,11 @@
 #   ./scripts/run_bag.sh -b /path/to/bag -d 7
 set -euo pipefail
 
-PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"    # .../src/lidar-odom
+PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"    # .../src/glasslio
 WS="$(cd "${PKG_DIR}/../.." && pwd)"                          # .../lidar_ws
 
 BAG="${PKG_DIR}/data"
-RVIZ_CFG="${PKG_DIR}/rviz/lio.rviz"
+RVIZ_CFG="${PKG_DIR}/rviz/glasslio.rviz"
 RATE=1.0
 LOOP=""
 USE_RVIZ=1
@@ -56,12 +56,12 @@ cleanup() {
   echo "[run_bag] shutting down..."
   for p in "${PIDS[@]:-}"; do kill -9 "$p" 2>/dev/null || true; done
   # Only ever kill our own processes, never the user's other ROS stacks.
-  pkill -9 -f 'lio_node' 2>/dev/null || true
+  pkill -9 -f 'glasslio_node' 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-pkill -9 -f 'lio_node' 2>/dev/null || true   # leftovers from a previous run
+pkill -9 -f 'glasslio_node' 2>/dev/null || true   # leftovers from a previous run
 sleep 0.5
 
 echo "[run_bag] domain=${ROS_DOMAIN_ID}  bag=${BAG}  rate=${RATE} ${LOOP}"
@@ -70,7 +70,7 @@ echo "[run_bag] domain=${ROS_DOMAIN_ID}  bag=${BAG}  rate=${RATE} ${LOOP}"
 # The static_transform_publisher stopgap that used to live here was REMOVED --
 # two publishers of the same TF fight each other.
 
-ros2 launch lidar-odom lio.launch.py &
+ros2 launch glasslio glasslio.launch.py &
 PIDS+=($!)
 
 if [[ "$USE_RVIZ" -eq 1 ]]; then
@@ -90,7 +90,7 @@ BAG_PID=$!
 PIDS+=("$BAG_PID")
 
 echo "[run_bag] running. Ctrl-C to stop."
-echo "[run_bag] topics: /lio_node/{deskewed,downsampled,local_map}"
+echo "[run_bag] topics: /glasslio_node/{deskewed,downsampled,local_map}"
 
 wait "$BAG_PID"
 echo "[run_bag] bag finished. Ctrl-C to close RViz."

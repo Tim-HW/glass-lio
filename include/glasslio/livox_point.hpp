@@ -6,7 +6,7 @@
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 
-namespace lidar_odom
+namespace glasslio
 {
 
 /// PCL point matching the livox_ros_driver2 PointCloud2 layout
@@ -22,10 +22,10 @@ struct EIGEN_ALIGN16 LivoxPoint
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-}  // namespace lidar_odom
+}  // namespace glasslio
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
-  lidar_odom::LivoxPoint,
+  glasslio::LivoxPoint,
   (float, x, x)
   (float, y, y)
   (float, z, z)

@@ -2,7 +2,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-namespace lidar_odom
+namespace glasslio
 {
 
 /// Full-precision timestamp in seconds from any message carrying a std_msgs
@@ -14,4 +14,4 @@ inline double stamp_sec(const MsgPtr & msg)
   return rclcpp::Time(msg->header.stamp).seconds();
 }
 
-}  // namespace lidar_odom
+}  // namespace glasslio

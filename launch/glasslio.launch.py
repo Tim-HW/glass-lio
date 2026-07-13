@@ -7,7 +7,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 DEFAULT_CONFIG = os.path.join(
-    get_package_share_directory("lidar-odom"), "config", "livox_mid_360.yaml"
+    get_package_share_directory("glasslio"), "config", "livox_mid_360.yaml"
 )
 
 
@@ -19,9 +19,9 @@ def generate_launch_description():
             description="Sensor parameter file (topics, extrinsic, voxel size).",
         ),
         Node(
-            package="lidar-odom",
-            executable="lio_node",
-            name="lio_node",
+            package="glasslio",
+            executable="glasslio_node",
+            name="glasslio_node",
             output="screen",
             parameters=[LaunchConfiguration("config")],
         ),

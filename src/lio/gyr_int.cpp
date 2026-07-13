@@ -1,10 +1,10 @@
-#include "lidar_odom/gyr_int.h"
+#include "glasslio/gyr_int.h"
 
 #include <algorithm>
 
-#include "lidar_odom/ros_time.hpp"
+#include "glasslio/ros_time.hpp"
 
-namespace lidar_odom
+namespace glasslio
 {
 
 using Sophus::SO3d;
@@ -85,4 +85,4 @@ Sophus::SO3d GyrInt::GetRot() const
   return v_rot_.empty() ? SO3d() : v_rot_.back();
 }
 
-}  // namespace lidar_odom
+}  // namespace glasslio

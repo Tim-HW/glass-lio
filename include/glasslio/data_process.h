@@ -1,5 +1,5 @@
-#ifndef LIDAR_ODOM_DATA_PROCESS_H
-#define LIDAR_ODOM_DATA_PROCESS_H
+#ifndef GLASSLIO_DATA_PROCESS_H
+#define GLASSLIO_DATA_PROCESS_H
 
 #include <vector>
 
@@ -8,10 +8,10 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include "sophus/se3.hpp"
 
-#include "lidar_odom/gyr_int.h"
-#include "lidar_odom/livox_point.hpp"
+#include "glasslio/gyr_int.h"
+#include "glasslio/livox_point.hpp"
 
-namespace lidar_odom
+namespace glasslio
 {
 
 /// Raw Livox points, carrying the per-point `timestamp` the deskew needs.
@@ -78,6 +78,6 @@ private:
   GyrInt gyr_int_;
 };
 
-}  // namespace lidar_odom
+}  // namespace glasslio
 
-#endif  // LIDAR_ODOM_DATA_PROCESS_H
+#endif  // GLASSLIO_DATA_PROCESS_H

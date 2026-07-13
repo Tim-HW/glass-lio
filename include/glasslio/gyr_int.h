@@ -1,12 +1,12 @@
-#ifndef LIDAR_ODOM_GYR_INT_H
-#define LIDAR_ODOM_GYR_INT_H
+#ifndef GLASSLIO_GYR_INT_H
+#define GLASSLIO_GYR_INT_H
 
 #include <vector>
 
 #include <sensor_msgs/msg/imu.hpp>
 #include "sophus/so3.hpp"
 
-namespace lidar_odom
+namespace glasslio
 {
 
 /// Integrates gyroscope measurements into time-stamped orientation knots
@@ -47,6 +47,6 @@ private:
   Eigen::Vector3d last_gyr_;
 };
 
-}  // namespace lidar_odom
+}  // namespace glasslio
 
-#endif  // LIDAR_ODOM_GYR_INT_H
+#endif  // GLASSLIO_GYR_INT_H

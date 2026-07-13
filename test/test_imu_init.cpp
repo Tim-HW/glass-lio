@@ -5,10 +5,10 @@
 #include <cstdio>
 #include <random>
 
-#include "lidar_odom/imu_init.hpp"
+#include "glasslio/imu_init.hpp"
 
-using lidar_odom::ImuInit;
-using lidar_odom::kGravity;
+using glasslio::ImuInit;
+using glasslio::kGravity;
 
 // Bag defaults: 200 samples (1 s @ 200 Hz), 0.1 rad/s, 0.5 m/s^2, accel in g.
 static ImuInit makeInit() {return ImuInit(200, 0.1, 0.5, kGravity);}

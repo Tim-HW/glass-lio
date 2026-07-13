@@ -1,12 +1,12 @@
-#include "lidar_odom/data_process.h"
+#include "glasslio/data_process.h"
 
 #include <limits>
 
 #include <pcl_conversions/pcl_conversions.h>
 
-#include "lidar_odom/ros_time.hpp"
+#include "glasslio/ros_time.hpp"
 
-namespace lidar_odom
+namespace glasslio
 {
 
 using Sophus::SO3d;
@@ -92,4 +92,4 @@ CloudXYZI::Ptr ImuProcess::Process(const MeasureGroup & meas)
   return out;
 }
 
-}  // namespace lidar_odom
+}  // namespace glasslio

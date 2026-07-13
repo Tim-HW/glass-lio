@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>lidar-odom</name>
+  <name>glasslio</name>
   <version>0.0.0</version>
-  <description>LiDAR-inertial odometry (Livox). Phase 1: IMU-based point cloud deskew.</description>
+  <description>GlassLIO — a transparent, educational LiDAR-inertial odometry for Livox. Deskew, voxel-plane mapping and point-to-plane ICP on SE(3), written to be read.</description>
   <maintainer email="timothee.freville@apixa.com">tim</maintainer>
   <license>MIT</license>
 

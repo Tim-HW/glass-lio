@@ -1,5 +1,5 @@
-#ifndef LIDAR_ODOM_IMU_INIT_HPP
-#define LIDAR_ODOM_IMU_INIT_HPP
+#ifndef GLASSLIO_IMU_INIT_HPP
+#define GLASSLIO_IMU_INIT_HPP
 
 #include <vector>
 
@@ -9,7 +9,7 @@
 
 #include "sophus/so3.hpp"
 
-namespace lidar_odom
+namespace glasslio
 {
 
 /// Standard gravity, m/s^2.
@@ -74,6 +74,6 @@ private:
   Sophus::SO3d R_wi_;
 };
 
-}  // namespace lidar_odom
+}  // namespace glasslio
 
-#endif  // LIDAR_ODOM_IMU_INIT_HPP
+#endif  // GLASSLIO_IMU_INIT_HPP

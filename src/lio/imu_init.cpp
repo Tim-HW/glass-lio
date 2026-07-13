@@ -1,8 +1,8 @@
-#include "lidar_odom/imu_init.hpp"
+#include "glasslio/imu_init.hpp"
 
 #include <cmath>
 
-namespace lidar_odom
+namespace glasslio
 {
 
 ImuInit::ImuInit(int num_samples, double max_gyro, double max_accel_sd, double accel_scale)
@@ -89,4 +89,4 @@ void ImuInit::evaluate()
   accels_.clear();
 }
 
-}  // namespace lidar_odom
+}  // namespace glasslio

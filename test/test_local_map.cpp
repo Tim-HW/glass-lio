@@ -1,14 +1,14 @@
 // Self-check for LocalMap. A silently-wrong map surfaces later as a
 // "registration bug", so pin the invariants down here.
-//   build: colcon build --packages-select lidar-odom
-//   run:   ./build/lidar-odom/test_local_map   (or: colcon test)
+//   build: colcon build --packages-select glasslio
+//   run:   ./build/glasslio/test_local_map   (or: colcon test)
 #include <cassert>
 #include <cstdio>
 
-#include "lidar_odom/local_map.hpp"
+#include "glasslio/local_map.hpp"
 
-using lidar_odom::CloudXYZI;
-using lidar_odom::LocalMap;
+using glasslio::CloudXYZI;
+using glasslio::LocalMap;
 
 static void add(CloudXYZI & c, float x, float y, float z)
 {

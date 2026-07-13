@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(lidar-odom)
+project(glasslio)
 
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
@@ -29,18 +29,33 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 
-add_executable(lio_node
-  src/lio_node.cpp
-  src/data_process.cpp
-  src/gyr_int.cpp
-  src/imu_init.cpp
-  src/local_map.cpp)
-ament_target_dependencies(lio_node
-  rclcpp sensor_msgs nav_msgs geometry_msgs pcl_conversions tf2_ros tf2_eigen)
-target_link_libraries(lio_node ${PCL_LIBRARIES})
+# The pipeline stages, ROS-free apart from the message types they parse. Built
+# once as a library so the node and the tests share the same objects instead of
+# each re-listing (and re-compiling) the sources.
+add_library(lio SHARED
+  src/lio/data_process.cpp
+  src/lio/gyr_int.cpp
+  src/lio/imu_init.cpp
+  src/lio/local_map.cpp
+  src/lio/registration.cpp)
+target_include_directories(lio PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+ament_target_dependencies(lio rclcpp sensor_msgs pcl_conversions)
+target_link_libraries(lio ${PCL_LIBRARIES} Eigen3::Eigen)
 
-install(TARGETS lio_node
+# The node is just the ROS shell: subscriptions, threading, publishing.
+add_executable(glasslio_node src/glasslio_node.cpp)
+ament_target_dependencies(glasslio_node
+  rclcpp sensor_msgs nav_msgs geometry_msgs pcl_conversions tf2_ros tf2_eigen)
+target_link_libraries(glasslio_node lio ${PCL_LIBRARIES})
+
+install(TARGETS lio
+  DESTINATION lib)
+install(TARGETS glasslio_node
   DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY include/
+  DESTINATION include)
 
 install(DIRECTORY launch config rviz
   DESTINATION share/${PROJECT_NAME}/)
@@ -54,21 +69,17 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
-  # Plain assert-based self-checks; no test framework needed.
+  # Plain assert-based self-checks; no test framework needed. Each links the `lio`
+  # library rather than re-listing its sources.
   #
   # CRITICAL: -UNDEBUG. Release builds define NDEBUG, which compiles assert()
   # out entirely -- the tests would then pass while checking nothing at all.
-  add_executable(test_local_map test/test_local_map.cpp src/local_map.cpp)
-  ament_target_dependencies(test_local_map rclcpp sensor_msgs pcl_conversions)
-  target_link_libraries(test_local_map ${PCL_LIBRARIES})
-  target_compile_options(test_local_map PRIVATE -UNDEBUG)
-  add_test(NAME test_local_map COMMAND test_local_map)
-
-  add_executable(test_imu_init test/test_imu_init.cpp src/imu_init.cpp)
-  ament_target_dependencies(test_imu_init rclcpp sensor_msgs)
-  target_link_libraries(test_imu_init Eigen3::Eigen)
-  target_compile_options(test_imu_init PRIVATE -UNDEBUG)
-  add_test(NAME test_imu_init COMMAND test_imu_init)
+  foreach(t test_local_map test_registration test_imu_init)
+    add_executable(${t} test/${t}.cpp)
+    target_link_libraries(${t} lio ${PCL_LIBRARIES})
+    target_compile_options(${t} PRIVATE -UNDEBUG)
+    add_test(NAME ${t} COMMAND ${t})
+  endforeach()
 endif()
 
 ament_package()

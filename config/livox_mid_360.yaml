@@ -1,4 +1,4 @@
-# Parameters for lio_node with a Livox Mid-360.
+# Parameters for glasslio_node with a Livox Mid-360.
 # `/**` applies to the node whatever name it is launched under.
 /**:
   ros__parameters:
@@ -14,12 +14,18 @@
     # under-corrected.
     scan_guard_sec: 0.12
 
+    # Worker-thread backlog. Registration runs off the callback threads; if it
+    # falls behind, drop the oldest scan rather than grow latency without bound.
+    # Persistent "worker behind" warnings mean registration is too slow.
+    max_queue_size: 3
+
     # Voxel edge length (m) for downsampling before registration. Larger = fewer
     # points = faster, but erases the thin geometry (poles, railings) that
     # constrains the alignment.
     voxel_leaf_size: 0.5
 
-    # Scan-to-map registration (GICP). This is what produces the pose.
+    # Scan-to-map registration: point-to-plane ICP over the voxel map's cached
+    # per-voxel planes. This is what produces the pose.
     registration:
       # The key knob. ICP only pairs points closer than this. Too small and a fast
       # motion puts the true correspondence out of reach, so it never converges;
@@ -27,27 +33,44 @@
       max_correspondence_distance: 1.0
       max_iterations: 30
       transformation_epsilon: 0.001
-      # Reject an alignment worse than this and coast on the IMU prediction
-      # instead. A wrong pose poisons the map permanently; a stale one recovers.
-      max_fitness_score: 0.5
-      # Constant-velocity translation prior. OFF by default: with a loose
-      # correspondence distance it drove a runaway (GICP accepts a bad guess ->
-      # bad scan poisons the map -> map drifts -> velocity grows). Re-enable only
-      # after confirming the pose is stable without it.
-      use_constant_velocity: false
+      # RMS point-to-plane residual (m). Worse than this and we coast on the IMU
+      # prediction instead: a wrong pose poisons the map permanently, a stale one
+      # recovers on the next scan.
+      max_rmse: 0.5
+      # Huber threshold (m): residuals beyond this are down-weighted linearly, so
+      # moving objects / new geometry cannot dominate the solve.
+      huber_delta: 0.2
+      # Fewer correspondences than this and the problem is under-constrained.
+      min_correspondences: 50
+      # Constant-velocity translation prior. Needed: without it the guess has NO
+      # translation, so if the worker drops scans (see max_queue_size) the robot
+      # has moved metres by the next processed scan and ICP starts hopelessly far
+      # away -- which is exactly what triggered the death spiral.
+      #
+      # This once caused a runaway, but via a loop that is now BLOCKED: a rejected
+      # scan is no longer inserted into the map, so a bad guess can no longer
+      # poison the reference it is measured against. If you ever see the pose
+      # accelerating away with a healthy rmse, this is the first thing to turn off.
+      use_constant_velocity: true
 
     # Local map: the accumulated world geometry each scan is registered against.
     map:
-      # Voxel size (m) of the map's hash grid. Sets the map's spatial resolution.
-      # Usually >= voxel_leaf_size; finer means a denser, slower map.
-      voxel_size: 0.5
+      # Voxel size (m) of the map's hash grid, and the resolution of the planes
+      # fitted inside it.
+      #
+      # MUST be comfortably COARSER than voxel_leaf_size. A voxel needs >= 5 points
+      # before PCA can fit a plane; if the map voxel matches the downsample leaf you
+      # get ~1 point per voxel, no planes ever form, and ICP is permanently
+      # under-constrained. Also keep it >= max_correspondence_distance so the
+      # 27-cell neighbourhood search actually covers that radius.
+      voxel_size: 1.0
       # Density cap per voxel. This IS the map's downsampling — points landing in
       # a full voxel are dropped, so the map never needs re-quantizing.
       max_points_per_voxel: 20
       # Radius (m) around the current pose to retain. Geometry beyond this cannot
       # constrain the current alignment; dropping it bounds memory and the cost of
-      # the KD-tree GICP builds over the map each scan.
-      max_range: 20.0
+      # per-scan registration cost, which is now O(scan), not O(map).
+      max_range: 100.0
 
     imu:
       # The Livox driver publishes linear_acceleration in *g*, NOT m/s^2 -- this

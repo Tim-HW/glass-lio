@@ -1,27 +1,30 @@
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <pcl/common/transforms.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/registration/gicp.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
-#include "lidar_odom/data_process.h"
-#include "lidar_odom/imu_init.hpp"
-#include "lidar_odom/local_map.hpp"
-#include "lidar_odom/ros_time.hpp"
+#include "glasslio/data_process.h"
+#include "glasslio/imu_init.hpp"
+#include "glasslio/local_map.hpp"
+#include "glasslio/registration.hpp"
+#include "glasslio/ros_time.hpp"
 
-namespace lidar_odom
+namespace glasslio
 {
 
 /// LiDAR-inertial odometry node.
@@ -33,11 +36,21 @@ namespace lidar_odom
 /// intermediate clouds are only ever consumed here, so publishing them would
 /// cost a serialize/deserialize round trip for nothing. They are exposed on
 /// debug topics purely for RViz inspection.
-class LioNode : public rclcpp::Node
+///
+/// THREADING. The subscription callbacks only buffer and sync -- they never run
+/// the pipeline. Registration takes ~100 ms, and running it inside a callback (on
+/// a single-threaded executor, holding the buffer mutex) blocked IMU intake for
+/// its whole duration, turning a latency problem into DATA LOSS. A worker thread
+/// now consumes synced measurement groups, so sensor intake never stalls.
+///
+/// Ownership: `pose_`, `map_`, `imu_proc_` and `voxel_` are touched ONLY by the
+/// worker. The buffers are touched only under `buf_mutex_`. The queue between
+/// them is the single hand-off point.
+class GlassLioNode : public rclcpp::Node
 {
 public:
-  LioNode()
-  : Node("lio_node")
+  GlassLioNode()
+  : Node("glasslio_node")
   {
     lidar_topic_ = declare_parameter<std::string>("lidar_topic", "/livox/lidar");
     imu_topic_ = declare_parameter<std::string>("imu_topic", "/livox/imu");
@@ -71,39 +84,49 @@ public:
     imu_proc_ = std::make_shared<ImuProcess>(get_logger());
     imu_proc_->set_extrinsic(q_il_, parseVec3(t_xyz));
 
+    init_samples_ = init_samples;
+    init_max_gyro_ = init_max_gyro;
+    init_max_acc_sd_ = init_max_acc_sd;
+    accel_scale_ = accel_in_g ? kGravity : 1.0;
     imu_init_ = std::make_unique<ImuInit>(
-      init_samples, init_max_gyro, init_max_acc_sd, accel_in_g ? kGravity : 1.0);
+      init_samples, init_max_gyro, init_max_acc_sd, accel_scale_);
 
+    map_voxel_ = map_voxel;
+    map_max_pts_ = map_max_pts;
+    map_range_ = map_range;
     map_ = std::make_unique<LocalMap>(map_voxel, map_max_pts, map_range);
 
-    // Registration (GICP). max_corr_dist is the important knob: too small and a
-    // fast motion falls outside the correspondence radius and never converges;
-    // too large and it happily matches a wall to the wrong wall.
-    const double max_corr = declare_parameter<double>(
+    // Registration (point-to-plane ICP over the voxel map). max_corr_dist is the
+    // important knob: too small and a fast motion falls outside the correspondence
+    // radius and never converges; too large and it matches the wrong wall.
+    reg_params_.max_correspondence_distance = declare_parameter<double>(
       "registration.max_correspondence_distance", 1.0);
-    const int max_iter = declare_parameter<int>("registration.max_iterations", 30);
-    const double eps = declare_parameter<double>("registration.transformation_epsilon", 1e-3);
-    max_fitness_ = declare_parameter<double>("registration.max_fitness_score", 2.0);
+    reg_params_.max_iterations = declare_parameter<int>("registration.max_iterations", 30);
+    reg_params_.eps_translation = declare_parameter<double>(
+      "registration.transformation_epsilon", 1e-3);
+    reg_params_.huber_delta = declare_parameter<double>("registration.huber_delta", 0.2);
+    reg_params_.min_correspondences = declare_parameter<int>(
+      "registration.min_correspondences", 50);
+    max_rmse_ = declare_parameter<double>("registration.max_rmse", 0.5);
     // Constant-velocity translation prior. DEFAULT OFF: it caused a runaway --
-    // GICP "converges" near a too-far guess, that bad scan is inserted into the
+    // ICP "converges" near a too-far guess, that bad scan is inserted into the
     // map, the map drifts with it, and velocity grows without bound. Only safe
     // once max_correspondence_distance is tight enough to reject a bad guess.
     use_const_vel_ = declare_parameter<bool>("registration.use_constant_velocity", false);
 
-    max_corr_ = max_corr;
-    gicp_.setMaxCorrespondenceDistance(max_corr);
-    gicp_.setMaximumIterations(max_iter);
-    gicp_.setTransformationEpsilon(eps);
+    // Worker backlog. Small on purpose: if registration cannot keep up, a stale
+    // pose is useless, so drop scans rather than accumulate latency.
+    max_queue_ = static_cast<std::size_t>(declare_parameter<int>("max_queue_size", 3));
 
     voxel_.setLeafSize(voxel_leaf_, voxel_leaf_, voxel_leaf_);
 
     auto qos = rclcpp::SensorDataQoS();
     sub_lidar_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       lidar_topic_, qos,
-      std::bind(&LioNode::lidarCallback, this, std::placeholders::_1));
+      std::bind(&GlassLioNode::lidarCallback, this, std::placeholders::_1));
     sub_imu_ = create_subscription<sensor_msgs::msg::Imu>(
       imu_topic_, qos,
-      std::bind(&LioNode::imuCallback, this, std::placeholders::_1));
+      std::bind(&GlassLioNode::imuCallback, this, std::placeholders::_1));
 
     pub_deskewed_ = create_publisher<sensor_msgs::msg::PointCloud2>("~/deskewed", 10);
     pub_downsampled_ = create_publisher<sensor_msgs::msg::PointCloud2>("~/downsampled", 10);
@@ -112,7 +135,7 @@ public:
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     RCLCPP_INFO(
-      get_logger(), "lio_node up. lidar='%s' imu='%s' voxel=%.2fm",
+      get_logger(), "glasslio_node up. lidar='%s' imu='%s' voxel=%.2fm",
       lidar_topic_.c_str(), imu_topic_.c_str(), voxel_leaf_);
     RCLCPP_INFO(
       get_logger(), "extrinsic lidar->imu: q_xyzw=[%.4f %.4f %.4f %.4f] t=[%.4f %.4f %.4f]",
@@ -120,6 +143,20 @@ public:
     RCLCPP_INFO(
       get_logger(), "local map: voxel=%.2fm max_pts/voxel=%d range=%.1fm",
       map_voxel, map_max_pts, map_range);
+
+    worker_ = std::thread(&GlassLioNode::workerLoop, this);
+  }
+
+  ~GlassLioNode() override
+  {
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      stop_ = true;
+    }
+    queue_cv_.notify_all();
+    if (worker_.joinable()) {
+      worker_.join();
+    }
   }
 
 private:
@@ -144,15 +181,78 @@ private:
     return {v[0], v[1], v[2]};
   }
 
+  /// A timestamp older than the last one means one of three things, and they need
+  /// very different responses:
+  ///   - a big jump back  -> the source RESTARTED (bag replay/loop). The pose and
+  ///                         map now describe a world we are no longer in, so the
+  ///                         whole estimator must be reset, not just the buffers.
+  ///   - a small step back -> one out-of-order message. Drop it. Clearing the
+  ///                         buffer here would throw away good data.
+  ///   - neither           -> normal.
+  /// Returns true if the caller should DROP this message.
+  bool handleTimeJump(double t, double & last_t, const char * what)
+  {
+    if (last_t < 0.0 || t >= last_t) {
+      last_t = t;
+      return false;
+    }
+    if (last_t - t > kRestartJumpSec) {
+      RCLCPP_WARN(
+        get_logger(), "%s time jumped back %.1fs -- source restarted; resetting estimator",
+        what, last_t - t);
+      reset();
+      last_t = t;
+      return false;
+    }
+    // Out of order by a hair. Drop just this one; do not nuke the buffer.
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "%s messages arriving out of order (by %.3fs); dropping. Are two publishers "
+      "running (e.g. a stray 'ros2 bag play')?", what, last_t - t);
+    return true;
+  }
+
+  /// Full reset: the world we mapped is gone. Callback thread.
+  ///
+  /// Only the callback-owned state is reset HERE. The estimator (map_, pose_,
+  /// velocity_) belongs to the worker, and clearing the queue does NOT make it
+  /// safe to touch: the worker may already have popped a scan and be inside
+  /// processOne(), so destroying map_ under it is a use-after-free. So we only
+  /// REQUEST the reset; the worker applies it to itself, in order, between scans.
+  void reset()
+  {
+    lidar_buffer_.clear();
+    imu_buffer_.clear();
+    last_lidar_time_ = -1.0;
+    last_imu_time_ = -1.0;
+    imu_init_ = std::make_unique<ImuInit>(
+      init_samples_, init_max_gyro_, init_max_acc_sd_, accel_scale_);
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      queue_.clear();
+      reset_requested_ = true;
+    }
+    queue_cv_.notify_one();
+    RCLCPP_WARN(get_logger(), "estimator reset: map cleared, re-initializing IMU");
+  }
+
+  /// Apply the requested reset. Worker thread only -- this is the thread that
+  /// owns the estimator, so nothing can be mid-scan against it.
+  void resetEstimator()
+  {
+    map_ = std::make_unique<LocalMap>(map_voxel_, map_max_pts_, map_range_);
+    map_bootstrapped_ = false;
+    pose_ = Eigen::Isometry3d::Identity();
+    velocity_.setZero();
+  }
+
   void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lock(buf_mutex_);
     const double t = stamp_sec(msg);
-    if (t < last_imu_time_) {
-      RCLCPP_WARN(get_logger(), "IMU time went backwards, clearing buffer");
-      imu_buffer_.clear();
+    if (handleTimeJump(t, last_imu_time_, "IMU")) {
+      return;
     }
-    last_imu_time_ = t;
 
     if (!imu_init_->initialized()) {
       if (imu_init_->add(*msg)) {
@@ -162,20 +262,26 @@ private:
     }
 
     imu_buffer_.push_back(msg);
-    tryProcess();
+    enqueueReady();
   }
 
-  /// Apply the estimated bias and gravity alignment, then let scans through.
+  /// Publish the init result to the worker, which owns the estimator. Callback
+  /// thread: it must not write pose_ or imu_proc_ itself (see reset()).
   void onInitialized()
   {
-    imu_proc_->set_gyro_bias(imu_init_->gyro_bias());
-
     // The world frame is gravity-aligned (Z up). The initial LIDAR pose is
     // therefore R_wl = R_wi * R_il -- the extrinsic still has to be applied,
     // because gravity was measured in the IMU frame, not the lidar frame.
-    pose_ = Eigen::Isometry3d::Identity();
-    pose_.linear() =
+    Eigen::Isometry3d init_pose = Eigen::Isometry3d::Identity();
+    init_pose.linear() =
       (imu_init_->initial_rotation().unit_quaternion() * q_il_).toRotationMatrix();
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      pending_init_pose_ = init_pose;
+      pending_init_bias_ = imu_init_->gyro_bias();
+      init_pending_ = true;
+    }
+    queue_cv_.notify_one();
 
     const auto & b = imu_init_->gyro_bias();
     const auto & g = imu_init_->gravity();
@@ -210,71 +316,144 @@ private:
     }
 
     const double t = stamp_sec(msg);
-    if (t < last_lidar_time_) {
-      RCLCPP_WARN(get_logger(), "lidar time went backwards, clearing buffer");
-      lidar_buffer_.clear();
+    if (handleTimeJump(t, last_lidar_time_, "lidar")) {
+      return;
     }
-    last_lidar_time_ = t;
     lidar_buffer_.push_back(msg);
-    tryProcess();
+    enqueueReady();
   }
 
-  /// Run the pipeline on every scan the IMU already fully covers.
-  void tryProcess()
+  /// Callback side: move every scan the IMU now covers onto the worker queue.
+  /// Caller holds buf_mutex_. Does NO heavy work -- that is the whole point.
+  void enqueueReady()
   {
     MeasureGroup meas;
     while (syncMeasure(meas)) {
-      // --- Stage 1: deskew (motion compensation, se1e doc/deskew.md) ---
-      auto deskewed = imu_proc_->Process(meas);
-      if (!deskewed || deskewed->empty()) {
-        continue;
+      {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        // Bounded. If the worker cannot keep up, DROP the oldest rather than let
+        // latency and memory grow without bound -- a stale pose is useless anyway.
+        if (queue_.size() >= max_queue_) {
+          queue_.pop_front();
+          ++dropped_;
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "worker behind: dropped %ld scan(s); registration is too slow", dropped_);
+        }
+        queue_.push_back(std::move(meas));
       }
-
-      // --- Stage 2: downsample ---
-      CloudXYZI::Ptr downsampled(new CloudXYZI());
-      voxel_.setInputCloud(deskewed);
-      voxel_.filter(*downsampled);
-      
-      // --- Stage 3: register against the local map -> pose_ ---
-      const bool ok = registerScan(downsampled);
-
-      // --- Stage 4: fold the aligned scan into the map, in the world frame ---
-      CloudXYZI::Ptr scan_world(new CloudXYZI());
-      pcl::transformPointCloud(*downsampled, *scan_world, pose_.matrix());
-      map_->insert(*scan_world);
-      map_->prune(pose_.translation());
-
-      const Eigen::Vector3d & t = pose_.translation();
-      RCLCPP_INFO(
-        get_logger(),
-        "scan %zu->%zu pts | pose [%+.2f %+.2f %+.2f] | fit %.3f%s | map %zu vox %zu pts",
-        deskewed->size(), downsampled->size(),
-        t.x(), t.y(), t.z(), last_fitness_, ok ? "" : " (DIVERGED)",
-        map_->num_voxels(), map_->num_points());
-
-      publishOdom(meas.lidar->header);
-      publish(pub_deskewed_, deskewed, meas.lidar->header);
-      publish(pub_downsampled_, downsampled, meas.lidar->header);
-      publishMap(meas.lidar->header);
+      queue_cv_.notify_one();
+      meas = MeasureGroup();
     }
   }
 
+  /// Worker side: the actual pipeline. Runs off the callback threads.
+  void workerLoop()
+  {
+    while (rclcpp::ok()) {
+      MeasureGroup meas;
+      {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        queue_cv_.wait(
+          lock, [this] {return stop_ || reset_requested_ || !queue_.empty();});
+        if (stop_) {
+          return;
+        }
+        // Ordered against the scans: a scan already in flight when the reset was
+        // requested completes first, and its writes are then wiped by the reset.
+        if (reset_requested_) {
+          reset_requested_ = false;
+          lock.unlock();
+          resetEstimator();
+          continue;
+        }
+        meas = std::move(queue_.front());
+        queue_.pop_front();
+      }
+      processOne(meas);
+    }
+  }
+
+  /// The pipeline for one measurement group. Worker thread only.
+  void processOne(const MeasureGroup & meas)
+  {
+    // --- Stage 1: deskew (motion compensation, see doc/deskew.md) ---
+    auto deskewed = imu_proc_->Process(meas);
+    if (!deskewed || deskewed->empty()) {
+      return;
+    }
+
+    // --- Stage 2: downsample ---
+    CloudXYZI::Ptr downsampled(new CloudXYZI());
+    voxel_.setInputCloud(deskewed);
+    voxel_.filter(*downsampled);
+
+    // --- Stage 3: register against the local map -> pose_ ---
+    const bool ok = registerScan(downsampled);
+
+    // --- Stage 4: fold the aligned scan into the map, in the world frame ---
+    //
+    // Insert only if we trust the pose. A scan placed at a known-wrong pose
+    // POISONS the map -- and the map is what the NEXT scan registers against, so
+    // the error compounds into a death spiral: pose freezes, the robot keeps
+    // moving, each frozen-pose scan corrupts the map further, correspondences
+    // collapse, and it never recovers.
+    //
+    // EXCEPT while bootstrapping. Until the map has supported one successful
+    // registration it is too sparse to register against (a voxel needs >= 5 points
+    // before PCA yields a plane), so refusing to insert would deadlock: sparse map
+    // -> ICP under-constrained -> no insert -> map stays sparse, forever. During
+    // bootstrap we dead-reckon on the IMU prior and keep feeding the map.
+    if (ok) {
+      map_bootstrapped_ = true;
+    }
+    if (ok || !map_bootstrapped_) {
+      // Feed the map the DENSE cloud, not the downsampled one. Downsampling is an
+      // ICP *source* optimisation; the map is the plane-fitting *target* and needs
+      // the density. At a 0.5 m leaf the downsampled cloud gives ~1 point per map
+      // voxel -- never enough for a plane.
+      CloudXYZI::Ptr scan_world(new CloudXYZI());
+      pcl::transformPointCloud(*deskewed, *scan_world, pose_.matrix());
+      map_->insert(*scan_world);
+      map_->prune(pose_.translation());
+    }
+
+    const Eigen::Vector3d & t = pose_.translation();
+    RCLCPP_INFO(
+      get_logger(),
+      "scan %zu->%zu | pose [%+.2f %+.2f %+.2f] | rmse %.3f (%d corr)%s | map %zu vox | q %zu",
+      deskewed->size(), downsampled->size(),
+      t.x(), t.y(), t.z(), last_rmse_, last_corr_, ok ? "" : " (DIVERGED)",
+      map_->num_voxels(), queueSize());
+
+    publishOdom(meas.lidar->header);
+    publish(pub_deskewed_, deskewed, meas.lidar->header);
+    publish(pub_downsampled_, downsampled, meas.lidar->header);
+    publishMap(meas.lidar->header);
+  }
+
+  std::size_t queueSize()
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    return queue_.size();
+  }
+
   /// Align `scan` (sensor frame) to the local map and update pose_.
-  /// Returns false if GICP diverged, in which case we keep the IMU prediction.
+  /// Returns false if ICP failed, in which case we keep the IMU prediction.
   bool registerScan(const CloudXYZI::Ptr & scan)
   {
     // Bootstrap: nothing to align against. The first scan DEFINES the origin --
     // pose_ keeps the gravity-aligned orientation from init, translation zero.
     if (map_->empty()) {
       RCLCPP_INFO(get_logger(), "first scan: seeding map, origin defined");
-      last_fitness_ = 0.0;
+      last_rmse_ = 0.0;
       return true;
     }
 
     // --- Predict. ICP is a LOCAL optimizer: hand it a guess a few degrees off
     // and it will happily lock onto the wrong wall and report a confident fit.
     // Rotation comes from the gyro (accurate); translation from a constant-
-    // velocity model (we have no accel-derived velocity yet).
+    // velocity model (off by default -- see the runaway note above).
     const double dt = imu_proc_->last_scan_duration();
     Eigen::Isometry3d guess = Eigen::Isometry3d::Identity();
     guess.linear() = pose_.linear() * imu_proc_->last_delta_rot().matrix();
@@ -282,31 +461,32 @@ private:
       ? (pose_.translation() + velocity_ * dt).eval()
       : pose_.translation();
 
-    gicp_.setInputSource(scan);
-    gicp_.setInputTarget(map_->target());
+    const auto r = alignPointToPlane(*scan, *map_, guess, reg_params_);
+    last_rmse_ = r.rmse;
+    last_corr_ = r.correspondences;
 
-    CloudXYZI aligned;
-    gicp_.align(aligned, guess.matrix().cast<float>());
-
-    // Score only INLIERS. The no-arg getFitnessScore() averages over every source
-    // point, including ones beyond the map's radius that have no correspondence at
-    // all -- that measures map coverage, not alignment quality, and falsely
-    // rejects good fits.
-    last_fitness_ = gicp_.getFitnessScore(max_corr_);
-
-    if (!gicp_.hasConverged() || last_fitness_ > max_fitness_) {
+    // Trust `valid` (enough correspondences + finite solve) and the residual --
+    // NOT `converged`. Hitting max_iterations is not failure: ICP routinely
+    // plateaus above eps while sitting on a perfectly good fit, and rejecting
+    // those threw away good poses and froze the estimator.
+    if (!r.valid || r.rmse > max_rmse_) {
       RCLCPP_WARN(
-        get_logger(), "GICP %s (fitness %.3f > %.3f) -- coasting on IMU prediction",
-        gicp_.hasConverged() ? "fit too poor" : "did not converge",
-        last_fitness_, max_fitness_);
-      // Coast: trust the prediction rather than a bad alignment. A wrong pose
-      // poisons the map permanently; a slightly stale one recovers next scan.
+        get_logger(),
+        "ICP rejected (%s, rmse %.3f, %d corr) -- coasting, scan NOT added to map",
+        r.valid ? "residual too large" : "under-constrained",
+        r.rmse, r.correspondences);
+      // Coast on the prediction. The pose is now a guess, so the scan must NOT
+      // go into the map -- see processOne().
       updatePose(guess, dt);
       return false;
     }
 
-    Eigen::Isometry3d aligned_pose(gicp_.getFinalTransformation().cast<double>());
-    updatePose(aligned_pose, dt);
+    if (!r.converged) {
+      RCLCPP_DEBUG(
+        get_logger(), "ICP hit max_iterations (rmse %.3f) -- accepting anyway", r.rmse);
+    }
+
+    updatePose(r.pose, dt);
     return true;
   }
 
@@ -428,15 +608,37 @@ private:
     return true;
   }
 
+  /// A backwards time jump larger than this means the source restarted (bag loop),
+  /// not just an out-of-order message.
+  static constexpr double kRestartJumpSec = 1.0;
+
   std::string lidar_topic_, imu_topic_, output_frame_, world_frame_;
   double scan_guard_ = 0.12;
   double voxel_leaf_ = 0.5;
 
+  // Kept so reset() can rebuild the map and initializer from scratch.
+  double map_voxel_ = 0.5, map_range_ = 100.0;
+  int map_max_pts_ = 20;
+  int init_samples_ = 200;
+  double init_max_gyro_ = 0.1, init_max_acc_sd_ = 0.5, accel_scale_ = kGravity;
+
+  // --- Callback side: sensor buffers. Never touched by the worker.
   std::mutex buf_mutex_;
   std::deque<sensor_msgs::msg::PointCloud2::ConstSharedPtr> lidar_buffer_;
   std::deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu_buffer_;
   double last_lidar_time_ = -1.0;
   double last_imu_time_ = -1.0;
+
+  // --- The hand-off: the only shared state between callbacks and the worker.
+  std::thread worker_;
+  std::mutex queue_mutex_;
+  std::condition_variable queue_cv_;
+  std::deque<MeasureGroup> queue_;
+  bool stop_ = false;
+  /// Set by a callback, acted on by the worker: see reset() / resetEstimator().
+  bool reset_requested_ = false;
+  std::size_t max_queue_ = 3;
+  long dropped_ = 0;
 
   std::shared_ptr<ImuProcess> imu_proc_;
   std::unique_ptr<ImuInit> imu_init_;
@@ -449,10 +651,14 @@ private:
   /// World-frame linear velocity, from the last pose delta. Feeds the prediction.
   Eigen::Vector3d velocity_ = Eigen::Vector3d::Zero();
 
-  pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZI, pcl::PointXYZI> gicp_;
-  double max_fitness_ = 2.0;
-  double max_corr_ = 1.0;
-  double last_fitness_ = 0.0;
+  /// Has the map ever supported a successful registration? Until it has, it is
+  /// too sparse to align against and we must keep feeding it (see processOne).
+  bool map_bootstrapped_ = false;
+
+  RegistrationParams reg_params_;
+  double max_rmse_ = 0.5;
+  double last_rmse_ = 0.0;
+  int last_corr_ = 0;
   bool use_const_vel_ = false;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_lidar_;
@@ -464,12 +670,12 @@ private:
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 };
 
-}  // namespace lidar_odom
+}  // namespace glasslio
 
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<lidar_odom::LioNode>());
+  rclcpp::spin(std::make_shared<glasslio::GlassLioNode>());
   rclcpp::shutdown();
   return 0;
 }
