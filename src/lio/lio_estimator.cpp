@@ -47,7 +47,7 @@ void LioEstimator::initialize(
 
 void LioEstimator::reset()
 {
-  resetEstimator();
+  resetPipelineState();
   scans_done_ = 0;
   prev_scan_end_ = -1.0;
   resetBiasCovariance();
@@ -83,7 +83,7 @@ ScanResult LioEstimator::processScan(const MeasureGroup & meas)
 
 /// Apply the requested reset. Worker thread only -- this is the thread that
 /// owns the estimator, so nothing can be mid-scan against it.
-void LioEstimator::resetEstimator()
+void LioEstimator::resetPipelineState()
 {
   map_ = std::make_unique<LocalMap>(
     p_.map_voxel_size, p_.map_max_points_per_voxel, p_.map_max_range, p_.map_min_points_for_plane,
@@ -191,7 +191,7 @@ bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
       r.valid ? "residual too large" : "under-constrained",
       r.rmse, r.correspondences);
     // Coast on the prediction. The pose is now a guess, so the scan must NOT
-    // go into the map -- see processOne().
+    // go into the map -- see insertIntoMap().
     updatePose(guess, dt);
     return false;
   }

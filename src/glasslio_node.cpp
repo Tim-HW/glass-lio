@@ -10,8 +10,6 @@
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-#include <pcl/common/transforms.h>
-#include <pcl/filters/voxel_grid.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -22,47 +20,50 @@
 #include "glasslio/imu_init.hpp"
 #include "glasslio/lio_estimator.hpp"
 #include "glasslio/local_map.hpp"
-#include "glasslio/nav_state.hpp"
-#include "glasslio/preintegration.hpp"
-#include "glasslio/registration.hpp"
 #include "glasslio/sync.hpp"
-#include "glasslio/tight_registration.hpp"
 #include "glasslio/ros_time.hpp"
 
 namespace glasslio
 {
 
-/// LiDAR-inertial odometry node.
+/// LiDAR-inertial odometry node -- the ROS SHELL, and nothing more.
 ///
 /// The pipeline, numbered as doc/pipeline.md numbers it:
 ///
-///   [1] IMU init      gate: nothing runs until it completes   (callback side)
-///   [2] sync          pair a scan with the IMU spanning it    (callback side)
+///   [1] IMU init      gate: nothing runs until it completes    | THIS FILE
+///   [2] sync          pair a scan with the IMU spanning it     | (callback side,
+///                     -> MeasureSync                           |  under buf_mutex_)
 ///        |
-///        v            <-- the MeasureGroup handed to the worker IS stages 1+2
-///   [3] deskew        undo intra-scan rotation on SO(3)
-///   [4] downsample    voxel grid, ICP source only            processOne(),
-///   [5] register      point-to-plane ICP -> the pose         worker thread
-///   [6] local map     insert the aligned scan; it is [5]'s target
-///   [7] output        /odom + TF, debug clouds
+///        v            the MeasureGroup handed to the worker IS stages [1]+[2]
 ///
-/// processOne() is deliberately nothing but that list. Every "why" lives in the stage it
-/// belongs to.
+///   [3] deskew        undo intra-scan rotation on SO(3)        | LioEstimator
+///   [4] downsample    voxel grid, ICP source only              | (worker thread,
+///   [5] register      point-to-plane ICP -> the pose           |  see
+///   [6] local map     insert the aligned scan; [5]'s target    |  lio_estimator.hpp)
 ///
-/// Deskew and downsample are stages inside this node, not separate nodes: the
-/// intermediate clouds are only ever consumed here, so publishing them would
-/// cost a serialize/deserialize round trip for nothing. They are exposed on
-/// debug topics purely for RViz inspection.
+///   [7] output        /odom + TF, debug clouds                 | THIS FILE
 ///
-/// THREADING. The subscription callbacks only buffer and sync -- they never run
-/// the pipeline. Registration takes ~100 ms, and running it inside a callback (on
-/// a single-threaded executor, holding the buffer mutex) blocked IMU intake for
-/// its whole duration, turning a latency problem into DATA LOSS. A worker thread
-/// now consumes synced measurement groups, so sensor intake never stalls.
+/// The node does NOT run the pipeline. It parses parameters, subscribes, syncs, owns the
+/// worker thread, hands MeasureGroups to the estimator, and turns what comes back into log
+/// lines and topics. Stages [3]-[6] live in LioEstimator and know nothing about ROS.
 ///
-/// Ownership: `pose_`, `map_`, `deskew_` and `voxel_` are touched ONLY by the
-/// worker. The buffers are touched only under `buf_mutex_`. The queue between
-/// them is the single hand-off point.
+/// The intermediate clouds are exposed on debug topics purely for RViz -- they are never
+/// consumed outside this process, so publishing them between separate nodes would buy a
+/// serialize/deserialize round trip and nothing else.
+///
+/// THREADING. The subscription callbacks only buffer and sync -- they never run the
+/// pipeline. Registration takes ~100 ms, and running it inside a callback (on a
+/// single-threaded executor, holding the buffer mutex) blocked IMU intake for its whole
+/// duration, turning a latency problem into DATA LOSS. A worker thread now consumes synced
+/// measurement groups, so sensor intake never stalls.
+///
+/// OWNERSHIP is the invariant that keeps that safe:
+///   * `estimator_` (and everything inside it) is touched ONLY by the worker.
+///   * `sync_` and the sensor buffers are touched only under `buf_mutex_`.
+///   * the queue is the single hand-off point.
+/// A callback that wants the estimator reset or initialized therefore REQUESTS it; the
+/// worker applies it to itself, between scans. See workerLoop().
+///
 class GlassLioNode : public rclcpp::Node
 {
 public:
@@ -275,10 +276,10 @@ private:
 
   /// Full reset: the world we mapped is gone. Callback thread.
   ///
-  /// Only the callback-owned state is reset HERE. The estimator (map_, pose_,
-  /// velocity_) belongs to the worker, and clearing the queue does NOT make it
+  /// Only the callback-owned state is reset HERE. The ESTIMATOR belongs to the worker,
+  /// and clearing the queue does NOT make it
   /// safe to touch: the worker may already have popped a scan and be inside
-  /// processOne(), so destroying map_ under it is a use-after-free. So we only
+  /// handleScan(), so destroying the estimator under it is a use-after-free. So we only
   /// REQUEST the reset; the worker applies it to itself, in order, between scans.
   void reset()
   {
@@ -314,7 +315,7 @@ private:
   }
 
   /// Publish the init result to the worker, which owns the estimator. Callback
-  /// thread: it must not write pose_ or deskew_ itself (see reset()).
+  /// thread: it must not touch the estimator itself (see reset()).
   void onInitialized()
   {
     // The world frame is gravity-aligned (Z up). The initial LIDAR pose is
@@ -449,15 +450,16 @@ private:
         meas = std::move(queue_.front());
         queue_.pop_front();
       }
-      processOne(meas);
+      handleScan(meas);
     }
   }
 
-  /// One measurement group. Worker thread only.
+  /// [7] OUTPUT. One measurement group: run it through the estimator, emit what came out.
+  /// Worker thread only.
   ///
-  /// The node does not run the pipeline -- it hands the group to the estimator and turns
-  /// what comes back into log lines and topics. Stages [3]-[6] live in LioEstimator.
-  void processOne(const MeasureGroup & meas)
+  /// NOT called processOne() any more -- it does not process anything. Stages [3]-[6] live
+  /// in LioEstimator; this is where their results become log lines and topics.
+  void handleScan(const MeasureGroup & meas)
   {
     const ScanResult r = estimator_->processScan(meas);
     if (!r.ok) {

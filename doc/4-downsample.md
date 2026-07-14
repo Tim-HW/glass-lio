@@ -2,7 +2,7 @@
 
 `pcl::VoxelGrid`, leaf `voxel_leaf_size` = 0.5 m, applied to the deskewed cloud.
 
-Code: `processOne()` in [`glasslio_node.cpp`](../src/glasslio_node.cpp).
+Code: `LioEstimator::downsample()` in [`lio_estimator.cpp`](../src/lio/lio_estimator.cpp).
 
 Measured: **~20 000 points → ~5 000** (≈25% kept).
 

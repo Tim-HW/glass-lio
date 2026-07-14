@@ -8,6 +8,7 @@
 #include <rclcpp/logger.hpp>
 
 #include "glasslio/deskew.hpp"
+#include "glasslio/imu_init.hpp"   // kGravity
 #include "glasslio/local_map.hpp"
 #include "glasslio/nav_state.hpp"
 #include "glasslio/preintegration.hpp"
@@ -38,7 +39,9 @@ struct EstimatorParams
   double max_rmse = 0.5;
   bool use_constant_velocity = true;
 
-  /// [7] Tight coupling. `use_tight` is `imu_prior_weight > 0`.
+  /// TIGHT COUPLING (doc/7-tight-coupling.md). Not a pipeline stage -- it changes how [5]
+  /// solves, by folding the IMU into the same normal equations. `use_tight` is
+  /// `imu_prior_weight > 0`; zero selects the 6-DoF loose path.
   bool use_tight = false;
   TightParams tight;
   /// Scans to run LOOSE first, so ICP can MEASURE the velocity that IMU init cannot
@@ -55,7 +58,7 @@ struct EstimatorParams
 
   /// Multiply raw IMU accel by this to get m/s^2 (9.80665 if the driver reports g, which
   /// Livox does -- a sensor_msgs/Imu spec violation).
-  double accel_scale = 9.80665;
+  double accel_scale = kGravity;
   /// Extrinsic ROTATION lidar -> IMU. Identity on the Mid-360.
   Eigen::Quaterniond extrinsic_q_il = Eigen::Quaterniond::Identity();
 };
@@ -127,7 +130,7 @@ private:
   void commitState(const NavState & x);
   void updatePose(const Eigen::Isometry3d & new_pose, double dt);
   void resetBiasCovariance();
-  void resetEstimator();
+  void resetPipelineState();
 
   // --- [6]
   void insertIntoMap(const CloudXYZI::Ptr & deskewed, bool pose_trusted);
@@ -155,7 +158,8 @@ private:
 
   // --- tight coupling
   NavState state_;
-  Eigen::Vector3d gravity_{0.0, 0.0, -9.80665};
+  /// Gravity in the gravity-aligned world frame. Overwritten by initialize().
+  Eigen::Vector3d gravity_{0.0, 0.0, -kGravity};
   Eigen::Matrix<double, 6, 6> bias_cov_ = Eigen::Matrix<double, 6, 6>::Identity();
   int scans_done_ = 0;
   /// Scan-end time of the previous scan: the lower edge of the IMU factor's integration

@@ -34,9 +34,9 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 | # | Stage | Doc | Code |
 |---|---|---|---|
 | **1** | **IMU initialization** — gyro bias, gravity, world frame. *A gate: nothing runs until it completes.* | [1-imu-init.md](1-imu-init.md) | [`imu_init.cpp`](../src/lio/imu_init.cpp) |
-| **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | `syncMeasure()` |
+| **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | [`sync.cpp`](../src/lio/sync.cpp) |
 | **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`deskew.cpp`](../src/lio/deskew.cpp), [`gyr_int.cpp`](../src/lio/gyr_int.cpp) |
-| **4** | **Downsample** — voxel grid, 0.5 m leaf | [4-downsample.md](4-downsample.md) | `pcl::VoxelGrid` |
+| **4** | **Downsample** — voxel grid, 0.5 m leaf | [4-downsample.md](4-downsample.md) | `LioEstimator::downsample()` |
 | **5** | **Register** — point-to-plane ICP → **the pose** | [5-registration.md](5-registration.md) | [`registration.cpp`](../src/lio/registration.cpp) |
 | **6** | **Local map** — insert the aligned scan; it is the next scan's target | [6-local-map.md](6-local-map.md) | [`local_map.cpp`](../src/lio/local_map.cpp) |
 
@@ -85,7 +85,8 @@ the threading that is *justified*: decoupling I/O from compute.
   callbacks              queue              worker
   ─────────         ─────────────         ────────
   buffer + sync  ──►  MeasureGroup  ──►  deskew → downsample → register → map
-  (buf_mutex_)        (bounded, 3)        (owns the estimator)
+  (MeasureSync,       (bounded, 3)        (LioEstimator -- stages [3]..[6])
+   buf_mutex_)
 ```
 
 The hand-off is a **bounded queue** (`max_queue_size`). If the worker falls behind, the
@@ -94,14 +95,14 @@ is useless. Persistent "worker behind" warnings mean registration is too slow.
 
 ### Ownership is the invariant
 
-- The **estimator** — `pose_`, `map_`, `deskew_`, `velocity_`, `state_` — is touched
-  **only by the worker**.
+- The **estimator** — `LioEstimator`, and every piece of state inside it (`pose_`, `map_`,
+  `velocity_`, the nav state, the bias covariance) — is touched **only by the worker**.
 - The **sensor buffers** are touched only under `buf_mutex_`.
 - The **queue is the single hand-off point.**
 
 This is why a **bag restart** (a backwards time jump > 1 s, e.g. `run_bag.sh -l`) does
 *not* reset the estimator from the callback that detects it. The worker may already have
-popped a scan and be mid-`processOne`, so freeing the map under it would be a
+popped a scan and be mid-`handleScan`, so freeing the map under it would be a
 **use-after-free** — and clearing the queue does not help, because the in-flight scan is
 already out of the queue.
 
