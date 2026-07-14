@@ -4,7 +4,7 @@
   <name>glasslio</name>
   <version>0.0.0</version>
   <description>GlassLIO — a transparent, educational LiDAR-inertial odometry for Livox. Deskew, voxel-plane mapping and point-to-plane ICP on SE(3), written to be read.</description>
-  <maintainer email="timothee.freville@apixa.com">tim</maintainer>
+  <maintainer email="tim.freville@gmail.com">tim</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
