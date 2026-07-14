@@ -111,7 +111,7 @@ $$
 &&\text{gyro bias (rad/s)} \\
 \mathbf{g} &= \frac{1}{N}\sum_i \mathbf{a}_i
 &&\text{gravity (m/s}^2\text{, IMU frame)} \\
-\mathbf{R}_{wi} &= \operatorname{FromTwoVectors}\!\left( \hat{\mathbf{g}},\; +\mathbf{Z} \right)
+\mathbf{R}_{wi} &= \mathrm{FromTwoVectors}\!\left( \hat{\mathbf{g}},\; +\mathbf{Z} \right)
 &&\text{gravity alignment}
 \end{aligned}
 $$

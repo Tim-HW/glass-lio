@@ -96,9 +96,9 @@ cost surface has no spurious minima from tangential mismatch.
 
 Linearise about the current $\mathbf{T}$ with a **left perturbation**
 $\boldsymbol{\xi} = [\boldsymbol{\rho};\, \boldsymbol{\phi}] \in \mathfrak{se}(3)$,
-i.e. $\mathbf{T} \leftarrow \operatorname{Exp}(\boldsymbol{\xi})\,\mathbf{T}$.
+i.e. $\mathbf{T} \leftarrow \mathrm{Exp}(\boldsymbol{\xi})\,\mathbf{T}$.
 
-To first order, $\operatorname{Exp}(\boldsymbol{\xi})\,\mathbf{q} \approx \mathbf{q} + \boldsymbol{\rho} + \boldsymbol{\phi} \times \mathbf{q}$, so
+To first order, $\mathrm{Exp}(\boldsymbol{\xi})\,\mathbf{q} \approx \mathbf{q} + \boldsymbol{\rho} + \boldsymbol{\phi} \times \mathbf{q}$, so
 
 $$
 \begin{aligned}

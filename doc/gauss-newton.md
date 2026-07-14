@@ -175,7 +175,7 @@ matrix and the result is no longer a rotation matrix.
 The exponential map is the bridge:
 
 $$
-\operatorname{Exp} : \mathbb{R}^6 \longrightarrow SE(3)
+\mathrm{Exp} : \mathbb{R}^6 \longrightarrow SE(3)
 $$
 
 Do the **linear** things — accumulate $\mathbf{H}$ and $\mathbf{b}$, solve
@@ -183,7 +183,7 @@ $\mathbf{H}\boldsymbol{\xi} = \mathbf{b}$ — in the tangent space $\mathfrak{se
 linear algebra is legal. Then map back onto the manifold and **compose**:
 
 $$
-\mathbf{T} \;\leftarrow\; \operatorname{Exp}(\boldsymbol{\xi}) \cdot \mathbf{T}
+\mathbf{T} \;\leftarrow\; \mathrm{Exp}(\boldsymbol{\xi}) \cdot \mathbf{T}
 $$
 
 Composition is a *group operation*, so the result is **exactly** an element of $SE(3)$ — no
@@ -193,7 +193,7 @@ the node, which *does* re-orthonormalise, because it round-trips through PCL's f
 ### The perturbation convention
 
 This solver linearises about a **left** perturbation,
-$\mathbf{T} \leftarrow \operatorname{Exp}(\boldsymbol{\xi})\,\mathbf{T}$, with
+$\mathbf{T} \leftarrow \mathrm{Exp}(\boldsymbol{\xi})\,\mathbf{T}$, with
 $\boldsymbol{\xi} = [\boldsymbol{\rho};\, \boldsymbol{\phi}]$ (translation; rotation).
 
 **Which side is not a matter of taste.** It is fixed by the frame the correction lives in:
@@ -204,7 +204,7 @@ $\boldsymbol{\xi} = [\boldsymbol{\rho};\, \boldsymbol{\phi}]$ (translation; rota
 | `GyrInt` ([3-deskew.md](3-deskew.md)) | the **body** frame (it is a gyro) | the **right** |
 | `NavState` ([7-tight-coupling.md](7-tight-coupling.md)) | the **body** frame | the **right** |
 
-Same manifold, same $\operatorname{Exp}$, opposite side. Get it backwards and the estimator
+Same manifold, same $\mathrm{Exp}$, opposite side. Get it backwards and the estimator
 **still runs, still converges, and is wrong** — no exception, no NaN, just a quietly
 incorrect trajectory.
 

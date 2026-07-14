@@ -88,7 +88,7 @@ $$
 $$
 
 $$
-\mathbf{R} \leftarrow \mathbf{R}\cdot\operatorname{Exp}(\delta\boldsymbol{\phi})
+\mathbf{R} \leftarrow \mathbf{R}\cdot\mathrm{Exp}(\delta\boldsymbol{\phi})
 \quad \text{(manifold: compose, on the RIGHT)}
 $$
 $$
@@ -119,7 +119,7 @@ hundred samples must be re-integrated. Inside an iterative solve, that is ruinou
 
 $$
 \begin{aligned}
-\Delta\mathbf{R} &= \prod_k \operatorname{Exp}\!\left( (\boldsymbol{\omega}_k - \mathbf{b}_g)\Delta t \right) \\
+\Delta\mathbf{R} &= \prod_k \mathrm{Exp}\!\left( (\boldsymbol{\omega}_k - \mathbf{b}_g)\Delta t \right) \\
 \Delta\mathbf{v} &= \sum_k \Delta\mathbf{R}_{ik}\, (\mathbf{a}_k - \mathbf{b}_a)\, \Delta t \\
 \Delta\mathbf{p} &= \sum_k \left[ \Delta\mathbf{v}_{ik}\,\Delta t + \tfrac{1}{2}\Delta\mathbf{R}_{ik}(\mathbf{a}_k - \mathbf{b}_a)\,\Delta t^2 \right]
 \end{aligned}
@@ -144,7 +144,7 @@ With `i` = previous scan (held fixed), `j` = current, `Δt` the interval, `g` gr
 
 $$
 \begin{aligned}
-\mathbf{r}_{\Delta R} &= \operatorname{Log}\!\left( \hat{\Delta\mathbf{R}}^\top \cdot \mathbf{R}_i^\top \mathbf{R}_j \right) \\
+\mathbf{r}_{\Delta R} &= \mathrm{Log}\!\left( \hat{\Delta\mathbf{R}}^\top \cdot \mathbf{R}_i^\top \mathbf{R}_j \right) \\
 \mathbf{r}_{\Delta v} &= \mathbf{R}_i^\top\left( \mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t \right) - \hat{\Delta\mathbf{v}} \\
 \mathbf{r}_{\Delta p} &= \mathbf{R}_i^\top\left( \mathbf{p}_j - \mathbf{p}_i - \mathbf{v}_i\,\Delta t - \tfrac{1}{2}\mathbf{g}\,\Delta t^2 \right) - \hat{\Delta\mathbf{p}}
 \end{aligned}

@@ -55,7 +55,7 @@ what lets us assert agreement to `1e-9` instead of squinting at `1e-4`.
 
 **Perturb *through the retraction*, never by addition.** The state lives on a manifold, so
 the perturbation must be applied the way the solver applies it —
-$\operatorname{Exp}(h\,\mathbf{e}_i)$ — not by adding $h$ to a rotation matrix. In
+$\mathrm{Exp}(h\,\mathbf{e}_i)$ — not by adding $h$ to a rotation matrix. In
 [`test_nav_residual.cpp`](../test/test_nav_residual.cpp) the numeric Jacobian goes through
 `boxplus()`, the *same* retraction the optimizer uses. A finite-difference check that
 perturbs the wrong way tests the wrong function.
