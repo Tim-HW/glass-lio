@@ -4,7 +4,7 @@
 [![ROS 2: Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white)](#dependencies)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)](#layout)
 [![Sensor: Livox MID-360](https://img.shields.io/badge/sensor-Livox%20MID--360-brightgreen)](config/livox_mid_360.yaml)
-[![Docs: 8 write-ups](https://img.shields.io/badge/docs-8%20write--ups-8A2BE2)](#documentation)
+[![Docs: 10 write-ups](https://img.shields.io/badge/docs-10%20write--ups-8A2BE2)](#documentation)
 
 **A transparent LiDAR-inertial odometry for Livox — written to be read.**
 
@@ -41,6 +41,44 @@ Start with [this primer on Lie algebra](https://aalok.uk/projects/lietheory/).
 
 ---
 
+## What it does
+
+```mermaid
+flowchart LR
+    imu(["/livox/imu"]) --> sync
+    lidar(["/livox/lidar"]) --> sync
+    init["1 · IMU init<br/><i>gate: nothing runs until done</i>"] -.-> sync
+    imu --> init
+    sync["2 · sync"] --> deskew["3 · deskew"] --> down["4 · downsample"] --> reg["5 · register"]
+    reg --> odom(["/odom + TF"])
+    reg --> insert["6 · insert into map"]
+    insert --> map[("local map<br/>voxel hash + planes")]
+    map -- target --> reg
+```
+
+A Livox scan is a **~100 ms sweep, not a snapshot**. We integrate the gyro on SO(3) to
+undistort it (*deskew*), voxel-downsample it, *register* it against a voxel-hash local map
+to get a pose, then insert the aligned scan back into that map. The loop closes on itself —
+which is both the reason it works and its central hazard.
+
+**Status: it holds real time (10 Hz) on the test bag — zero scans dropped, zero diverged,
+`rmse` steady at ~0.13 m.**
+
+### It was not always real time
+
+Registration started out as PCL's GICP and ran at **0.3 Hz** — 30× too slow. The fix was not
+tuning, and it was not threading:
+
+| | GICP (100 m map) | GICP (20 m map) | point-to-plane (100 m map) |
+|---|---|---|---|
+| throughput | ~0.3 Hz | 4.4 Hz | **≥ 10 Hz (real time)** |
+
+GICP recomputes per-point covariances over the **entire map** every time the target changes —
+O(map), every scan, forever. It is built for *pairwise* alignment, where you pay that once.
+Caching one plane per voxel and refitting only the voxels an insert dirtied makes it
+**O(changed)**. Two orders of magnitude, and **no number of cores would have bought it** —
+the gap was algorithmic. ([6-local-map.md](doc/6-local-map.md))
+
 ## Why glasslio
 
 - **Every stage has a write-up, in execution order** — six stage docs plus the solver, each
@@ -72,7 +110,8 @@ container, so they never collide with a host build of the same tree.
 [`docker/Dockerfile`](docker/Dockerfile) is a **plain image with no editor specifics** —
 build it by hand, drop it in your own compose file, or use it in CI.
 
-### Or in VS Code (devcontainer)
+<details>
+<summary><b>Or in VS Code (devcontainer)</b></summary>
 
 1. Install the **Dev Containers** extension (`ms-vscode-remote.remote-containers`).
 2. Open the repo, then **F1 → “Dev Containers: Reopen in Container”.**
@@ -93,8 +132,10 @@ colcon test  --packages-select glasslio
 It wraps the *same* [`docker/Dockerfile`](docker/Dockerfile) — the devcontainer is a
 convenience, not a second source of truth.
 
+</details>
 
-### Or on a host with ROS 2 Jazzy
+<details>
+<summary><b>Or on a host with ROS 2 Jazzy</b></summary>
 
 ```bash
 # build
@@ -116,34 +157,56 @@ The bag is **not** in the repo — it is 1.4 GB, so `data/` is gitignored and
 `download_bag.sh` fetches it. Re-running the script is safe: if the bag is already
 there and its checksum matches, it does nothing.
 
+</details>
+
 Output: `/glasslio_node/odom` (`nav_msgs/Odometry`) plus a TF `odom → livox_frame`.
 
 Configuration lives in **[`config/livox_mid_360.yaml`](config/livox_mid_360.yaml)**, which
 is heavily commented — the parameters that actually bite are explained where they are set,
 not in a table somewhere else.
 
-## What it does
+## Running it on your own sensor
 
-```mermaid
-flowchart LR
-    imu(["/livox/imu"]) --> sync
-    lidar(["/livox/lidar"]) --> sync
-    init["1 · IMU init<br/><i>gate: nothing runs until done</i>"] -.-> sync
-    imu --> init
-    sync["2 · sync"] --> deskew["3 · deskew"] --> down["4 · downsample"] --> reg["5 · register"]
-    reg --> odom(["/odom + TF"])
-    reg --> insert["6 · insert into map"]
-    insert --> map[("local map<br/>voxel hash + planes")]
-    map -- target --> reg
+Four things decide whether this works on hardware that is not a Mid-360. Three of them fail
+**silently** — you get a plausible-looking trajectory, not an error.
+
+**1. Topics** — [`config/livox_mid_360.yaml`](config/livox_mid_360.yaml):
+
+```yaml
+lidar_topic: "/livox/lidar"
+imu_topic:   "/livox/imu"
+scan_guard_sec: 0.12     # must EXCEED your scan period (0.1 s at 10 Hz)
 ```
 
-A Livox scan is a **~100 ms sweep, not a snapshot**. We integrate the gyro on SO(3) to
-undistort it (*deskew*), voxel-downsample it, *register* it against a voxel-hash local map
-to get a pose, then insert the aligned scan back into that map. The loop closes on itself —
-which is both the reason it works and its central hazard.
+**2. The point layout.** [`livox_point.hpp`](include/glasslio/livox_point.hpp) must match your
+driver's `PointCloud2` fields exactly. Check yours before assuming:
 
-**Status: it holds real time (10 Hz) on the test bag — zero scans dropped, zero diverged,
-`rmse` steady at ~0.13 m.**
+```bash
+ros2 topic echo /livox/lidar --once | head -30      # look at the `fields:` list
+```
+
+Here, per-point time is a `timestamp` field in **nanoseconds** — and it is **not** packed into
+`intensity` (that is genuine reflectivity). Some LOAM-derived drivers do pack time into
+`intensity`; read it from the wrong place and deskew silently becomes a **no-op**.
+
+**3. The IMU's units.** `imu.accel_in_g: true` for Livox, which reports **g**, not m/s² — a
+`sensor_msgs/Imu` spec violation. Check yours in one line:
+
+```bash
+ros2 topic echo /livox/imu --once     # |linear_acceleration| at rest: ~1.0 => g,  ~9.81 => SI
+```
+
+Get it wrong and every acceleration is 9.81× off. Deskew is gyro-only, so it will not notice —
+this only detonates when something integrates acceleration.
+
+**4. The extrinsic.** `extrinsic.lidar_to_imu.quat_xyzw` is identity on the Mid-360 (its
+internal IMU axes are aligned with the lidar frame) — **that is genuinely correct here, not a
+placeholder.** On an Avia, or with an external IMU, it is not identity, and a wrong value does
+not obviously break: it **tilts** the deskew rather than disabling it, so the cloud still looks
+deskewed. See [3-deskew.md §5](doc/3-deskew.md).
+
+The rest (`voxel_leaf_size`, `map.voxel_size`, `registration.max_correspondence_distance`) is
+tuning, and every one of them is commented where it is set.
 
 ## Documentation
 
