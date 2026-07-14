@@ -20,6 +20,7 @@
 
 #include "glasslio/deskew.hpp"
 #include "glasslio/imu_init.hpp"
+#include "glasslio/lio_estimator.hpp"
 #include "glasslio/local_map.hpp"
 #include "glasslio/nav_state.hpp"
 #include "glasslio/preintegration.hpp"
@@ -76,10 +77,6 @@ public:
     // the gyro integration fully covers the scan (10 Hz -> ~0.1 s scans).
     scan_guard_ = declare_parameter<double>("scan_guard_sec", 0.12);
     sync_ = MeasureSync(scan_guard_);
-    // Voxel edge length (m). Larger = fewer points = faster registration, but
-    // coarser geometry. ~0.5 m is a sane start for indoor/outdoor Livox.
-    voxel_leaf_ = declare_parameter<double>("voxel_leaf_size", 0.5);
-
     // Extrinsic lidar -> IMU. Nested YAML maps to dot-separated param names.
     const auto q_xyzw = declare_parameter<std::vector<double>>(
       "extrinsic.lidar_to_imu.quat_xyzw", {0.0, 0.0, 0.0, 1.0});
@@ -108,9 +105,9 @@ public:
     // The translation is VALIDATED (a malformed extrinsic must fail loudly at startup)
     // but not stored: deskew is rotation-only, and nothing else reads it yet.
     parseVec3(t_xyz);
-    deskew_ = std::make_shared<Deskew>(get_logger());
-    deskew_->set_extrinsic(q_il_);
 
+    // [1] IMU init: the gate. Lives on the callback side; its result is handed to the
+    // estimator over the queue.
     init_samples_ = init_samples;
     init_max_gyro_ = init_max_gyro;
     init_max_acc_sd_ = init_max_acc_sd;
@@ -118,81 +115,72 @@ public:
     imu_init_ = std::make_unique<ImuInit>(
       init_samples, init_max_gyro, init_max_acc_sd, accel_scale_);
 
-    map_voxel_ = map_voxel;
-    map_max_pts_ = map_max_pts;
-    map_range_ = map_range;
-    map_min_pts_plane_ = map_min_pts_plane;
-    map_planarity_ = map_planarity;
-    map_ = std::make_unique<LocalMap>(
-      map_voxel, map_max_pts, map_range, map_min_pts_plane, map_planarity);
+    // --- Everything the ESTIMATOR needs, gathered in one place. This is the node's only
+    // say in how the pipeline behaves: parse the parameters, hand them over, get out of
+    // the way.
+    EstimatorParams ep;
+    ep.extrinsic_q_il = q_il_;
+    ep.accel_scale = accel_scale_;
+    ep.voxel_leaf_size = declare_parameter<double>("voxel_leaf_size", 0.5);
 
-    // Registration (point-to-plane ICP over the voxel map). max_corr_dist is the
-    // important knob: too small and a fast motion falls outside the correspondence
-    // radius and never converges; too large and it matches the wrong wall.
-    reg_params_.max_correspondence_distance = declare_parameter<double>(
+    ep.map_voxel_size = map_voxel;
+    ep.map_max_points_per_voxel = map_max_pts;
+    ep.map_max_range = map_range;
+    ep.map_min_points_for_plane = map_min_pts_plane;
+    ep.map_planarity_ratio = map_planarity;
+
+    // [5] Registration. max_corr_dist is the important knob: too small and a fast motion
+    // falls outside the correspondence radius and never converges; too large and it
+    // matches the WRONG wall.
+    ep.reg.max_correspondence_distance = declare_parameter<double>(
       "registration.max_correspondence_distance", 1.0);
-    reg_params_.max_iterations = declare_parameter<int>("registration.max_iterations", 30);
-    reg_params_.eps_translation = declare_parameter<double>(
+    ep.reg.max_iterations = declare_parameter<int>("registration.max_iterations", 30);
+    ep.reg.eps_translation = declare_parameter<double>(
       "registration.transformation_epsilon", 1e-3);
-    reg_params_.eps_rotation = declare_parameter<double>(
-      "registration.rotation_epsilon", 1e-4);
-    reg_params_.huber_delta = declare_parameter<double>("registration.huber_delta", 0.2);
-    reg_params_.min_correspondences = declare_parameter<int>(
+    ep.reg.eps_rotation = declare_parameter<double>("registration.rotation_epsilon", 1e-4);
+    ep.reg.huber_delta = declare_parameter<double>("registration.huber_delta", 0.2);
+    ep.reg.min_correspondences = declare_parameter<int>(
       "registration.min_correspondences", 50);
-    max_rmse_ = declare_parameter<double>("registration.max_rmse", 0.5);
-    // Constant-velocity translation prior. Without it the guess carries NO
-    // translation, so a dropped scan (see max_queue_size) leaves the robot metres
-    // from where ICP starts looking.
-    //
-    // This once caused a runaway -- ICP "converges" near a too-far guess, that bad
-    // scan is inserted into the map, the map drifts with it, velocity grows. That
-    // loop is now BLOCKED: a rejected scan is no longer inserted, so a bad guess
-    // cannot poison the reference it is measured against. If you ever see the pose
-    // accelerating away with a healthy rmse, turn this off first.
-    use_const_vel_ = declare_parameter<bool>("registration.use_constant_velocity", true);
+    ep.max_rmse = declare_parameter<double>("registration.max_rmse", 0.5);
 
-    // --- Tight coupling. `imu_prior_weight` selects the estimator:
-    //
-    //   0   -> LOOSE. The IMU predicts, then ICP solves and the IMU gets no vote. This
-    //          is the historical path, kept as a directly comparable baseline. With no
+    // Constant-velocity translation prior. Without it the guess carries NO translation, so
+    // a dropped scan leaves the robot metres from where ICP starts looking. It once caused
+    // a runaway; that loop is now blocked at the insert (a rejected scan is not added to
+    // the map). If the pose ever accelerates away with a healthy rmse, turn this off first.
+    ep.use_constant_velocity = declare_parameter<bool>(
+      "registration.use_constant_velocity", true);
+
+    // [7] Tight coupling. `imu_prior_weight` selects the estimator outright:
+    //   0   -> LOOSE: the IMU predicts, then ICP solves and the IMU gets no vote. With no
     //          IMU information, velocity and the biases are UNOBSERVABLE (the LiDAR
-    //          Jacobian's columns for them are structurally zero), so we do not pretend
-    //          to estimate them -- we run the 6-DoF SE(3) solve instead.
-    //   > 0 -> TIGHT. One joint 15-DoF solve; the IMU is a prior residual in the same
-    //          normal equations. See doc/7-tight-coupling.md.
+    //          Jacobian's columns for them are structurally zero), so we do not pretend to
+    //          estimate them -- we run the 6-DoF SE(3) solve instead.
+    //   > 0 -> TIGHT: one joint 15-DoF solve. See doc/7-tight-coupling.md.
     const double imu_prior_weight =
       declare_parameter<double>("registration.imu_prior_weight", 1.0);
-    use_tight_ = imu_prior_weight > 0.0;
+    ep.use_tight = imu_prior_weight > 0.0;
 
-    tight_params_.imu_prior_weight = imu_prior_weight;
-    tight_params_.max_correspondence_distance = reg_params_.max_correspondence_distance;
-    tight_params_.max_iterations = reg_params_.max_iterations;
-    tight_params_.min_correspondences = reg_params_.min_correspondences;
-    tight_params_.eps_translation = reg_params_.eps_translation;
-    tight_params_.eps_rotation = reg_params_.eps_rotation;
-    tight_params_.huber_delta = reg_params_.huber_delta;
-    // Point-to-plane measurement noise. In the loose path a global scale on the
-    // residuals cancels out of H xi = b and is harmless; the moment the IMU enters the
-    // SAME normal equations it stops being arbitrary -- it decides which sensor wins.
-    tight_params_.lidar_sigma = declare_parameter<double>("registration.lidar_sigma", 0.05);
-    bias_rw_gyro_ = declare_parameter<double>("imu.bias_rw_gyro", 1e-4);
-    bias_rw_accel_ = declare_parameter<double>("imu.bias_rw_accel", 1e-3);
-    // INITIAL bias uncertainty -- how wrong the starting bias might be. Distinct from the
-    // random walk, which only says how fast it may drift from wherever it is. A static
-    // window cannot observe the accel bias at all, so we start genuinely ignorant of it.
-    bias_sigma0_gyro_ = declare_parameter<double>("imu.bias_sigma0_gyro", 0.01);
-    bias_sigma0_accel_ = declare_parameter<double>("imu.bias_sigma0_accel", 0.3);
-    tight_warmup_scans_ = declare_parameter<int>("registration.tight_warmup_scans", 10);
+    ep.tight.imu_prior_weight = imu_prior_weight;
+    ep.tight.max_correspondence_distance = ep.reg.max_correspondence_distance;
+    ep.tight.max_iterations = ep.reg.max_iterations;
+    ep.tight.min_correspondences = ep.reg.min_correspondences;
+    ep.tight.eps_translation = ep.reg.eps_translation;
+    ep.tight.eps_rotation = ep.reg.eps_rotation;
+    ep.tight.huber_delta = ep.reg.huber_delta;
+    // Point-to-plane measurement noise. Irrelevant with one sensor (a global scale cancels
+    // out of H xi = b); the moment the IMU enters the SAME normal equations it decides
+    // which sensor is believed.
+    ep.tight.lidar_sigma = declare_parameter<double>("registration.lidar_sigma", 0.05);
+    ep.tight_warmup_scans = declare_parameter<int>("registration.tight_warmup_scans", 10);
 
-    // IMU noise densities: how much the preintegrated delta is trusted.
-    gyro_noise_ = declare_parameter<double>("imu.gyro_noise", 1.7e-3);
-    accel_noise_ = declare_parameter<double>("imu.accel_noise", 2.0e-2);
+    ep.gyro_noise = declare_parameter<double>("imu.gyro_noise", 1.7e-3);
+    ep.accel_noise = declare_parameter<double>("imu.accel_noise", 2.0e-2);
+    ep.bias_rw_gyro = declare_parameter<double>("imu.bias_rw_gyro", 1e-4);
+    ep.bias_rw_accel = declare_parameter<double>("imu.bias_rw_accel", 1e-3);
+    ep.bias_sigma0_gyro = declare_parameter<double>("imu.bias_sigma0_gyro", 0.01);
+    ep.bias_sigma0_accel = declare_parameter<double>("imu.bias_sigma0_accel", 0.3);
 
-    // Worker backlog. Small on purpose: if registration cannot keep up, a stale
-    // pose is useless, so drop scans rather than accumulate latency.
-    max_queue_ = static_cast<std::size_t>(declare_parameter<int>("max_queue_size", 3));
-
-    voxel_.setLeafSize(voxel_leaf_, voxel_leaf_, voxel_leaf_);
+    estimator_ = std::make_unique<LioEstimator>(ep, get_logger());
 
     auto qos = rclcpp::SensorDataQoS();
     sub_lidar_ = create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -210,7 +198,7 @@ public:
 
     RCLCPP_INFO(
       get_logger(), "glasslio_node up. lidar='%s' imu='%s' voxel=%.2fm",
-      lidar_topic_.c_str(), imu_topic_.c_str(), voxel_leaf_);
+      lidar_topic_.c_str(), imu_topic_.c_str(), ep.voxel_leaf_size);
     RCLCPP_INFO(
       get_logger(), "extrinsic lidar->imu: q_xyzw=[%.4f %.4f %.4f %.4f] t=[%.4f %.4f %.4f]",
       q_xyzw[0], q_xyzw[1], q_xyzw[2], q_xyzw[3], t_xyz[0], t_xyz[1], t_xyz[2]);
@@ -304,21 +292,6 @@ private:
     }
     queue_cv_.notify_one();
     RCLCPP_WARN(get_logger(), "estimator reset: map cleared, re-initializing IMU");
-  }
-
-  /// Apply the requested reset. Worker thread only -- this is the thread that
-  /// owns the estimator, so nothing can be mid-scan against it.
-  void resetEstimator()
-  {
-    map_ = std::make_unique<LocalMap>(
-      map_voxel_, map_max_pts_, map_range_, map_min_pts_plane_, map_planarity_);
-    map_bootstrapped_ = false;
-    pose_ = Eigen::Isometry3d::Identity();
-    velocity_.setZero();
-    state_ = NavState();
-    scans_done_ = 0;
-    prev_scan_end_ = -1.0;
-    resetBiasCovariance();
   }
 
   void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
@@ -456,7 +429,7 @@ private:
         if (reset_requested_) {
           reset_requested_ = false;
           lock.unlock();
-          resetEstimator();
+          estimator_->reset();
           continue;
         }
         // Both reset and init hand the estimator over here rather than writing it
@@ -468,17 +441,9 @@ private:
           const Eigen::Vector3d init_gravity = pending_init_gravity_;
           lock.unlock();
 
-          pose_ = init_pose;
-          deskew_->set_gyro_bias(init_bias);
-
-          // Seed the 15-DoF state from the init result. Velocity starts at zero and the
-          // accel bias at zero: neither is observable from a static window, and the
-          // tight solve estimates both from here on.
-          gravity_ = init_gravity;
-          state_ = NavState();
-          state_.R = Sophus::SO3d(Eigen::Quaterniond(init_pose.linear()).normalized());
-          state_.p = init_pose.translation();
-          state_.bg = init_bias;
+          // Both reset and init hand the estimator over here rather than writing it from a
+          // callback, so the worker's exclusive ownership actually holds.
+          estimator_->initialize(init_pose, init_bias, init_gravity);
           continue;
         }
         meas = std::move(queue_.front());
@@ -488,130 +453,44 @@ private:
     }
   }
 
-  /// The pipeline for one measurement group. Worker thread only.
+  /// One measurement group. Worker thread only.
   ///
-  /// This function is deliberately nothing but the pipeline, in the order the docs number
-  /// it (doc/pipeline.md). Stages 1 and 2 -- IMU init and sync -- already happened on the
-  /// callback side; a MeasureGroup arriving here IS the product of those two. Every "why"
-  /// below lives in the stage it belongs to, so that this reads as the table of contents.
+  /// The node does not run the pipeline -- it hands the group to the estimator and turns
+  /// what comes back into log lines and topics. Stages [3]-[6] live in LioEstimator.
   void processOne(const MeasureGroup & meas)
   {
-    // --- [3] DESKEW: undo the intra-scan rotation (doc/3-deskew.md) ---
-    const CloudXYZI::Ptr deskewed = deskew_->Process(meas);
-    if (!deskewed || deskewed->empty()) {
-      return;
+    const ScanResult r = estimator_->processScan(meas);
+    if (!r.ok) {
+      return;   // unusable scan (no cloud came out)
     }
 
-    // --- [4] DOWNSAMPLE: fewer points for ICP to chew (doc/4-downsample.md) ---
-    const CloudXYZI::Ptr downsampled = downsample(deskewed);
-
-    // --- [5] REGISTER: align against the local map -> pose_ (doc/5-registration.md) ---
-    const bool ok = registerScan(downsampled, meas);
-
-    // --- [6] LOCAL MAP: fold the aligned scan back in (doc/6-local-map.md) ---
-    insertIntoMap(deskewed, ok);
-
-    // --- [7] OUTPUT: odom, TF, debug clouds ---
-    logScan(*deskewed, *downsampled, ok);
-    publishAll(meas, deskewed, downsampled);
-  }
-
-  /// [4] Voxel-grid downsample. Feeds ICP only -- the MAP gets the dense cloud, see
-  /// insertIntoMap().
-  CloudXYZI::Ptr downsample(const CloudXYZI::Ptr & cloud)
-  {
-    CloudXYZI::Ptr out(new CloudXYZI());
-    voxel_.setInputCloud(cloud);
-    voxel_.filter(*out);
-    return out;
-  }
-
-  /// [5] Register, loose or tight, and hand back whether the pose can be trusted.
-  ///
-  /// TIGHT COUPLING NEEDS A VELOCITY TO START FROM, and IMU init cannot give it one: a
-  /// static window cannot tell REST from CONSTANT VELOCITY -- both show zero rotation and
-  /// zero acceleration variance (doc/1-imu-init.md). On this bag the robot is already
-  /// cruising at ~1.5 m/s when recording starts, so init reports "static" and seeds v = 0.
-  ///
-  /// Loose coupling shrugs that off: velocity is only a prior there, and it self-corrects
-  /// by finite-differencing poses. Tight coupling CANNOT, because it holds x_i FIXED -- a
-  /// wrong v_i is treated as CERTAIN, so the IMU factor spends every scan insisting the
-  /// robot is stationary while the LiDAR insists otherwise. They fight, the residual grows,
-  /// correspondences collapse, and the estimator free-falls on dead reckoning. (Observed:
-  /// 532/691 scans rejected, pose to +6 km.)
-  ///
-  /// So run LOOSE for the first few scans, let ICP MEASURE the velocity, and only then hand
-  /// a correct initial state to the tight solver.
-  bool registerScan(const CloudXYZI::Ptr & scan, const MeasureGroup & meas)
-  {
-    const bool warming_up = use_tight_ && scans_done_ < tight_warmup_scans_;
-
-    const bool ok = (use_tight_ && !warming_up) ?
-      registerScanTight(scan, meas) :
-      registerScanLoose(scan);
-
-    if (warming_up && scans_done_ + 1 == tight_warmup_scans_) {
-      seedNavStateFromLoose();
-    }
-    ++scans_done_;
-    return ok;
-  }
-
-  /// [6] Fold the aligned scan into the map, in the world frame.
-  ///
-  /// Insert ONLY if we trust the pose. A scan placed at a known-wrong pose POISONS the map
-  /// -- and the map is what the NEXT scan registers against, so the error compounds into a
-  /// death spiral: the pose freezes, the robot keeps moving, each frozen-pose scan corrupts
-  /// the map further, correspondences collapse, and it never recovers.
-  ///
-  /// EXCEPT while bootstrapping. Until the map has supported one successful registration it
-  /// is too sparse to register against (a voxel needs >= 5 points before PCA yields a
-  /// plane), so refusing to insert would deadlock: sparse map -> ICP under-constrained ->
-  /// no insert -> map stays sparse, forever. During bootstrap we dead-reckon on the IMU
-  /// prior and keep feeding the map anyway.
-  void insertIntoMap(const CloudXYZI::Ptr & deskewed, bool pose_trusted)
-  {
-    if (pose_trusted) {
-      map_bootstrapped_ = true;
-    }
-    if (!pose_trusted && map_bootstrapped_) {
-      return;
-    }
-
-    // Feed the map the DENSE cloud, not the downsampled one. Downsampling is an ICP
-    // *source* optimisation; the map is the plane-fitting *target* and needs the density.
-    // At a 0.5 m leaf the downsampled cloud gives ~1 point per map voxel -- never enough
-    // for a plane.
-    CloudXYZI::Ptr scan_world(new CloudXYZI());
-    pcl::transformPointCloud(*deskewed, *scan_world, pose_.matrix());
-    map_->insert(*scan_world);
-    map_->prune(pose_.translation());
+    // --- [7] OUTPUT ---
+    logScan(r);
+    publishAll(meas, r);
   }
 
   /// [7] One line per scan. `map N vox` is the health check: with a correct pose the voxel
   /// count PLATEAUS (the same geometry re-observed lands in the same voxels). Climbing
   /// without bound means the same wall is being re-inserted at slightly wrong places --
   /// i.e. the pose is drifting. See doc/6-local-map.md.
-  void logScan(const CloudXYZI & deskewed, const CloudXYZI & downsampled, bool ok)
+  void logScan(const ScanResult & r)
   {
-    const Eigen::Vector3d & t = pose_.translation();
+    const Eigen::Vector3d & t = estimator_->pose().translation();
     RCLCPP_INFO(
       get_logger(),
       "scan %zu->%zu | pose [%+.2f %+.2f %+.2f] | rmse %.3f (%d corr)%s | map %zu vox | q %zu",
-      deskewed.size(), downsampled.size(),
-      t.x(), t.y(), t.z(), last_rmse_, last_corr_, ok ? "" : " (DIVERGED)",
-      map_->num_voxels(), queueSize());
+      r.deskewed->size(), r.downsampled->size(),
+      t.x(), t.y(), t.z(), r.rmse, r.correspondences,
+      r.pose_trusted ? "" : " (DIVERGED)",
+      estimator_->map().num_voxels(), queueSize());
   }
 
   /// [7] Odometry + TF, and the debug clouds (which skip serialization when unsubscribed).
-  void publishAll(
-    const MeasureGroup & meas,
-    const CloudXYZI::Ptr & deskewed,
-    const CloudXYZI::Ptr & downsampled)
+  void publishAll(const MeasureGroup & meas, const ScanResult & r)
   {
     publishOdom(meas.lidar->header);
-    publish(pub_deskewed_, deskewed, meas.lidar->header);
-    publish(pub_downsampled_, downsampled, meas.lidar->header);
+    publish(pub_deskewed_, r.deskewed, meas.lidar->header);
+    publish(pub_downsampled_, r.downsampled, meas.lidar->header);
     publishMap(meas.lidar->header);
   }
 
@@ -621,239 +500,10 @@ private:
     return queue_.size();
   }
 
-  /// Preintegrate the IMU samples spanning this scan, at the CURRENT bias estimate.
-  ///
-  /// The deltas are computed relative to `state_.bg` / `state_.ba`; if the solve then
-  /// moves the bias, the first-order Jacobians shift the deltas instead of forcing a
-  /// re-integration. That is the whole point of preintegration.
-  /// Integrate over EXACTLY (t_begin, t_end] -- the previous scan's end to this one's.
-  ///
-  /// THE WINDOW IS NOT THE MEASUREGROUP. `meas.imu` deliberately over-covers the scan:
-  /// it carries a bracket sample before the start and IMU past the end (see
-  /// doc/2-sync.md), so it spans ~0.12 s. But deskew compensates every point into the
-  /// scan-END frame, so consecutive POSES are 0.10 s apart.
-  ///
-  /// Integrate the whole group and the IMU factor asserts "over 0.12 s you moved dp"
-  /// against a pose delta that covers 0.10 s -- a systematic ~20% over-integration, every
-  /// scan, compounding. It reads exactly like a gravity error: the estimator accelerates
-  /// away and Z falls quadratically. (Observed: Z to -1 km.)
-  ///
-  /// So the interval is clipped at both edges, including partial sample intervals.
-  ImuPreintegration buildPreintegration(
-    const MeasureGroup & meas, double t_begin, double t_end) const
-  {
-    ImuPreintegration pre(state_.bg, state_.ba, gyro_noise_, accel_noise_);
-
-    for (std::size_t i = 0; i + 1 < meas.imu.size(); ++i) {
-      const double ta = stamp_sec(meas.imu[i]);
-      const double tb = stamp_sec(meas.imu[i + 1]);
-
-      // Clip this sample's interval into the window.
-      const double lo = std::max(ta, t_begin);
-      const double hi = std::min(tb, t_end);
-      const double dt = hi - lo;
-      if (dt <= 0.0 || dt > kMaxImuGapSec) {
-        continue;   // outside the window, duplicate, out of order, or a hole
-      }
-
-      const auto & m = *meas.imu[i];   // zero-order hold over the interval
-      const Eigen::Vector3d w(
-        m.angular_velocity.x, m.angular_velocity.y, m.angular_velocity.z);
-      // SI, always. The Livox reports accel in g (see doc/1-imu-init.md); feeding raw
-      // g into an integrator that also adds gravity in m/s^2 would be incoherent.
-      const Eigen::Vector3d a = Eigen::Vector3d(
-        m.linear_acceleration.x, m.linear_acceleration.y, m.linear_acceleration.z) *
-        accel_scale_;
-      pre.integrate(w, a, dt);
-    }
-    return pre;
-  }
-
-  /// TIGHTLY-COUPLED registration: one joint solve over the 15-DoF nav state, with the
-  /// LiDAR residuals and the preintegrated IMU factor in the SAME normal equations.
-  /// Updates `state_` (and `pose_`/`velocity_`, which are just views of it).
-  bool registerScanTight(const CloudXYZI::Ptr & scan, const MeasureGroup & meas)
-  {
-    // The pose refers to the scan-END instant (deskew compensates there), so the IMU
-    // factor must span previous-scan-end -> this-scan-end. Nothing else is coherent.
-    const double t_end = deskew_->last_scan_end();
-    const double t_begin = (prev_scan_end_ > 0.0) ?
-      prev_scan_end_ :
-      t_end - deskew_->last_scan_duration();
-
-    const ImuPreintegration pre = buildPreintegration(meas, t_begin, t_end);
-    if (pre.dt() <= 0.0) {
-      return false;   // no usable IMU span; nothing to predict from
-    }
-    prev_scan_end_ = t_end;
-
-    // RANDOM WALK: the bias may have drifted since the last scan, so we are now slightly
-    // LESS certain of it than we were. Covariance grows with time.
-    const double dt_s = pre.dt();
-    bias_cov_.block<3, 3>(0, 0) +=
-      Eigen::Matrix3d::Identity() * (bias_rw_gyro_ * bias_rw_gyro_ * dt_s);
-    bias_cov_.block<3, 3>(3, 3) +=
-      Eigen::Matrix3d::Identity() * (bias_rw_accel_ * bias_rw_accel_ * dt_s);
-
-    // PREDICT. This replaces the constant-velocity guess outright: it integrates the
-    // accelerometer rather than assuming the acceleration was zero.
-    const NavState guess = predictState(state_, pre, gravity_);
-
-    // Bootstrap: the first scan defines the origin. Keep the gravity-aligned attitude
-    // from init, zero translation -- there is nothing to align against yet.
-    if (map_->empty()) {
-      RCLCPP_INFO(get_logger(), "first scan: seeding map, origin defined");
-      last_rmse_ = 0.0;
-      last_corr_ = 0;
-      return true;
-    }
-
-    const TightResult r = alignTightlyCoupled(
-      *scan, *map_, state_, pre, gravity_, guess, bias_cov_.inverse(), tight_params_);
-    last_rmse_ = r.rmse;
-    last_corr_ = r.correspondences;
-
-    if (!r.valid || r.rmse > max_rmse_) {
-      RCLCPP_WARN(
-        get_logger(),
-        "tight solve rejected (%s, rmse %.3f, %d corr) -- coasting on IMU, scan NOT added",
-        r.valid ? "residual too large" : "under-constrained", r.rmse, r.correspondences);
-      // Coast on the IMU prediction. Note this is a REAL dead-reckon now (velocity and
-      // bias are states, driven by the accelerometer), not a constant-velocity guess.
-      commitState(guess);
-      return false;
-    }
-
-    // POSTERIOR: fold in what this solve actually learned about the biases.
-    //
-    //     P_posterior = (P_prior^-1 + H_bias)^-1
-    //
-    // THIS is the difference between a filter and a one-shot factor. Without it the
-    // estimator can never become more certain of a bias than it was at startup, so a
-    // quantity only the data can reveal -- the accel bias -- stays frozen at its initial
-    // guess forever, and every error it causes is permanent.
-    const Eigen::Matrix<double, 6, 6> posterior_info =
-      bias_cov_.inverse() + r.H.block<6, 6>(kIdxBg, kIdxBg);
-    const Eigen::Matrix<double, 6, 6> posterior_cov = posterior_info.inverse();
-    if (posterior_cov.allFinite()) {
-      bias_cov_ = posterior_cov;
-    }
-
-    commitState(r.state);
-    return true;
-  }
-
-  /// Reset the carried bias covariance to genuine ignorance about the accel bias.
-  void resetBiasCovariance()
-  {
-    bias_cov_.setZero();
-    bias_cov_.block<3, 3>(0, 0) =
-      Eigen::Matrix3d::Identity() * (bias_sigma0_gyro_ * bias_sigma0_gyro_);
-    bias_cov_.block<3, 3>(3, 3) =
-      Eigen::Matrix3d::Identity() * (bias_sigma0_accel_ * bias_sigma0_accel_);
-  }
-
-  /// Hand the loose path's answer to the tight solver: the pose it converged on, and --
-  /// the part that actually matters -- the VELOCITY it measured by finite-differencing.
-  /// That is the number IMU init could not observe.
-  void seedNavStateFromLoose()
-  {
-    state_ = NavState();
-    state_.R = Sophus::SO3d(Eigen::Quaterniond(pose_.linear()).normalized());
-    state_.p = pose_.translation();
-    state_.v = velocity_;
-    state_.bg = imu_init_->gyro_bias();
-    // Accel bias starts at zero -- and, crucially, starts UNCERTAIN. A static window
-    // cannot observe it, so we say so, and let the data reveal it.
-    resetBiasCovariance();
-
-    RCLCPP_INFO(
-      get_logger(),
-      "tight coupling engaged after %d warm-up scans. seeded v = [%+.2f %+.2f %+.2f] m/s "
-      "(|v| = %.2f) -- IMU init could not observe this.",
-      tight_warmup_scans_, state_.v.x(), state_.v.y(), state_.v.z(), state_.v.norm());
-  }
-
-  /// Commit a nav state and mirror it into pose_/velocity_, which the map insert, the
-  /// odometry publisher and the TF broadcaster all read.
-  void commitState(const NavState & x)
-  {
-    state_ = x;
-    pose_.linear() = x.R.matrix();
-    pose_.translation() = x.p;
-    velocity_ = x.v;
-  }
-
-  /// [5] LOOSE registration: the IMU only proposes a guess, then ICP solves alone.
-  /// Used when imu_prior_weight == 0 (the default). Returns false if ICP failed, in which
-  /// case we keep the IMU prediction and the scan is NOT inserted into the map.
-  bool registerScanLoose(const CloudXYZI::Ptr & scan)
-  {
-    // Bootstrap: nothing to align against. The first scan DEFINES the origin --
-    // pose_ keeps the gravity-aligned orientation from init, translation zero.
-    if (map_->empty()) {
-      RCLCPP_INFO(get_logger(), "first scan: seeding map, origin defined");
-      last_rmse_ = 0.0;
-      return true;
-    }
-
-    // --- Predict. ICP is a LOCAL optimizer: hand it a guess a few degrees off
-    // and it will happily lock onto the wrong wall and report a confident fit.
-    // Rotation comes from the gyro (accurate); translation from a constant-
-    // velocity model (off by default -- see the runaway note above).
-    const double dt = deskew_->last_scan_duration();
-    Eigen::Isometry3d guess = Eigen::Isometry3d::Identity();
-    guess.linear() = pose_.linear() * deskew_->last_delta_rot().matrix();
-    guess.translation() = use_const_vel_ ?
-      (pose_.translation() + velocity_ * dt).eval() :
-      pose_.translation();
-
-    const auto r = alignPointToPlane(*scan, *map_, guess, reg_params_);
-    last_rmse_ = r.rmse;
-    last_corr_ = r.correspondences;
-
-    // Trust `valid` (enough correspondences + finite solve) and the residual --
-    // NOT `converged`. Hitting max_iterations is not failure: ICP routinely
-    // plateaus above eps while sitting on a perfectly good fit, and rejecting
-    // those threw away good poses and froze the estimator.
-    if (!r.valid || r.rmse > max_rmse_) {
-      RCLCPP_WARN(
-        get_logger(),
-        "ICP rejected (%s, rmse %.3f, %d corr) -- coasting, scan NOT added to map",
-        r.valid ? "residual too large" : "under-constrained",
-        r.rmse, r.correspondences);
-      // Coast on the prediction. The pose is now a guess, so the scan must NOT
-      // go into the map -- see processOne().
-      updatePose(guess, dt);
-      return false;
-    }
-
-    if (!r.converged) {
-      RCLCPP_DEBUG(
-        get_logger(), "ICP hit max_iterations (rmse %.3f) -- accepting anyway", r.rmse);
-    }
-
-    updatePose(r.pose, dt);
-    return true;
-  }
-
-  /// Commit a new pose and refresh the constant-velocity estimate.
-  void updatePose(const Eigen::Isometry3d & new_pose, double dt)
-  {
-    if (dt > 1e-6) {
-      velocity_ = (new_pose.translation() - pose_.translation()) / dt;
-    }
-    pose_ = new_pose;
-    // Re-orthonormalize: repeated float<->double round trips through PCL slowly
-    // erode the rotation block away from SO(3).
-    Eigen::Quaterniond q(pose_.linear());
-    pose_.linear() = q.normalized().toRotationMatrix();
-  }
-
   void publishOdom(const std_msgs::msg::Header & header)
   {
-    const Eigen::Quaterniond q(pose_.linear());
-    const Eigen::Vector3d & t = pose_.translation();
+    const Eigen::Quaterniond q(estimator_->pose().linear());
+    const Eigen::Vector3d & t = estimator_->pose().translation();
 
     nav_msgs::msg::Odometry odom;
     odom.header.stamp = header.stamp;
@@ -867,7 +517,8 @@ private:
     odom.pose.pose.orientation.z = q.z();
     odom.pose.pose.orientation.w = q.w();
     // Velocity is in the world frame; twist is specified in child_frame_id.
-    const Eigen::Vector3d v_body = pose_.linear().transpose() * velocity_;
+    const Eigen::Vector3d v_body =
+      estimator_->pose().linear().transpose() * estimator_->velocity();
     odom.twist.twist.linear.x = v_body.x();
     odom.twist.twist.linear.y = v_body.y();
     odom.twist.twist.linear.z = v_body.z();
@@ -911,20 +562,11 @@ private:
   /// The map lives in the world frame, not the sensor frame.
   void publishMap(const std_msgs::msg::Header & header)
   {
-    publish(pub_map_, map_->target(), header, world_frame_);
+    publish(pub_map_, estimator_->map().target(), header, world_frame_);
   }
 
   std::string lidar_topic_, imu_topic_, output_frame_, world_frame_;
   double scan_guard_ = 0.12;
-  double voxel_leaf_ = 0.5;
-
-  // Kept so reset() can rebuild the map and initializer from scratch.
-  double map_voxel_ = 0.5, map_range_ = 100.0;
-  int map_max_pts_ = 20;
-  int map_min_pts_plane_ = LocalMap::kDefaultMinPointsForPlane;
-  double map_planarity_ = LocalMap::kDefaultPlanarityRatio;
-  int init_samples_ = 200;
-  double init_max_gyro_ = 0.1, init_max_acc_sd_ = 0.5, accel_scale_ = kGravity;
 
   // --- Callback side: sensor buffers. Never touched by the worker.
   std::mutex buf_mutex_;
@@ -948,57 +590,17 @@ private:
   std::size_t max_queue_ = 3;
   long dropped_ = 0;
 
-  std::shared_ptr<Deskew> deskew_;
+  /// [1] IMU init lives on the callback side: it gates everything and its result is handed
+  /// to the estimator over the queue (never written from a callback -- see workerLoop).
   std::unique_ptr<ImuInit> imu_init_;
-  Eigen::Quaterniond q_il_ = Eigen::Quaterniond::Identity();  ///< extrinsic lidar -> IMU
-  pcl::VoxelGrid<pcl::PointXYZI> voxel_;
-  std::unique_ptr<LocalMap> map_;
+  Eigen::Quaterniond q_il_ = Eigen::Quaterniond::Identity();   ///< extrinsic lidar -> IMU
+  double accel_scale_ = kGravity;
+  int init_samples_ = 200;
+  double init_max_gyro_ = 0.1, init_max_acc_sd_ = 0.5;
 
-  /// LIDAR pose in the world frame, set by registration each scan.
-  Eigen::Isometry3d pose_ = Eigen::Isometry3d::Identity();
-  /// World-frame linear velocity, from the last pose delta. Feeds the prediction.
-  Eigen::Vector3d velocity_ = Eigen::Vector3d::Zero();
-
-  /// Has the map ever supported a successful registration? Until it has, it is
-  /// too sparse to align against and we must keep feeding it (see processOne).
-  bool map_bootstrapped_ = false;
-
-  RegistrationParams reg_params_;
-  double max_rmse_ = 0.5;
-  double last_rmse_ = 0.0;
-  int last_corr_ = 0;
-  bool use_const_vel_ = true;
-
-  // --- Tight coupling. Worker-owned, like the rest of the estimator.
-  bool use_tight_ = true;
-  TightParams tight_params_;
-  double gyro_noise_ = 1.7e-3;
-  /// Scans to run LOOSE before engaging the IMU, so ICP can measure the velocity that
-  /// IMU init cannot observe. See processOne().
-  int tight_warmup_scans_ = 10;
-  int scans_done_ = 0;
-  /// Scan-end time of the previous processed scan: the lower edge of the IMU factor's
-  /// integration window. -1 until the first tight scan.
-  mutable double prev_scan_end_ = -1.0;
-  double accel_noise_ = 2.0e-2;
-  double bias_rw_gyro_ = 1e-4, bias_rw_accel_ = 1e-3;
-  double bias_sigma0_gyro_ = 0.01, bias_sigma0_accel_ = 0.3;
-  /// Covariance of the bias estimate, CARRIED ACROSS SCANS: it grows by the random walk
-  /// and shrinks by what each solve learns. Starting it LOOSE is what lets the accel bias
-  /// -- which a static window cannot observe at all -- actually be discovered from data.
-  /// Without this the bias is frozen at its initial guess and every error it causes is
-  /// permanent: a factor, not a filter.
-  Eigen::Matrix<double, 6, 6> bias_cov_ = Eigen::Matrix<double, 6, 6>::Identity();
-  /// The 15-DoF state (R, p, v, b_g, b_a). In tight mode this is the source of truth
-  /// and pose_/velocity_ are views onto it; in loose mode it is unused.
-  NavState state_;
-  /// Gravity in the WORLD frame. The world is gravity-aligned at init, so this is
-  /// straight down -- but with the MAGNITUDE we actually measured, not 9.80665, because
-  /// the accelerometer's scale factor is what the estimator will be fighting.
-  Eigen::Vector3d gravity_{0.0, 0.0, -kGravity};
-
-  /// An IMU gap longer than this is a hole in the stream, not a sample interval.
-  static constexpr double kMaxImuGapSec = 0.1;
+  /// STAGES [3]-[6]. The node does not run the pipeline; it owns the thing that does.
+  /// Worker thread only.
+  std::unique_ptr<LioEstimator> estimator_;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_lidar_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;

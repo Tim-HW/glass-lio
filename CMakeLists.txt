@@ -38,6 +38,7 @@ add_library(lio SHARED
   src/lio/deskew.cpp
   src/lio/gyr_int.cpp
   src/lio/imu_init.cpp
+  src/lio/lio_estimator.cpp
   src/lio/local_map.cpp
   src/lio/preintegration.cpp
   src/lio/registration.cpp
