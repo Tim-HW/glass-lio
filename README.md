@@ -93,33 +93,6 @@ colcon test  --packages-select glasslio
 It wraps the *same* [`docker/Dockerfile`](docker/Dockerfile) — the devcontainer is a
 convenience, not a second source of truth.
 
-### RViz, X11 and the GPU
-
-On a **Linux host**, `./docker/run.sh` handles the X11 plumbing and passes the GPU through
-when there is one. On **macOS/Windows**, run headless:
-`./docker/run.sh ./src/glasslio/scripts/run_bag.sh -n`.
-
-If RViz greets you with:
-
-```
-MESA: error: Failed to query drm device.
-glx: failed to create dri3 screen
-failed to load driver: iris
-```
-
-…that is not a broken install. The container simply cannot see the host GPU (`/dev/dri`),
-so Mesa tries the hardware driver and fails. Two ways out:
-
-- **`./docker/run.sh`** detects `/dev/dri`, passes it through with the right group, and
-  falls back to software rendering only when there is none. Hardware GL, full speed.
-- **The devcontainer** sets `LIBGL_ALWAYS_SOFTWARE=1` instead, because a `devcontainer.json`
-  cannot probe the host — and hard-coding `--device=/dev/dri` would stop the container
-  starting at all on any machine without one (macOS, Windows, CI). It always works; for a
-  point-cloud viewer, you will feel that it is slower. Want hardware GL in VS Code? Add
-  `"--device=/dev/dri"` to `runArgs` — just know it makes the container Linux-only.
-
-(The companion `QStandardPaths: XDG_RUNTIME_DIR not set` warning is Qt noise; the image
-sets that directory, so you should not see it.)
 
 ### Or on a host with ROS 2 Jazzy
 
