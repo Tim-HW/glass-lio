@@ -57,6 +57,66 @@
       # accelerating away with a healthy rmse, this is the first thing to turn off.
       use_constant_velocity: true
 
+      # --- TIGHT COUPLING -------------------------------------------------------
+      # Selects the estimator outright:
+      #
+      #   0    LOOSE  -- the IMU predicts, then ICP solves and the IMU gets no vote.
+      #                  6-DoF SE(3) solve. The historical path, kept as a directly
+      #                  comparable baseline. Velocity and biases are unobservable
+      #                  without IMU information, so they are not estimated at all.
+      #   > 0  TIGHT   -- one joint 15-DoF solve (R, p, v, b_g, b_a). The IMU becomes a
+      #                  prior residual in the SAME normal equations as the LiDAR:
+      #                  H = P^-1 + sum(J^T J / sigma^2). Where the geometry is
+      #                  degenerate (a corridor), the LiDAR term has a null space and
+      #                  the IMU is the only thing there -- so it takes over exactly
+      #                  where it is needed, with no mode switch.
+      #
+      # 1.0 means "trust the IMU exactly as far as its own propagated covariance says".
+      #
+      # *** DEFAULT 0 (LOOSE). The tight path is NOT production-ready yet. ***
+      #
+      # Its MATH is verified -- test_preintegration, test_nav_residual and test_tight all
+      # pass, every Jacobian is pinned against finite differences, and on a synthetic
+      # corridor it recovers the unobservable axis the LiDAR cannot see (0.40 m -> 0.00 m).
+      #
+      # But on the REAL bag it slowly diverges (Z falls quadratically), and the cause is
+      # structural, not a typo:
+      #
+      #   * We hold the previous state x_i FIXED and infinitely certain (this is odometry,
+      #     not a sliding window). An error in x_i can therefore never be corrected.
+      #   * GRAVITY IS NOT A STATE. Init measured it while the robot was already moving
+      #     (the static check cannot tell rest from constant velocity -- doc/1-imu-init.md),
+      #     so the world frame's "down" carries a small tilt error. That leaks a constant
+      #     horizontal/vertical acceleration into every integration.
+      #   * The ACCEL BIAS cannot absorb it: the bias random-walk prior's information
+      #     (~1e7) dwarfs the IMU factor's (~2e5), so b_a is effectively frozen at zero.
+      #
+      # The fix is to estimate gravity (18-DoF state) and carry x_i's covariance forward
+      # (an iterated EKF / marginalisation) instead of pretending x_i is exact. Until then
+      # this stays 0 and the loose path -- which is healthy: zero drops, zero diverged -- runs.
+      imu_prior_weight: 0.0
+
+      # Scans to run LOOSE before engaging the IMU.
+      #
+      # Tight coupling needs a VELOCITY to start from, and IMU init cannot supply one: a
+      # static window cannot tell rest from constant velocity, and on this bag the robot
+      # is already cruising at ~1.5 m/s when recording starts (see doc/1-imu-init.md).
+      # Seeding v = 0 makes the IMU factor insist the robot is stationary while the LiDAR
+      # insists otherwise -- they fight until the estimator free-falls. So we run loose
+      # first, let ICP MEASURE the velocity, then hand a correct state to the tight solver.
+      tight_warmup_scans: 10
+
+      # Std-dev of a point-to-plane measurement (m). THE knob that decides which sensor
+      # wins a disagreement.
+      #
+      # In the loose path this was irrelevant: with one sensor, a global scale on the
+      # residuals cancels out of H xi = b. The moment the IMU enters the same normal
+      # equations it stops being arbitrary. Leave it at 1.0 (i.e. omit it) and you are
+      # declaring each laser return accurate to a METRE, while the IMU's covariance
+      # claims millimetres -- and the IMU then wins every argument, including the ones
+      # it should lose.
+      lidar_sigma: 0.05
+
     # Local map: the accumulated world geometry each scan is registered against.
     map:
       # Voxel size (m) of the map's hash grid, and the resolution of the planes
@@ -68,15 +128,63 @@
       # under-constrained. Also keep it >= max_correspondence_distance so the
       # 27-cell neighbourhood search actually covers that radius.
       voxel_size: 1.0
-      # Density cap per voxel. This IS the map's downsampling — points landing in
-      # a full voxel are dropped, so the map never needs re-quantizing.
+      # Density cap per voxel. This IS the map's downsampling. A full voxel does not
+      # simply drop new points -- it RESERVOIR-SAMPLES them, keeping a uniform random
+      # subset of everything it has ever seen. "Keep the first N" is not spatially
+      # neutral: with an ordered input it retains a thin slab of the voxel, and PCA then
+      # fits a plane to the SLAB rather than the surface. See doc/6-local-map.md.
       max_points_per_voxel: 20
+
+      # --- THE PLANARITY GATE. Which voxels are allowed to produce a plane at all, and
+      # therefore how many correspondences ICP gets and how much each can be trusted.
+      #
+      # PCA gives every voxel a "normal" whether or not one exists. A voxel full of
+      # foliage is a blob; a voxel on a building corner is an edge. The normal fitted to
+      # either is pure noise -- and a noisy normal is WORSE than no correspondence,
+      # because ICP weights it exactly like a good one.
+      #
+      # The gate: the smallest eigenvalue must be <= planarity_ratio * the middle one,
+      # i.e. the spread ACROSS the surface must be small compared with the spread ALONG
+      # it.
+      #
+      #   TIGHTEN (e.g. 0.05) in vegetation / clutter: blobs are sneaking through and
+      #                       injecting garbage normals.
+      #   LOOSEN  (e.g. 0.2)  in sparse indoor scenes: too few planes are forming and the
+      #                       solve is starved of constraints.
+      #
+      # This is the knob to reach for when the rmse looks fine but the pose feels mushy.
+      planarity_ratio: 0.1
+
+      # Points a voxel needs before PCA is even attempted. PCA needs >= 3 to fit anything;
+      # 5 is a robustness margin. Note the coupling: this is why map.voxel_size must be
+      # comfortably COARSER than voxel_leaf_size -- at ~1 point per voxel no plane ever
+      # forms and ICP is permanently under-constrained.
+      min_points_for_plane: 5
       # Radius (m) around the current pose to retain. Geometry beyond this cannot
       # constrain the current alignment; dropping it bounds memory and the cost of
       # per-scan registration cost, which is now O(scan), not O(map).
       max_range: 100.0
 
     imu:
+      # --- Noise densities. These set how far the preintegrated IMU delta is trusted,
+      # and therefore how it weighs against the LiDAR. Datasheet numbers first, then
+      # tuned on real data -- they are a physical property of the part, not a knob to
+      # turn until the output looks nice.
+      #
+      # MEMS-grade (what a Mid-360 contains). Plug in navigation-grade numbers
+      # (accel ~1e-3) and the IMU's information over half a second genuinely EXCEEDS a
+      # few thousand point-to-plane constraints -- it will then override good geometry,
+      # and it would be RIGHT to. Which sensor is believed is decided by physics.
+      gyro_noise: 1.7e-3       # rad/s/sqrt(Hz)
+      accel_noise: 2.0e-2      # m/s^2/sqrt(Hz)
+
+      # Bias random walk: how fast a bias is physically allowed to drift. This is what
+      # stops the biases absorbing real motion in the (common) case where they are
+      # unobservable -- with no rotation and no acceleration, a gyro bias and a genuine
+      # slow turn look identical, and only this prior separates them.
+      bias_rw_gyro: 1.0e-4     # rad/s
+      bias_rw_accel: 1.0e-3    # m/s^2
+
       # The Livox driver publishes linear_acceleration in *g*, NOT m/s^2 -- this
       # violates the sensor_msgs/Imu spec. Measured on the test bag: |accel| at
       # rest = 0.997 (would be 9.81 if it were SI). Leave true for Livox.
@@ -102,7 +210,7 @@
       #
       # This is the sensor-to-sensor extrinsic INSIDE the Mid-360, not the robot
       # mount. It is a correctness input to the estimator: get it wrong and the
-      # IMU and LiDAR constraints actively disagree. See doc/deskew.md sec. 5.
+      # IMU and LiDAR constraints actively disagree. See doc/3-deskew.md sec. 5.
       lidar_to_imu:
         # Mid-360: the internal IMU axes are aligned with the lidar frame, so this
         # identity is genuinely correct, not a placeholder.

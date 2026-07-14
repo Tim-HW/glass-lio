@@ -58,6 +58,7 @@ CloudXYZI::Ptr ImuProcess::Process(const MeasureGroup & meas)
   const SO3d R_end = lidar_rot_at(t1);
   last_delta_rot_ = R_end;
   last_dt_ = t1 - t0;
+  last_t1_ = t1;
 
   // Compensate every point into the scan-end frame:
   //   p_end = R_L(t1)^{-1} * R_L(t_i) * p_i

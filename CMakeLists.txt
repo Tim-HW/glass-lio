@@ -21,7 +21,9 @@ find_package(pcl_conversions REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(PCL REQUIRED COMPONENTS common io filters registration)
+# No `registration` component: PCL's GICP is gone, replaced by our own
+# point-to-plane ICP over the voxel map (see doc/pipeline.md).
+find_package(PCL REQUIRED COMPONENTS common io filters)
 
 include_directories(
   include
@@ -37,7 +39,9 @@ add_library(lio SHARED
   src/lio/gyr_int.cpp
   src/lio/imu_init.cpp
   src/lio/local_map.cpp
-  src/lio/registration.cpp)
+  src/lio/preintegration.cpp
+  src/lio/registration.cpp
+  src/lio/tight_registration.cpp)
 target_include_directories(lio PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -74,7 +78,7 @@ if(BUILD_TESTING)
   #
   # CRITICAL: -UNDEBUG. Release builds define NDEBUG, which compiles assert()
   # out entirely -- the tests would then pass while checking nothing at all.
-  foreach(t test_local_map test_registration test_imu_init)
+  foreach(t test_local_map test_registration test_imu_init test_jacobian test_preintegration test_nav_residual test_tight)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} lio ${PCL_LIBRARIES})
     target_compile_options(${t} PRIVATE -UNDEBUG)
