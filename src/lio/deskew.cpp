@@ -1,4 +1,4 @@
-#include "glasslio/data_process.h"
+#include "glasslio/deskew.hpp"
 
 #include <limits>
 
@@ -11,10 +11,10 @@ namespace glasslio
 
 using Sophus::SO3d;
 
-ImuProcess::ImuProcess(rclcpp::Logger logger)
+Deskew::Deskew(rclcpp::Logger logger)
 : R_il_(SO3d()), logger_(logger) {}
 
-CloudXYZI::Ptr ImuProcess::Process(const MeasureGroup & meas)
+CloudXYZI::Ptr Deskew::Process(const MeasureGroup & meas)
 {
   if (meas.imu.empty() || meas.lidar == nullptr) {
     return nullptr;

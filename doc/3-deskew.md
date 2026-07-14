@@ -3,7 +3,7 @@
 Phase 1 of the LIO pipeline. Removes the *rotational* distortion a moving LiDAR
 bakes into every scan, using the IMU gyroscope.
 
-Code: [`src/lio/data_process.cpp`](../src/lio/data_process.cpp) (deskew),
+Code: [`src/lio/deskew.cpp`](../src/lio/deskew.cpp) (deskew),
 [`src/lio/gyr_int.cpp`](../src/lio/gyr_int.cpp) (gyro integration),
 [`src/glasslio_node.cpp`](../src/glasslio_node.cpp) (buffering / sync).
 
@@ -74,7 +74,7 @@ Two traps, both of which we hit:
    to the range endpoint, and the deskew silently becomes a **no-op**. The
    tell-tale symptom was a reported scan duration of `~1e8 s`.
 
-Hence, in `data_process.cpp`:
+Hence, in `deskew.cpp`:
 
 ```cpp
 auto pt_sec = [](const LivoxPoint & p) {return p.timestamp * 1e-9;};
@@ -101,7 +101,7 @@ exponential map, which converts a rotation *vector* (axis × angle, an element o
 the tangent space `so(3)`) into a rotation:
 
 $$
-\operatorname{Exp} : \mathbb{R}^3 \longrightarrow SO(3)
+\mathrm{Exp} : \mathbb{R}^3 \longrightarrow SO(3)
 $$
 
 ### The integration
@@ -117,7 +117,7 @@ $$
 &&\text{gyro bias, from ImuInit} \\
 \Delta\boldsymbol{\theta}_k &= \Delta t \cdot \tfrac{1}{2}\left(\boldsymbol{\omega}_k + \boldsymbol{\omega}_{k-1}\right)
 &&\text{rotation vector for this step (trapezoidal)} \\
-\mathbf{R}_k &= \mathbf{R}_{k-1} \cdot \operatorname{Exp}(\Delta\boldsymbol{\theta}_k)
+\mathbf{R}_k &= \mathbf{R}_{k-1} \cdot \mathrm{Exp}(\Delta\boldsymbol{\theta}_k)
 &&\text{compose ON the manifold}
 \end{aligned}
 $$
@@ -185,7 +185,7 @@ auto lidar_rot_at = [&](double t) {
 ```
 
 `R_il` is loaded from `extrinsic.lidar_to_imu.quat_xyzw` in the config and applied
-via `ImuProcess::set_extrinsic(q)`.
+via `Deskew::set_extrinsic(q)`.
 
 For the **Mid-360 it is genuinely identity** — the internal IMU axes are aligned
 with the lidar frame — so the expression degenerates to `R_L(t) = R_I(t)`. That is

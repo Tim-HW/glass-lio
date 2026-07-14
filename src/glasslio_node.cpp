@@ -18,7 +18,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
-#include "glasslio/data_process.h"
+#include "glasslio/deskew.hpp"
 #include "glasslio/imu_init.hpp"
 #include "glasslio/local_map.hpp"
 #include "glasslio/nav_state.hpp"
@@ -32,8 +32,20 @@ namespace glasslio
 
 /// LiDAR-inertial odometry node.
 ///
-/// Pipeline per scan:
-///   sync(lidar, imu) -> deskew -> downsample -> [register -> odom]
+/// The pipeline, numbered as doc/pipeline.md numbers it:
+///
+///   [1] IMU init      gate: nothing runs until it completes   (callback side)
+///   [2] sync          pair a scan with the IMU spanning it    (callback side)
+///        |
+///        v            <-- the MeasureGroup handed to the worker IS stages 1+2
+///   [3] deskew        undo intra-scan rotation on SO(3)
+///   [4] downsample    voxel grid, ICP source only            processOne(),
+///   [5] register      point-to-plane ICP -> the pose         worker thread
+///   [6] local map     insert the aligned scan; it is [5]'s target
+///   [7] output        /odom + TF, debug clouds
+///
+/// processOne() is deliberately nothing but that list. Every "why" lives in the stage it
+/// belongs to.
 ///
 /// Deskew and downsample are stages inside this node, not separate nodes: the
 /// intermediate clouds are only ever consumed here, so publishing them would
@@ -46,7 +58,7 @@ namespace glasslio
 /// its whole duration, turning a latency problem into DATA LOSS. A worker thread
 /// now consumes synced measurement groups, so sensor intake never stalls.
 ///
-/// Ownership: `pose_`, `map_`, `imu_proc_` and `voxel_` are touched ONLY by the
+/// Ownership: `pose_`, `map_`, `deskew_` and `voxel_` are touched ONLY by the
 /// worker. The buffers are touched only under `buf_mutex_`. The queue between
 /// them is the single hand-off point.
 class GlassLioNode : public rclcpp::Node
@@ -94,8 +106,8 @@ public:
     // The translation is VALIDATED (a malformed extrinsic must fail loudly at startup)
     // but not stored: deskew is rotation-only, and nothing else reads it yet.
     parseVec3(t_xyz);
-    imu_proc_ = std::make_shared<ImuProcess>(get_logger());
-    imu_proc_->set_extrinsic(q_il_);
+    deskew_ = std::make_shared<Deskew>(get_logger());
+    deskew_->set_extrinsic(q_il_);
 
     init_samples_ = init_samples;
     init_max_gyro_ = init_max_gyro;
@@ -332,7 +344,7 @@ private:
   }
 
   /// Publish the init result to the worker, which owns the estimator. Callback
-  /// thread: it must not write pose_ or imu_proc_ itself (see reset()).
+  /// thread: it must not write pose_ or deskew_ itself (see reset()).
   void onInitialized()
   {
     // The world frame is gravity-aligned (Z up). The initial LIDAR pose is
@@ -458,7 +470,7 @@ private:
           lock.unlock();
 
           pose_ = init_pose;
-          imu_proc_->set_gyro_bias(init_bias);
+          deskew_->set_gyro_bias(init_bias);
 
           // Seed the 15-DoF state from the init result. Velocity starts at zero and the
           // accel bias at zero: neither is observable from a static window, and the
@@ -478,81 +490,126 @@ private:
   }
 
   /// The pipeline for one measurement group. Worker thread only.
+  ///
+  /// This function is deliberately nothing but the pipeline, in the order the docs number
+  /// it (doc/pipeline.md). Stages 1 and 2 -- IMU init and sync -- already happened on the
+  /// callback side; a MeasureGroup arriving here IS the product of those two. Every "why"
+  /// below lives in the stage it belongs to, so that this reads as the table of contents.
   void processOne(const MeasureGroup & meas)
   {
-    // --- Stage 3: deskew (motion compensation, see doc/3-deskew.md) ---
-    auto deskewed = imu_proc_->Process(meas);
+    // --- [3] DESKEW: undo the intra-scan rotation (doc/3-deskew.md) ---
+    const CloudXYZI::Ptr deskewed = deskew_->Process(meas);
     if (!deskewed || deskewed->empty()) {
       return;
     }
 
-    // --- Stage 2: downsample ---
-    CloudXYZI::Ptr downsampled(new CloudXYZI());
-    voxel_.setInputCloud(deskewed);
-    voxel_.filter(*downsampled);
+    // --- [4] DOWNSAMPLE: fewer points for ICP to chew (doc/4-downsample.md) ---
+    const CloudXYZI::Ptr downsampled = downsample(deskewed);
 
-    // --- Stage 5: register against the local map -> pose_ ---
-    //
-    // TIGHT COUPLING NEEDS A VELOCITY TO START FROM, and IMU init cannot give it one.
-    // A static window cannot tell REST from CONSTANT VELOCITY -- both show zero rotation
-    // and zero acceleration variance (see doc/1-imu-init.md). On this bag the robot is
-    // already cruising at ~1.5 m/s when recording starts, and init duly reports "static"
-    // and seeds v = 0.
-    //
-    // Loose coupling shrugs that off: velocity is only a prior there, and it
-    // self-corrects by finite-differencing poses. Tight coupling CANNOT, because it
-    // holds x_i FIXED -- so a wrong v_i is treated as CERTAIN, and the IMU factor spends
-    // every scan insisting the robot is stationary while the LiDAR insists it is not.
-    // The two fight, the residual grows, correspondences collapse, and the estimator
-    // free-falls on dead reckoning. (Observed: 532/691 scans rejected, pose to +6 km.)
-    //
-    // So: run LOOSE for the first few scans, let ICP measure the velocity, and only then
-    // hand a *correct* initial state to the tight solver.
+    // --- [5] REGISTER: align against the local map -> pose_ (doc/5-registration.md) ---
+    const bool ok = registerScan(downsampled, meas);
+
+    // --- [6] LOCAL MAP: fold the aligned scan back in (doc/6-local-map.md) ---
+    insertIntoMap(deskewed, ok);
+
+    // --- [7] OUTPUT: odom, TF, debug clouds ---
+    logScan(*deskewed, *downsampled, ok);
+    publishAll(meas, deskewed, downsampled);
+  }
+
+  /// [4] Voxel-grid downsample. Feeds ICP only -- the MAP gets the dense cloud, see
+  /// insertIntoMap().
+  CloudXYZI::Ptr downsample(const CloudXYZI::Ptr & cloud)
+  {
+    CloudXYZI::Ptr out(new CloudXYZI());
+    voxel_.setInputCloud(cloud);
+    voxel_.filter(*out);
+    return out;
+  }
+
+  /// [5] Register, loose or tight, and hand back whether the pose can be trusted.
+  ///
+  /// TIGHT COUPLING NEEDS A VELOCITY TO START FROM, and IMU init cannot give it one: a
+  /// static window cannot tell REST from CONSTANT VELOCITY -- both show zero rotation and
+  /// zero acceleration variance (doc/1-imu-init.md). On this bag the robot is already
+  /// cruising at ~1.5 m/s when recording starts, so init reports "static" and seeds v = 0.
+  ///
+  /// Loose coupling shrugs that off: velocity is only a prior there, and it self-corrects
+  /// by finite-differencing poses. Tight coupling CANNOT, because it holds x_i FIXED -- a
+  /// wrong v_i is treated as CERTAIN, so the IMU factor spends every scan insisting the
+  /// robot is stationary while the LiDAR insists otherwise. They fight, the residual grows,
+  /// correspondences collapse, and the estimator free-falls on dead reckoning. (Observed:
+  /// 532/691 scans rejected, pose to +6 km.)
+  ///
+  /// So run LOOSE for the first few scans, let ICP MEASURE the velocity, and only then hand
+  /// a correct initial state to the tight solver.
+  bool registerScan(const CloudXYZI::Ptr & scan, const MeasureGroup & meas)
+  {
     const bool warming_up = use_tight_ && scans_done_ < tight_warmup_scans_;
-    const bool ok = (use_tight_ && !warming_up)
-      ? registerScanTight(downsampled, meas)
-      : registerScan(downsampled);
+
+    const bool ok = (use_tight_ && !warming_up) ?
+      registerScanTight(scan, meas) :
+      registerScanLoose(scan);
 
     if (warming_up && scans_done_ + 1 == tight_warmup_scans_) {
       seedNavStateFromLoose();
     }
     ++scans_done_;
+    return ok;
+  }
 
-    // --- Stage 4: fold the aligned scan into the map, in the world frame ---
-    //
-    // Insert only if we trust the pose. A scan placed at a known-wrong pose
-    // POISONS the map -- and the map is what the NEXT scan registers against, so
-    // the error compounds into a death spiral: pose freezes, the robot keeps
-    // moving, each frozen-pose scan corrupts the map further, correspondences
-    // collapse, and it never recovers.
-    //
-    // EXCEPT while bootstrapping. Until the map has supported one successful
-    // registration it is too sparse to register against (a voxel needs >= 5 points
-    // before PCA yields a plane), so refusing to insert would deadlock: sparse map
-    // -> ICP under-constrained -> no insert -> map stays sparse, forever. During
-    // bootstrap we dead-reckon on the IMU prior and keep feeding the map.
-    if (ok) {
+  /// [6] Fold the aligned scan into the map, in the world frame.
+  ///
+  /// Insert ONLY if we trust the pose. A scan placed at a known-wrong pose POISONS the map
+  /// -- and the map is what the NEXT scan registers against, so the error compounds into a
+  /// death spiral: the pose freezes, the robot keeps moving, each frozen-pose scan corrupts
+  /// the map further, correspondences collapse, and it never recovers.
+  ///
+  /// EXCEPT while bootstrapping. Until the map has supported one successful registration it
+  /// is too sparse to register against (a voxel needs >= 5 points before PCA yields a
+  /// plane), so refusing to insert would deadlock: sparse map -> ICP under-constrained ->
+  /// no insert -> map stays sparse, forever. During bootstrap we dead-reckon on the IMU
+  /// prior and keep feeding the map anyway.
+  void insertIntoMap(const CloudXYZI::Ptr & deskewed, bool pose_trusted)
+  {
+    if (pose_trusted) {
       map_bootstrapped_ = true;
     }
-    if (ok || !map_bootstrapped_) {
-      // Feed the map the DENSE cloud, not the downsampled one. Downsampling is an
-      // ICP *source* optimisation; the map is the plane-fitting *target* and needs
-      // the density. At a 0.5 m leaf the downsampled cloud gives ~1 point per map
-      // voxel -- never enough for a plane.
-      CloudXYZI::Ptr scan_world(new CloudXYZI());
-      pcl::transformPointCloud(*deskewed, *scan_world, pose_.matrix());
-      map_->insert(*scan_world);
-      map_->prune(pose_.translation());
+    if (!pose_trusted && map_bootstrapped_) {
+      return;
     }
 
+    // Feed the map the DENSE cloud, not the downsampled one. Downsampling is an ICP
+    // *source* optimisation; the map is the plane-fitting *target* and needs the density.
+    // At a 0.5 m leaf the downsampled cloud gives ~1 point per map voxel -- never enough
+    // for a plane.
+    CloudXYZI::Ptr scan_world(new CloudXYZI());
+    pcl::transformPointCloud(*deskewed, *scan_world, pose_.matrix());
+    map_->insert(*scan_world);
+    map_->prune(pose_.translation());
+  }
+
+  /// [7] One line per scan. `map N vox` is the health check: with a correct pose the voxel
+  /// count PLATEAUS (the same geometry re-observed lands in the same voxels). Climbing
+  /// without bound means the same wall is being re-inserted at slightly wrong places --
+  /// i.e. the pose is drifting. See doc/6-local-map.md.
+  void logScan(const CloudXYZI & deskewed, const CloudXYZI & downsampled, bool ok)
+  {
     const Eigen::Vector3d & t = pose_.translation();
     RCLCPP_INFO(
       get_logger(),
       "scan %zu->%zu | pose [%+.2f %+.2f %+.2f] | rmse %.3f (%d corr)%s | map %zu vox | q %zu",
-      deskewed->size(), downsampled->size(),
+      deskewed.size(), downsampled.size(),
       t.x(), t.y(), t.z(), last_rmse_, last_corr_, ok ? "" : " (DIVERGED)",
       map_->num_voxels(), queueSize());
+  }
 
+  /// [7] Odometry + TF, and the debug clouds (which skip serialization when unsubscribed).
+  void publishAll(
+    const MeasureGroup & meas,
+    const CloudXYZI::Ptr & deskewed,
+    const CloudXYZI::Ptr & downsampled)
+  {
     publishOdom(meas.lidar->header);
     publish(pub_deskewed_, deskewed, meas.lidar->header);
     publish(pub_downsampled_, downsampled, meas.lidar->header);
@@ -620,10 +677,10 @@ private:
   {
     // The pose refers to the scan-END instant (deskew compensates there), so the IMU
     // factor must span previous-scan-end -> this-scan-end. Nothing else is coherent.
-    const double t_end = imu_proc_->last_scan_end();
-    const double t_begin = (prev_scan_end_ > 0.0)
-      ? prev_scan_end_
-      : t_end - imu_proc_->last_scan_duration();
+    const double t_end = deskew_->last_scan_end();
+    const double t_begin = (prev_scan_end_ > 0.0) ?
+      prev_scan_end_ :
+      t_end - deskew_->last_scan_duration();
 
     const ImuPreintegration pre = buildPreintegration(meas, t_begin, t_end);
     if (pre.dt() <= 0.0) {
@@ -728,10 +785,10 @@ private:
     velocity_ = x.v;
   }
 
-  /// Align `scan` (sensor frame) to the local map and update pose_.
-  /// Returns false if ICP failed, in which case we keep the IMU prediction.
-  /// LOOSE path: used when imu_prior_weight == 0. Kept intact as the baseline.
-  bool registerScan(const CloudXYZI::Ptr & scan)
+  /// [5] LOOSE registration: the IMU only proposes a guess, then ICP solves alone.
+  /// Used when imu_prior_weight == 0 (the default). Returns false if ICP failed, in which
+  /// case we keep the IMU prediction and the scan is NOT inserted into the map.
+  bool registerScanLoose(const CloudXYZI::Ptr & scan)
   {
     // Bootstrap: nothing to align against. The first scan DEFINES the origin --
     // pose_ keeps the gravity-aligned orientation from init, translation zero.
@@ -745,9 +802,9 @@ private:
     // and it will happily lock onto the wrong wall and report a confident fit.
     // Rotation comes from the gyro (accurate); translation from a constant-
     // velocity model (off by default -- see the runaway note above).
-    const double dt = imu_proc_->last_scan_duration();
+    const double dt = deskew_->last_scan_duration();
     Eigen::Isometry3d guess = Eigen::Isometry3d::Identity();
-    guess.linear() = pose_.linear() * imu_proc_->last_delta_rot().matrix();
+    guess.linear() = pose_.linear() * deskew_->last_delta_rot().matrix();
     guess.translation() = use_const_vel_ ?
       (pose_.translation() + velocity_ * dt).eval() :
       pose_.translation();
@@ -938,7 +995,7 @@ private:
   std::size_t max_queue_ = 3;
   long dropped_ = 0;
 
-  std::shared_ptr<ImuProcess> imu_proc_;
+  std::shared_ptr<Deskew> deskew_;
   std::unique_ptr<ImuInit> imu_init_;
   Eigen::Quaterniond q_il_ = Eigen::Quaterniond::Identity();  ///< extrinsic lidar -> IMU
   pcl::VoxelGrid<pcl::PointXYZI> voxel_;

@@ -1,5 +1,5 @@
-#ifndef GLASSLIO_DATA_PROCESS_H
-#define GLASSLIO_DATA_PROCESS_H
+#ifndef GLASSLIO_DESKEW_HPP
+#define GLASSLIO_DESKEW_HPP
 
 #include <vector>
 
@@ -8,7 +8,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include "sophus/se3.hpp"
 
-#include "glasslio/gyr_int.h"
+#include "glasslio/gyr_int.hpp"
 #include "glasslio/livox_point.hpp"
 
 namespace glasslio
@@ -29,20 +29,25 @@ struct MeasureGroup
   std::vector<sensor_msgs::msg::Imu::ConstSharedPtr> imu;
 };
 
-/// Rotation-only motion compensation (deskew) driven by integrated gyro.
+/// [3] DESKEW -- rotation-only motion compensation, driven by the integrated gyro.
+/// See doc/3-deskew.md.
 ///
-/// Per-point time comes from the LivoxPoint `timestamp` field (absolute
-/// nanoseconds). Every point is rotated into the scan-end frame using the gyro
-/// orientation interpolated at that point's exact acquisition time.
+/// A scan is not a snapshot: a Livox at 10 Hz spends ~100 ms sweeping, and every point is
+/// measured with the sensor at a different orientation. Uncorrected, the error at range r
+/// is ~ r * dtheta -- about 2 m at 40 m on this bag.
 ///
-/// Translational distortion is intentionally NOT compensated in Phase 1: that
-/// needs a velocity estimate, which arrives with the registration loop (Phase 2).
-class ImuProcess
+/// Per-point time comes from the LivoxPoint `timestamp` field (absolute NANOSECONDS -- not
+/// from `intensity`, which is genuine reflectivity here). Every point is rotated into the
+/// SCAN-END frame using the gyro orientation interpolated at its exact acquisition time.
+///
+/// Translation is deliberately NOT compensated: that needs a trustworthy velocity, which
+/// only a tightly-coupled estimator produces (doc/7-tight-coupling.md).
+class Deskew
 {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  explicit ImuProcess(rclcpp::Logger logger);
+  explicit Deskew(rclcpp::Logger logger);
 
   /// Deskew one measurement group into a motion-compensated cloud (scan-end
   /// frame). Returns nullptr if the group cannot be processed.
@@ -89,4 +94,4 @@ private:
 
 }  // namespace glasslio
 
-#endif  // GLASSLIO_DATA_PROCESS_H
+#endif  // GLASSLIO_DESKEW_HPP

@@ -35,7 +35,7 @@ include_directories(
 # once as a library so the node and the tests share the same objects instead of
 # each re-listing (and re-compiling) the sources.
 add_library(lio SHARED
-  src/lio/data_process.cpp
+  src/lio/deskew.cpp
   src/lio/gyr_int.cpp
   src/lio/imu_init.cpp
   src/lio/local_map.cpp

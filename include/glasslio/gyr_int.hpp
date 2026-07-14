@@ -1,5 +1,5 @@
-#ifndef GLASSLIO_GYR_INT_H
-#define GLASSLIO_GYR_INT_H
+#ifndef GLASSLIO_GYR_INT_HPP
+#define GLASSLIO_GYR_INT_HPP
 
 #include <vector>
 
@@ -49,4 +49,4 @@ private:
 
 }  // namespace glasslio
 
-#endif  // GLASSLIO_GYR_INT_H
+#endif  // GLASSLIO_GYR_INT_HPP

@@ -1,4 +1,4 @@
-#include "glasslio/gyr_int.h"
+#include "glasslio/gyr_int.hpp"
 
 #include <algorithm>
 

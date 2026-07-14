@@ -35,7 +35,7 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 |---|---|---|---|
 | **1** | **IMU initialization** — gyro bias, gravity, world frame. *A gate: nothing runs until it completes.* | [1-imu-init.md](1-imu-init.md) | [`imu_init.cpp`](../src/lio/imu_init.cpp) |
 | **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | `syncMeasure()` |
-| **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`data_process.cpp`](../src/lio/data_process.cpp), [`gyr_int.cpp`](../src/lio/gyr_int.cpp) |
+| **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`deskew.cpp`](../src/lio/deskew.cpp), [`gyr_int.cpp`](../src/lio/gyr_int.cpp) |
 | **4** | **Downsample** — voxel grid, 0.5 m leaf | [4-downsample.md](4-downsample.md) | `pcl::VoxelGrid` |
 | **5** | **Register** — point-to-plane ICP → **the pose** | [5-registration.md](5-registration.md) | [`registration.cpp`](../src/lio/registration.cpp) |
 | **6** | **Local map** — insert the aligned scan; it is the next scan's target | [6-local-map.md](6-local-map.md) | [`local_map.cpp`](../src/lio/local_map.cpp) |
@@ -94,7 +94,7 @@ is useless. Persistent "worker behind" warnings mean registration is too slow.
 
 ### Ownership is the invariant
 
-- The **estimator** — `pose_`, `map_`, `imu_proc_`, `velocity_`, `state_` — is touched
+- The **estimator** — `pose_`, `map_`, `deskew_`, `velocity_`, `state_` — is touched
   **only by the worker**.
 - The **sensor buffers** are touched only under `buf_mutex_`.
 - The **queue is the single hand-off point.**
