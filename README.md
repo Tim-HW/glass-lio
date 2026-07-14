@@ -1,4 +1,4 @@
-# glasslio
+# glass-LIO
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 [![ROS 2: Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white)](#dependencies)
