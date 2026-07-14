@@ -24,6 +24,7 @@
 #include "glasslio/nav_state.hpp"
 #include "glasslio/preintegration.hpp"
 #include "glasslio/registration.hpp"
+#include "glasslio/sync.hpp"
 #include "glasslio/tight_registration.hpp"
 #include "glasslio/ros_time.hpp"
 
@@ -74,6 +75,7 @@ public:
     // Extra IMU we require past a scan's header stamp before we deskew it, so
     // the gyro integration fully covers the scan (10 Hz -> ~0.1 s scans).
     scan_guard_ = declare_parameter<double>("scan_guard_sec", 0.12);
+    sync_ = MeasureSync(scan_guard_);
     // Voxel edge length (m). Larger = fewer points = faster registration, but
     // coarser geometry. ~0.5 m is a sane start for indoor/outdoor Livox.
     voxel_leaf_ = declare_parameter<double>("voxel_leaf_size", 0.5);
@@ -254,35 +256,33 @@ private:
     return {v[0], v[1], v[2]};
   }
 
-  /// A timestamp older than the last one means one of three things, and they need
-  /// very different responses:
-  ///   - a big jump back  -> the source RESTARTED (bag replay/loop). The pose and
-  ///                         map now describe a world we are no longer in, so the
-  ///                         whole estimator must be reset, not just the buffers.
-  ///   - a small step back -> one out-of-order message. Drop it. Clearing the
-  ///                         buffer here would throw away good data.
-  ///   - neither           -> normal.
+  /// React to whatever the sync watchdog saw. MeasureSync reports the FACT; the node owns
+  /// the response, because only the node can log and only the node can reset the estimator.
+  ///
   /// Returns true if the caller should DROP this message.
-  bool handleTimeJump(double t, double & last_t, const char * what)
+  bool onTimeJump(MeasureSync::TimeJump jump, const char * what)
   {
-    if (last_t < 0.0 || t >= last_t) {
-      last_t = t;
-      return false;
+    switch (jump) {
+      case MeasureSync::TimeJump::None:
+        return false;
+
+      case MeasureSync::TimeJump::Restart:
+        // The source restarted (a bag loop). MeasureSync has already dropped its buffers;
+        // the ESTIMATOR must go too -- its pose and map describe a world we have left.
+        RCLCPP_WARN(
+          get_logger(), "%s time jumped backwards -- source restarted; resetting estimator",
+          what);
+        reset();
+        return false;   // the message itself is fine; it is the first of the new run
+
+      case MeasureSync::TimeJump::OutOfOrder:
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "%s messages arriving out of order; dropping. Are two publishers running "
+          "(e.g. a stray 'ros2 bag play')?", what);
+        return true;
     }
-    if (last_t - t > kRestartJumpSec) {
-      RCLCPP_WARN(
-        get_logger(), "%s time jumped back %.1fs -- source restarted; resetting estimator",
-        what, last_t - t);
-      reset();
-      last_t = t;
-      return false;
-    }
-    // Out of order by a hair. Drop just this one; do not nuke the buffer.
-    RCLCPP_WARN_THROTTLE(
-      get_logger(), *get_clock(), 2000,
-      "%s messages arriving out of order (by %.3fs); dropping. Are two publishers "
-      "running (e.g. a stray 'ros2 bag play')?", what, last_t - t);
-    return true;
+    return false;
   }
 
   /// Full reset: the world we mapped is gone. Callback thread.
@@ -294,10 +294,7 @@ private:
   /// REQUEST the reset; the worker applies it to itself, in order, between scans.
   void reset()
   {
-    lidar_buffer_.clear();
-    imu_buffer_.clear();
-    last_lidar_time_ = -1.0;
-    last_imu_time_ = -1.0;
+    sync_.clear();
     imu_init_ = std::make_unique<ImuInit>(
       init_samples_, init_max_gyro_, init_max_acc_sd_, accel_scale_);
     {
@@ -328,8 +325,8 @@ private:
   {
     std::lock_guard<std::mutex> lock(buf_mutex_);
     const double t = stamp_sec(msg);
-    if (handleTimeJump(t, last_imu_time_, "IMU")) {
-      return;
+    if (onTimeJump(sync_.checkImu(t), "IMU")) {
+      return;   // out of order: drop this one message
     }
 
     if (!imu_init_->initialized()) {
@@ -339,7 +336,7 @@ private:
       return;   // no scans are processed until the IMU is initialized
     }
 
-    imu_buffer_.push_back(msg);
+    sync_.pushImu(msg);
     enqueueReady();
   }
 
@@ -407,10 +404,10 @@ private:
     }
 
     const double t = stamp_sec(msg);
-    if (handleTimeJump(t, last_lidar_time_, "lidar")) {
-      return;
+    if (onTimeJump(sync_.checkLidar(t), "lidar")) {
+      return;   // out of order: drop this one message
     }
-    lidar_buffer_.push_back(msg);
+    sync_.pushLidar(msg);
     enqueueReady();
   }
 
@@ -419,7 +416,9 @@ private:
   void enqueueReady()
   {
     MeasureGroup meas;
-    while (syncMeasure(meas)) {
+    bool dropped_no_imu = false;
+    while (sync_.next(meas, &dropped_no_imu)) {
+      // (warning for a discarded frame is emitted after the loop -- see below)
       {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         // Bounded. If the worker cannot keep up, DROP the oldest rather than let
@@ -915,51 +914,6 @@ private:
     publish(pub_map_, map_->target(), header, world_frame_);
   }
 
-  /// Assemble one lidar frame with the IMU samples spanning it. Caller holds
-  /// buf_mutex_. Requires an IMU sample before the scan start and IMU coverage
-  /// past scan_start + scan_guard_.
-  bool syncMeasure(MeasureGroup & meas)
-  {
-    if (lidar_buffer_.empty() || imu_buffer_.empty()) {
-      return false;
-    }
-    const double scan_t = stamp_sec(lidar_buffer_.front());
-    const double scan_end = scan_t + scan_guard_;
-
-    // Need an IMU sample before the scan to bracket the start.
-    if (stamp_sec(imu_buffer_.front()) > scan_t) {
-      RCLCPP_WARN(get_logger(), "dropping lidar frame with no preceding IMU");
-      lidar_buffer_.pop_front();
-      return false;
-    }
-    // Wait until IMU covers the end of the scan.
-    if (stamp_sec(imu_buffer_.back()) < scan_end) {
-      return false;
-    }
-
-    meas.lidar = lidar_buffer_.front();
-    lidar_buffer_.pop_front();
-
-    // Copy IMU covering the scan (keep them buffered for the next scan, which
-    // starts inside this window). Include one bracket sample past scan_end.
-    meas.imu.clear();
-    for (const auto & imu : imu_buffer_) {
-      meas.imu.push_back(imu);
-      if (stamp_sec(imu) >= scan_end) {
-        break;
-      }
-    }
-    // Drop IMU strictly older than this scan start; the rest brackets the next.
-    while (imu_buffer_.size() > 1 && stamp_sec(imu_buffer_[1]) <= scan_t) {
-      imu_buffer_.pop_front();
-    }
-    return true;
-  }
-
-  /// A backwards time jump larger than this means the source restarted (bag loop),
-  /// not just an out-of-order message.
-  static constexpr double kRestartJumpSec = 1.0;
-
   std::string lidar_topic_, imu_topic_, output_frame_, world_frame_;
   double scan_guard_ = 0.12;
   double voxel_leaf_ = 0.5;
@@ -974,10 +928,9 @@ private:
 
   // --- Callback side: sensor buffers. Never touched by the worker.
   std::mutex buf_mutex_;
-  std::deque<sensor_msgs::msg::PointCloud2::ConstSharedPtr> lidar_buffer_;
-  std::deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu_buffer_;
-  double last_lidar_time_ = -1.0;
-  double last_imu_time_ = -1.0;
+  /// [2] Stage 2 lives here -- the buffers, the bracketing, and the time-jump watchdog.
+  /// Touched only under buf_mutex_. See doc/2-sync.md.
+  MeasureSync sync_{0.12};
 
   // --- The hand-off: the only shared state between callbacks and the worker.
   std::thread worker_;

@@ -41,6 +41,7 @@ add_library(lio SHARED
   src/lio/local_map.cpp
   src/lio/preintegration.cpp
   src/lio/registration.cpp
+  src/lio/sync.cpp
   src/lio/tight_registration.cpp)
 target_include_directories(lio PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -78,7 +79,7 @@ if(BUILD_TESTING)
   #
   # CRITICAL: -UNDEBUG. Release builds define NDEBUG, which compiles assert()
   # out entirely -- the tests would then pass while checking nothing at all.
-  foreach(t test_local_map test_registration test_imu_init test_jacobian test_preintegration test_nav_residual test_tight)
+  foreach(t test_local_map test_registration test_imu_init test_jacobian test_preintegration test_nav_residual test_tight test_sync)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} lio ${PCL_LIBRARIES})
     target_compile_options(${t} PRIVATE -UNDEBUG)
