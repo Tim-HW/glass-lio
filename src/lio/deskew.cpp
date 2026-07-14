@@ -14,7 +14,7 @@ using Sophus::SO3d;
 Deskew::Deskew(rclcpp::Logger logger)
 : R_il_(SO3d()), logger_(logger) {}
 
-CloudXYZI::Ptr Deskew::Process(const MeasureGroup & meas)
+CloudXYZI::Ptr Deskew::process(const MeasureGroup & meas)
 {
   if (meas.imu.empty() || meas.lidar == nullptr) {
     return nullptr;
@@ -38,9 +38,9 @@ CloudXYZI::Ptr Deskew::Process(const MeasureGroup & meas)
   }
 
   // Integrate gyro across the scan, anchored at scan start.
-  gyr_int_.Reset(t0, meas.imu.front());
+  gyr_int_.reset(t0, meas.imu.front());
   for (const auto & imu : meas.imu) {
-    gyr_int_.Integrate(imu);
+    gyr_int_.integrate(imu);
   }
   if (gyr_int_.empty()) {
     return nullptr;
@@ -49,7 +49,7 @@ CloudXYZI::Ptr Deskew::Process(const MeasureGroup & meas)
   // Orientation of the lidar frame at time t, relative to scan start:
   //   R_L(t) = R_il^{-1} * R_I(t) * R_il
   auto lidar_rot_at = [&](double t) {
-      return R_il_.inverse() * gyr_int_.GetRotAt(t) * R_il_;
+      return R_il_.inverse() * gyr_int_.rotationAt(t) * R_il_;
     };
 
   // Rotation of the lidar across this scan: the scan-end frame expressed in the
@@ -82,7 +82,7 @@ CloudXYZI::Ptr Deskew::Process(const MeasureGroup & meas)
   out->width = static_cast<std::uint32_t>(out->size());
   out->is_dense = false;
 
-  const SO3d total = gyr_int_.GetRot();
+  const SO3d total = gyr_int_.totalRotation();
   RCLCPP_DEBUG(
     logger_, "deskew: %zu pts, scan %.3fs, gyro rot [x,y,z] deg [%.2f, %.2f, %.2f]",
     out->size(), t1 - t0,

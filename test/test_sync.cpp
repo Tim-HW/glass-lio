@@ -7,6 +7,8 @@
 #include <cassert>
 #include <cstdio>
 
+#include <rclcpp/time.hpp>
+
 #include "glasslio/sync.hpp"
 
 using namespace glasslio;

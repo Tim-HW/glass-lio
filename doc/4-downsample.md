@@ -68,7 +68,7 @@ deskewed (dense, ~20 000) ──┬──► downsample (~5 000) ──► ICP s
 ```
 
 Downsampling is an **ICP source** optimisation. The map is the **plane-fitting
-target**, and plane fitting needs *density*: a voxel needs ≥ 5 points before PCA will
+target**, and plane fitting needs *density*: a voxel needs `map.min_points_for_plane` points (default 5) before PCA will
 fit a plane to it ([local_map.md](6-local-map.md)).
 
 Do the arithmetic. Feed the map the *downsampled* cloud at a 0.5 m leaf, and each

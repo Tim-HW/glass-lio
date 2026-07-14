@@ -9,25 +9,10 @@
 #include "sophus/se3.hpp"
 
 #include "glasslio/gyr_int.hpp"
-#include "glasslio/livox_point.hpp"
+#include "glasslio/types.hpp"
 
 namespace glasslio
 {
-
-/// Raw Livox points, carrying the per-point `timestamp` the deskew needs.
-typedef pcl::PointCloud<LivoxPoint> LivoxCloud;
-/// Deskewed output. Once motion compensation has consumed the per-point time,
-/// timestamp/tag/line are dead weight — dropping to PointXYZI here lets the rest
-/// of the pipeline use PCL's precompiled VoxelGrid instead of custom types.
-typedef pcl::PointCloud<pcl::PointXYZI> CloudXYZI;
-
-/// One lidar scan together with the IMU samples covering it (with a bracket
-/// sample just before and just after the scan span).
-struct MeasureGroup
-{
-  sensor_msgs::msg::PointCloud2::ConstSharedPtr lidar;
-  std::vector<sensor_msgs::msg::Imu::ConstSharedPtr> imu;
-};
 
 /// [3] DESKEW -- rotation-only motion compensation, driven by the integrated gyro.
 /// See doc/3-deskew.md.
@@ -51,7 +36,7 @@ public:
 
   /// Deskew one measurement group into a motion-compensated cloud (scan-end
   /// frame). Returns nullptr if the group cannot be processed.
-  CloudXYZI::Ptr Process(const MeasureGroup & meas);
+  CloudXYZI::Ptr process(const MeasureGroup & meas);
 
   /// Extrinsic ROTATION lidar -> IMU. `q_il` must be normalized.
   ///

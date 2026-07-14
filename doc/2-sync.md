@@ -2,7 +2,7 @@
 
 Assembles a `MeasureGroup`: one LiDAR scan, plus the IMU samples that cover it.
 
-Code: `syncMeasure()` in [`glasslio_node.cpp`](../src/glasslio_node.cpp).
+Code: `MeasureSync` in [`sync.cpp`](../src/lio/sync.cpp).
 
 Trivial-looking, and it is where two of the nastier bugs in this pipeline can hide —
 both of which produce a deskew that *silently does nothing* rather than an error.
@@ -74,8 +74,8 @@ So the prune rule is deliberately conservative — drop only what is strictly ol
 than the *current* scan's start:
 
 ```cpp
-while (imu_buffer_.size() > 1 && stamp_sec(imu_buffer_[1]) <= scan_t) {
-  imu_buffer_.pop_front();
+while (imu_.size() > 1 && stamp_sec(imu_[1]) <= scan_t) {
+  imu_.pop_front();
 }
 ```
 
@@ -108,7 +108,7 @@ worker is mid-scan is a use-after-free — see
 
 ## 5. Where sync runs
 
-`syncMeasure()` runs on the **callback** side, under `buf_mutex_`, and does no heavy
+`MeasureSync::next()` runs on the **callback** side, under `buf_mutex_`, and does no heavy
 work — it moves shared pointers, nothing more. Every ready scan is pushed onto the
 bounded worker queue and the callback returns immediately.
 

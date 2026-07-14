@@ -261,10 +261,17 @@ recovers the axis the LiDAR *cannot see* (0.40 m → 0.00 m error).
 
 **Then it diverges on the real bag**, and the reason is structural rather than a typo:
 `x_i` is held **fixed and infinitely certain**, and gravity is not a state — so a tilt error
-in the world frame can never be corrected, and the accel bias is pinned too hard to absorb
-it. **What we built is a factor, not a filter.** The write-up is in
-[7-tight-coupling.md](doc/7-tight-coupling.md), and the failure is more instructive than the
-success would have been.
+in the world frame can never be corrected. **What we built is a factor, not a filter.**
+
+The instructive part is what happened when we tried to fix it by hand. The accel bias was
+frozen, so we gave it a carried covariance and let the data move it — and **rejections went
+from 266 to 579.** Loosening one block while `x_i` stayed infinitely stiff meant every error
+that belonged to `x_i` got shovelled into the only free variable in the system. *You cannot
+fix a filter by loosening one block of a factor.*
+
+Full write-up — including the two bugs that **were** fixed along the way —
+[7-tight-coupling.md](doc/7-tight-coupling.md). The failure taught more than the success
+would have.
 
 **Not implemented:** loop closure (this is odometry, not SLAM — the map deliberately
 forgets), and translational deskew (it needs a velocity we do not yet trust).
@@ -285,6 +292,7 @@ Each cost real debugging time, and each produced *plausible output* rather than 
 
 ```
 include/glasslio/     the library headers — each one is the doc for its stage
+  types.hpp             the shared vocabulary (CloudXYZI, MeasureGroup) — depends on nothing
   gauss_newton.hpp      generic manifold least squares (knows nothing about LiDAR)
   so3_jacobian.hpp      the SO(3) right Jacobian — the one bit Sophus does not give you
   preintegration.hpp    on-manifold IMU preintegration (Forster)

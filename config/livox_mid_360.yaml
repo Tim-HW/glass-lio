@@ -80,20 +80,28 @@
       # corridor it recovers the unobservable axis the LiDAR cannot see (0.40 m -> 0.00 m).
       #
       # But on the REAL bag it slowly diverges (Z falls quadratically), and the cause is
-      # structural, not a typo:
+      # STRUCTURAL, not a typo:
       #
       #   * We hold the previous state x_i FIXED and infinitely certain (this is odometry,
       #     not a sliding window). An error in x_i can therefore never be corrected.
       #   * GRAVITY IS NOT A STATE. Init measured it while the robot was already moving
-      #     (the static check cannot tell rest from constant velocity -- doc/1-imu-init.md),
-      #     so the world frame's "down" carries a small tilt error. That leaks a constant
-      #     horizontal/vertical acceleration into every integration.
-      #   * The ACCEL BIAS cannot absorb it: the bias random-walk prior's information
-      #     (~1e7) dwarfs the IMU factor's (~2e5), so b_a is effectively frozen at zero.
+      #     (a static window cannot tell rest from constant velocity -- doc/1-imu-init.md),
+      #     so the world frame's "down" carries a small tilt error, which leaks a constant
+      #     acceleration into every integration.
       #
-      # The fix is to estimate gravity (18-DoF state) and carry x_i's covariance forward
-      # (an iterated EKF / marginalisation) instead of pretending x_i is exact. Until then
-      # this stays 0 and the loose path -- which is healthy: zero drops, zero diverged -- runs.
+      # NOTE: the accel bias IS estimated now -- it carries a covariance (bias_sigma0_*
+      # below) that starts loose and shrinks with the data. It used to be frozen by a
+      # random-walk prior whose information (~1e7) dwarfed the IMU factor's (~2e5).
+      #
+      # Unfreezing it MADE THINGS WORSE (rejections 266 -> 579), and that is the sharpest
+      # lesson here: the bias was given slack while x_i stayed infinitely stiff, so every
+      # error that belonged to x_i was shovelled into the only free variable in the system.
+      # YOU CANNOT FIX A FILTER BY LOOSENING ONE BLOCK OF A FACTOR -- the covariance has to
+      # be carried for the whole state, or none of it.
+      #
+      # The real fix is an 18-DoF state (gravity estimated) plus marginalisation of x_i.
+      # Until then this stays 0 and the loose path -- healthy: zero drops, zero diverged --
+      # runs. Full write-up: doc/7-tight-coupling.md.
       imu_prior_weight: 0.0
 
       # Scans to run LOOSE before engaging the IMU.
@@ -122,7 +130,8 @@
       # Voxel size (m) of the map's hash grid, and the resolution of the planes
       # fitted inside it.
       #
-      # MUST be comfortably COARSER than voxel_leaf_size. A voxel needs >= 5 points
+      # MUST be comfortably COARSER than voxel_leaf_size. A voxel needs
+      # min_points_for_plane (below, default 5) points
       # before PCA can fit a plane; if the map voxel matches the downsample leaf you
       # get ~1 point per voxel, no planes ever form, and ICP is permanently
       # under-constrained. Also keep it >= max_correspondence_distance so the
@@ -184,6 +193,17 @@
       # slow turn look identical, and only this prior separates them.
       bias_rw_gyro: 1.0e-4     # rad/s
       bias_rw_accel: 1.0e-3    # m/s^2
+
+      # INITIAL bias uncertainty -- how WRONG the starting bias might be. This is a
+      # different question from the random walk above, which only says how fast a bias may
+      # drift from wherever it already is.
+      #
+      # The accel bias is NOT observable from a static window (a static window sees only
+      # g + b_a, their sum), so we start genuinely ignorant of it and let the data reveal
+      # it. Set this too tight and the bias is frozen at zero -- and every error it causes
+      # is permanent. See doc/7-tight-coupling.md.
+      bias_sigma0_gyro: 0.01    # rad/s
+      bias_sigma0_accel: 0.3    # m/s^2
 
       # The Livox driver publishes linear_acceleration in *g*, NOT m/s^2 -- this
       # violates the sensor_msgs/Imu spec. Measured on the test bag: |accel| at

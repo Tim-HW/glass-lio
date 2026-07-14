@@ -9,7 +9,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "glasslio/deskew.hpp"  // CloudXYZI
+#include "glasslio/types.hpp"   // CloudXYZI
 
 namespace glasslio
 {

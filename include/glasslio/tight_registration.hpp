@@ -3,7 +3,7 @@
 
 #include <Eigen/Core>
 
-#include "glasslio/deskew.hpp"
+#include "glasslio/types.hpp"   // CloudXYZI, MeasureGroup
 #include "glasslio/local_map.hpp"
 #include "glasslio/nav_state.hpp"
 #include "glasslio/preintegration.hpp"

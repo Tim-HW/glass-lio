@@ -12,6 +12,11 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Emit compile_commands.json. .devcontainer/devcontainer.json points C++ IntelliSense at
+# build/glasslio/compile_commands.json -- without this the file is never generated, so
+# code completion silently does nothing and you have no idea why. clangd wants it too.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -19,7 +24,6 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(tf2_eigen REQUIRED)
 find_package(Eigen3 REQUIRED)
 # No `registration` component: PCL's GICP is gone, replaced by our own
 # point-to-plane ICP over the voxel map (see doc/pipeline.md).
@@ -53,7 +57,7 @@ target_link_libraries(lio ${PCL_LIBRARIES} Eigen3::Eigen)
 # The node is just the ROS shell: subscriptions, threading, publishing.
 add_executable(glasslio_node src/glasslio_node.cpp)
 ament_target_dependencies(glasslio_node
-  rclcpp sensor_msgs nav_msgs geometry_msgs pcl_conversions tf2_ros tf2_eigen)
+  rclcpp sensor_msgs nav_msgs geometry_msgs pcl_conversions tf2_ros)
 target_link_libraries(glasslio_node lio ${PCL_LIBRARIES})
 
 install(TARGETS lio

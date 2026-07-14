@@ -12,7 +12,7 @@ using Sophus::SO3d;
 GyrInt::GyrInt()
 : start_timestamp_(-1), last_imu_(nullptr), last_gyr_(Eigen::Vector3d::Zero()) {}
 
-void GyrInt::Reset(double start_timestamp, const sensor_msgs::msg::Imu::ConstSharedPtr & last_imu)
+void GyrInt::reset(double start_timestamp, const sensor_msgs::msg::Imu::ConstSharedPtr & last_imu)
 {
   start_timestamp_ = start_timestamp;
   last_imu_ = last_imu;
@@ -26,7 +26,7 @@ static Eigen::Vector3d toGyr(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
   return {imu->angular_velocity.x, imu->angular_velocity.y, imu->angular_velocity.z};
 }
 
-void GyrInt::Integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
+void GyrInt::integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
 {
   const double t = stamp_sec(imu);
   const Eigen::Vector3d gyr = toGyr(imu) - bias_;
@@ -60,7 +60,7 @@ void GyrInt::Integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu)
   last_gyr_ = gyr;
 }
 
-Sophus::SO3d GyrInt::GetRotAt(double t) const
+Sophus::SO3d GyrInt::rotationAt(double t) const
 {
   if (v_rot_.empty()) {
     return SO3d();
@@ -80,7 +80,7 @@ Sophus::SO3d GyrInt::GetRotAt(double t) const
   return SO3d(q);
 }
 
-Sophus::SO3d GyrInt::GetRot() const
+Sophus::SO3d GyrInt::totalRotation() const
 {
   return v_rot_.empty() ? SO3d() : v_rot_.back();
 }

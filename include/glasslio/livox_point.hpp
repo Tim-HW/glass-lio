@@ -1,4 +1,5 @@
-#pragma once
+#ifndef GLASSLIO_LIVOX_POINT_HPP
+#define GLASSLIO_LIVOX_POINT_HPP
 
 #include <cstdint>
 
@@ -36,3 +37,5 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(
   (std::uint8_t, tag, tag)
   (std::uint8_t, line, line)
   (double, timestamp, timestamp))
+
+#endif  // GLASSLIO_LIVOX_POINT_HPP

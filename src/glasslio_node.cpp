@@ -181,6 +181,10 @@ public:
     ep.bias_sigma0_gyro = declare_parameter<double>("imu.bias_sigma0_gyro", 0.01);
     ep.bias_sigma0_accel = declare_parameter<double>("imu.bias_sigma0_accel", 0.3);
 
+    // Worker backlog. Small on purpose: if registration cannot keep up, a stale pose is
+    // useless, so drop the oldest scan rather than accumulate latency without bound.
+    max_queue_ = static_cast<std::size_t>(declare_parameter<int>("max_queue_size", 3));
+
     estimator_ = std::make_unique<LioEstimator>(ep, get_logger());
 
     auto qos = rclcpp::SensorDataQoS();

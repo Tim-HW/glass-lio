@@ -6,7 +6,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include "glasslio/deskew.hpp"   // MeasureGroup
+#include "glasslio/types.hpp"   // MeasureGroup
 
 namespace glasslio
 {

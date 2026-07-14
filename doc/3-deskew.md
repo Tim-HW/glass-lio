@@ -1,6 +1,6 @@
 # Deskewing (motion compensation)
 
-Phase 1 of the LIO pipeline. Removes the *rotational* distortion a moving LiDAR
+Stage [3] of the pipeline. Removes the *rotational* distortion a moving LiDAR
 bakes into every scan, using the IMU gyroscope.
 
 Code: [`src/lio/deskew.cpp`](../src/lio/deskew.cpp) (deskew),
@@ -36,7 +36,7 @@ $$
 \text{error} \;\approx\; 40 \times 0.049 \;\approx\; 2.0\ \text{m}
 $$
 
-Two metres of smear. Registration (Phase 2) cannot recover from that — it would
+Two metres of smear. Registration ([5]) cannot recover from that — it would
 be matching a warped cloud against a warped map. **Deskew must come first.**
 
 ## 2. The idea
@@ -50,7 +50,7 @@ The gyroscope gives us exactly that: angular velocity `ω(t)`, at ~200 Hz —
 20 samples per scan. Integrate it and you have `R(t)`.
 
 > We compensate **rotation only**. Translational smear needs a velocity estimate,
-> which we don't have until the registration loop exists (Phase 2). See §7.
+> which we don't have until the registration loop exists ([5]). See §7.
 
 ## 3. Getting per-point time
 
@@ -180,7 +180,7 @@ about the wrong axis.
 
 ```cpp
 auto lidar_rot_at = [&](double t) {
-    return R_il_.inverse() * gyr_int_.GetRotAt(t) * R_il_;
+    return R_il_.inverse() * gyr_int_.rotationAt(t) * R_il_;
   };
 ```
 
@@ -265,7 +265,7 @@ sensor moves 0.5 m, and unlike rotational error (`r·Δθ`, which **grows with
 range**) translational error is bounded by the displacement itself and matters
 most for *near* points. Rotation is the dominant term.
 
-Phase 2 (scan-to-map registration) produces a velocity estimate, at which point
+Registration ([5], scan-to-map) produces a velocity estimate, at which point
 translational deskew drops straight into the same loop.
 
 ## 8. Node plumbing

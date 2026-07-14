@@ -1,4 +1,5 @@
-#pragma once
+#ifndef GLASSLIO_ROS_TIME_HPP
+#define GLASSLIO_ROS_TIME_HPP
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -15,3 +16,5 @@ inline double stamp_sec(const MsgPtr & msg)
 }
 
 }  // namespace glasslio
+
+#endif  // GLASSLIO_ROS_TIME_HPP

@@ -20,16 +20,16 @@ public:
   /// Begin a new integration window anchored at `start_timestamp` (seconds).
   /// `last_imu` is a sample at or before the start, used to interpolate the
   /// angular velocity exactly at the anchor.
-  void Reset(double start_timestamp, const sensor_msgs::msg::Imu::ConstSharedPtr & last_imu);
+  void reset(double start_timestamp, const sensor_msgs::msg::Imu::ConstSharedPtr & last_imu);
 
   /// Fold one IMU sample into the integration (must be called in time order).
-  void Integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu);
+  void integrate(const sensor_msgs::msg::Imu::ConstSharedPtr & imu);
 
   /// Interpolated rotation R(t) in [start, last]; clamps outside the range.
-  Sophus::SO3d GetRotAt(double t) const;
+  Sophus::SO3d rotationAt(double t) const;
 
   /// Total integrated rotation at the last knot (for logging).
-  Sophus::SO3d GetRot() const;
+  Sophus::SO3d totalRotation() const;
 
   bool empty() const {return v_rot_.empty();}
 

@@ -163,16 +163,18 @@ rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 
 ## Not implemented
 
-- **Tight coupling** (Phase 3) — **built, verified, and switched off.** The whole 15-DoF
+- **Tight coupling** — **built, verified, and switched off.** The whole 15-DoF
   joint solve exists (`R, p, v, b_g, b_a`), with on-manifold IMU preintegration, and every
   Jacobian pinned against finite differences. On a synthetic corridor it recovers the axis
   the LiDAR literally cannot see (0.40 m → 0.00 m error). On the **real bag it slowly
   diverges**, for a *structural* reason: `x_i` is held fixed and infinitely certain, and
-  gravity is not a state — so a tilt error in the world frame can never be corrected, and
-  the accel bias is pinned too hard to absorb it. **What we built is a factor, not a
-  filter.** The fix is an 18-DoF state plus marginalisation of `x_i`. Full write-up, and
-  the two real bugs found and fixed along the way, in
-  [7-tight-coupling.md](7-tight-coupling.md).
+  gravity is not a state — so a tilt error in the world frame can never be corrected.
+  **What we built is a factor, not a filter.** Note that "unfreeze the accel bias" was
+  tried, and made it **worse** (rejections 266 → 579): loosening one block while `x_i`
+  stays infinitely stiff just shovels every error into the only free variable.
+  **You cannot fix a filter by loosening one block of a factor.** The real fix is an
+  18-DoF state plus marginalisation of `x_i`. Full write-up, and the bugs that *were*
+  fixed along the way, in [7-tight-coupling.md](7-tight-coupling.md).
 - **Translational deskew** — needs a trustworthy velocity, which tight coupling would
   produce (and it would retire `use_constant_velocity` with it). See
   [3-deskew.md §7](3-deskew.md).
@@ -198,7 +200,7 @@ actually bite:
 | `registration.max_correspondence_distance` | Too small: fast motion never converges. Too large: matches the wrong wall, and re-opens the runaway. |
 | `registration.use_constant_velocity` | **On.** Without it the guess has no translation at all. First thing to turn off if the pose accelerates away with a healthy `rmse`. [5-registration.md §3.5](5-registration.md) |
 | `registration.max_rmse` | The coast threshold — above it we keep the prediction and refuse to insert the scan. |
-| `map.voxel_size` | Must be **coarser** than `voxel_leaf_size` (a voxel needs ≥ 5 points before PCA fits a plane) **and ≥** `max_correspondence_distance` (so the 27-cell search covers the radius). |
+| `map.voxel_size` | Must be **coarser** than `voxel_leaf_size` (a voxel needs `map.min_points_for_plane` points — default 5 — before PCA fits a plane) **and ≥** `max_correspondence_distance` (so the 27-cell search covers the radius). |
 | `map.max_range` | Memory / prune radius. No longer the speed cliff it was under GICP. |
 | `max_queue_size` | Worker backlog. Persistent "worker behind" warnings mean registration is too slow. |
 | `scan_guard_sec` | Must exceed the scan period. [2-sync.md §2](2-sync.md) |

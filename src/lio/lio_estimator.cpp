@@ -60,7 +60,7 @@ ScanResult LioEstimator::processScan(const MeasureGroup & meas)
   ScanResult r;
 
   // --- [3] DESKEW: undo the intra-scan rotation (doc/3-deskew.md) ---
-  r.deskewed = deskew_->Process(meas);
+  r.deskewed = deskew_->process(meas);
   if (!r.deskewed || r.deskewed->empty()) {
     return r;   // ok == false
   }
@@ -385,7 +385,8 @@ void LioEstimator::updatePose(const Eigen::Isometry3d & new_pose, double dt)
 /// the map further, correspondences collapse, and it never recovers.
 ///
 /// EXCEPT while bootstrapping. Until the map has supported one successful registration it
-/// is too sparse to register against (a voxel needs >= 5 points before PCA yields a
+/// is too sparse to register against (a voxel needs map.min_points_for_plane points,
+/// default 5, before PCA yields a
 /// plane), so refusing to insert would deadlock: sparse map -> ICP under-constrained ->
 /// no insert -> map stays sparse, forever. During bootstrap we dead-reckon on the IMU
 /// prior and keep feeding the map anyway.

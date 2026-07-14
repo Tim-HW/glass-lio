@@ -1,1 +1,7 @@
 .vscode
+
+# colcon artefacts, if anyone builds from inside the package rather than the workspace root
+build/
+install/
+log/
+compile_commands.json

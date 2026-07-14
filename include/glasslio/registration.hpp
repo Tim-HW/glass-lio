@@ -4,7 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "glasslio/deskew.hpp"
+#include "glasslio/types.hpp"   // CloudXYZI
 #include "glasslio/local_map.hpp"
 
 namespace glasslio

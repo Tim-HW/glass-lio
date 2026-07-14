@@ -51,43 +51,60 @@ set -u
 
 PIDS=()
 
+# Start a child in ITS OWN PROCESS GROUP, so cleanup can kill the whole tree.
+#
+# `ros2 launch` forks the node as a grandchild, so killing the launch PID alone leaves the
+# node running. The old fix was `pkill -f glasslio_node` -- which matches BY NAME and
+# therefore kills EVERY glasslio_node on the machine, including one belonging to a
+# concurrent run. Its comment claimed it "only ever kills our own processes". It did not,
+# and it silently shot down other runs' nodes (they die with exit -9, which reads like a
+# crash or an OOM and sends you hunting a bug that is not there).
+#
+# Process groups let us kill exactly our own tree and nothing else.
+start_bg() {
+  setsid "$@" &
+  PIDS+=($!)
+}
+
 cleanup() {
   echo
   echo "[run_bag] shutting down..."
-  for p in "${PIDS[@]:-}"; do kill -9 "$p" 2>/dev/null || true; done
-  # Only ever kill our own processes, never the user's other ROS stacks.
-  pkill -9 -f 'glasslio_node' 2>/dev/null || true
+  for p in "${PIDS[@]:-}"; do
+    kill -9 -- "-${p}" 2>/dev/null || kill -9 "${p}" 2>/dev/null || true   # group, then PID
+  done
   wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-pkill -9 -f 'glasslio_node' 2>/dev/null || true   # leftovers from a previous run
-sleep 0.5
+# Do NOT pkill leftovers by name -- that is the bug described above. Warn instead, and let
+# the operator decide: a running node here is just as likely to be someone else's.
+if pgrep -x glasslio_node >/dev/null 2>&1; then
+  echo "[run_bag] warning: a glasslio_node is already running (pid $(pgrep -x glasslio_node | tr '\n' ' '))." >&2
+  echo "[run_bag]          it is NOT killed automatically. Two publishers on one domain look" >&2
+  echo "[run_bag]          exactly like 'time jumped backwards -- source restarted'." >&2
+fi
 
 echo "[run_bag] domain=${ROS_DOMAIN_ID}  bag=${BAG}  rate=${RATE} ${LOOP}"
 
-# NOTE: the node now broadcasts odom->livox_frame itself (registration, stage 3).
-# The static_transform_publisher stopgap that used to live here was REMOVED --
-# two publishers of the same TF fight each other.
+# NOTE: the node broadcasts odom->livox_frame itself (stage [5], registration). The
+# static_transform_publisher stopgap that used to live here was REMOVED -- two publishers
+# of the same TF fight each other.
 
-ros2 launch glasslio glasslio.launch.py &
-PIDS+=($!)
+start_bg ros2 launch glasslio glasslio.launch.py
 
 if [[ "$USE_RVIZ" -eq 1 ]]; then
   if [[ -f "$RVIZ_CFG" ]]; then
-    rviz2 -d "$RVIZ_CFG" > /dev/null 2>&1 &
+    start_bg rviz2 -d "$RVIZ_CFG"
   else
-    rviz2 > /dev/null 2>&1 &
+    start_bg rviz2
   fi
-  PIDS+=($!)
 fi
 
 sleep 3   # let the node subscribe before the first scan lands
 
 # shellcheck disable=SC2086
-ros2 bag play "$BAG" --rate "$RATE" $LOOP &
-BAG_PID=$!
-PIDS+=("$BAG_PID")
+start_bg ros2 bag play "$BAG" --rate "$RATE" $LOOP
+BAG_PID="${PIDS[-1]}"
 
 echo "[run_bag] running. Ctrl-C to stop."
 echo "[run_bag] topics: /glasslio_node/{deskewed,downsampled,local_map}"
