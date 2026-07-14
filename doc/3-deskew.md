@@ -25,16 +25,16 @@ smears the cloud: a straight wall bends, a pole doubles.
 How bad? Distortion of a point at range `r` under intra-scan rotation `Δθ` is
 roughly the arc length:
 
-```
-error ≈ r · Δθ
-```
+$$
+\text{error} \;\approx\; r \cdot \Delta\theta
+$$
 
 Measured on our bag during a turn: `Δθ ≈ 2.8°` per scan (`0.049 rad`). At
 `r = 40 m`:
 
-```
-error ≈ 40 · 0.049 ≈ 2.0 m
-```
+$$
+\text{error} \;\approx\; 40 \times 0.049 \;\approx\; 2.0\ \text{m}
+$$
 
 Two metres of smear. Registration (Phase 2) cannot recover from that — it would
 be matching a warped cloud against a warped map. **Deskew must come first.**
@@ -77,15 +77,15 @@ Two traps, both of which we hit:
 Hence, in `data_process.cpp`:
 
 ```cpp
-auto pt_sec = [](const LivoxPoint & p) { return p.timestamp * 1e-9; };
+auto pt_sec = [](const LivoxPoint & p) {return p.timestamp * 1e-9;};
 ```
 
 The scan's time span is then read straight off the data — we don't assume 100 ms:
 
-```
-t0 = min over points of timestamp     (scan start)
-t1 = max over points of timestamp     (scan end)
-```
+$$
+t_0 = \min_i \, \text{timestamp}_i \quad \text{(scan start)}, \qquad
+t_1 = \max_i \, \text{timestamp}_i \quad \text{(scan end)}
+$$
 
 ## 4. Integrating the gyro → R(t)
 
@@ -100,9 +100,9 @@ and Euler angles gimbal-lock. `Sophus::SO3d` handles this properly via the
 exponential map, which converts a rotation *vector* (axis × angle, an element of
 the tangent space `so(3)`) into a rotation:
 
-```
-Exp : ℝ³ → SO(3)
-```
+$$
+\operatorname{Exp} : \mathbb{R}^3 \longrightarrow SO(3)
+$$
 
 ### The integration
 
@@ -111,11 +111,16 @@ consecutive samples we use the **trapezoidal rule** (average the two angular
 velocities — second-order accurate, versus first-order for a naive forward step,
 and free):
 
-```
-ω_k  = ω_raw,k − b_g                 ← gyro bias, from ImuInit (see pipeline.md)
-Δθ_k = Δt · ½·(ω_k + ω_{k-1})        ← rotation vector for this step
-R_k  = R_{k-1} · Exp(Δθ_k)           ← compose on the manifold
-```
+$$
+\begin{aligned}
+\boldsymbol{\omega}_k &= \boldsymbol{\omega}_{\text{raw},k} - \mathbf{b}_g
+&&\text{gyro bias, from ImuInit} \\
+\Delta\boldsymbol{\theta}_k &= \Delta t \cdot \tfrac{1}{2}\left(\boldsymbol{\omega}_k + \boldsymbol{\omega}_{k-1}\right)
+&&\text{rotation vector for this step (trapezoidal)} \\
+\mathbf{R}_k &= \mathbf{R}_{k-1} \cdot \operatorname{Exp}(\Delta\boldsymbol{\theta}_k)
+&&\text{compose ON the manifold}
+\end{aligned}
+$$
 
 The bias `b_g` (~0.003 rad/s here) is negligible over one 0.1 s scan — about 0.02°
 — but it is subtracted anyway, because the same integrator feeds the cross-scan
@@ -124,9 +129,9 @@ rotation prior that registration depends on, where it would accumulate.
 with `R(t0) = I` by construction. This produces a set of **knots** — timestamped
 orientations, one per IMU sample:
 
-```
-(t0, I), (t_1, R_1), (t_2, R_2), ... , (t_n, R_n)
-```
+$$
+(t_0,\, \mathbf{I}),\; (t_1,\, \mathbf{R}_1),\; (t_2,\, \mathbf{R}_2),\; \dots,\; (t_n,\, \mathbf{R}_n)
+$$
 
 Note `R_k` is right-multiplied: `Exp(Δθ_k)` is expressed in the *body* frame at
 step `k`, so it composes on the right. Getting this side wrong inverts the
@@ -139,8 +144,9 @@ Points fall *between* IMU samples (20 gyro samples vs 20 000 points), so we need
 **SLERPs** (spherical linear interpolation) between them:
 
 ```cpp
-ratio = (t - t_lo) / (t_hi - t_lo);
-q = q_lo.slerp(ratio, q_hi);
+const double ratio = (t - t_knots_[lo]) / (t_knots_[hi] - t_knots_[lo]);
+const Eigen::Quaterniond q =
+  v_rot_[lo].unit_quaternion().slerp(ratio, v_rot_[hi].unit_quaternion());
 ```
 
 SLERP walks the shortest arc on the quaternion sphere at constant angular
@@ -161,9 +167,9 @@ axes**. These are two rigidly-attached but differently-oriented frames.
 Let `R_il` be the rotation lidar → IMU. The *same physical rotation*, re-expressed
 in lidar axes, is a change of basis (a **similarity transform** / conjugation):
 
-```
-R_L(t) = R_il⁻¹ · R_I(t) · R_il
-```
+$$
+\mathbf{R}_L(t) \;=\; \mathbf{R}_{il}^{-1} \cdot \mathbf{R}_I(t) \cdot \mathbf{R}_{il}
+$$
 
 Read right-to-left: take a lidar-frame vector → push it into IMU axes → apply the
 rotation the gyro actually measured → pull the result back into lidar axes.
@@ -179,7 +185,7 @@ auto lidar_rot_at = [&](double t) {
 ```
 
 `R_il` is loaded from `extrinsic.lidar_to_imu.quat_xyzw` in the config and applied
-via `ImuProcess::set_extrinsic(q, t)`.
+via `ImuProcess::set_extrinsic(q)`.
 
 For the **Mid-360 it is genuinely identity** — the internal IMU axes are aligned
 with the lidar frame — so the expression degenerates to `R_L(t) = R_I(t)`. That is
@@ -187,8 +193,9 @@ correct for this sensor, not a placeholder we are getting away with. On an Avia 
 an external IMU the conjugation does real work, and a wrong `R_il` would *tilt* the
 correction rather than obviously break it — it would still look like a deskew.
 
-(The extrinsic *translation* is parsed and stored but unused: deskew is
-rotation-only.)
+(The extrinsic *translation* is **validated at startup but not stored**: deskew is
+rotation-only, so nothing reads it. A field that is written and never read is a lie about
+what the code does — it comes back in the commit that actually needs it.)
 
 ## 6. Compensating the points
 
@@ -218,21 +225,36 @@ the largest correction. That gradient across the scan *is* the un-smearing.
 20 000 times:
 
 ```cpp
-const SO3d R_end_inv = lidar_rot_at(t1).inverse();
-for (auto & pt : cloud->points) {
+const SO3d R_end_inv = R_end.inverse();          // hoisted: constant per scan
+
+CloudXYZI::Ptr out(new CloudXYZI());
+out->reserve(cloud->size());
+for (const auto & pt : cloud->points) {
   const SO3d R_i = lidar_rot_at(pt_sec(pt));
-  const Eigen::Vector3d pc = R_end_inv * (R_i * Eigen::Vector3d(pt.x, pt.y, pt.z));
-  pt.x = pc.x(); pt.y = pc.y(); pt.z = pc.z();
+  const Eigen::Vector3d p(pt.x, pt.y, pt.z);
+  const Eigen::Vector3d pc = R_end_inv * (R_i * p);
+
+  pcl::PointXYZI o;                              // NOT in-place: the type changes
+  o.x = static_cast<float>(pc.x());
+  o.y = static_cast<float>(pc.y());
+  o.z = static_cast<float>(pc.z());
+  o.intensity = pt.intensity;
+  out->push_back(o);
 }
 ```
+
+Note the output is a **new cloud of a different type**, not an in-place edit: once deskew
+has consumed the per-point time, `timestamp`/`tag`/`line` are dead weight, so the points
+are rewritten as plain `pcl::PointXYZI` (see §6, below).
 
 ## 7. What is deliberately *not* compensated
 
 **Translation.** Full motion compensation would be an SE(3) transform:
 
-```
-p_end = T_L(t1)⁻¹ · T_L(t_i) · p_i        where T = (R, t)
-```
+$$
+\mathbf{p}_{\text{end}} = \mathbf{T}_L(t_1)^{-1} \cdot \mathbf{T}_L(t_i) \cdot \mathbf{p}_i,
+\qquad \mathbf{T} = (\mathbf{R}, \mathbf{t}) \in SE(3)
+$$
 
 Getting `t(t_i)` means double-integrating accelerometer data — which requires
 knowing gravity's direction and the sensor's velocity, and which drifts quadratically
