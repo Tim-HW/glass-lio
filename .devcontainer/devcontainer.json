@@ -29,7 +29,22 @@
   "containerEnv": {
     // Keep DDS off the default domain: a nav2 stack (or anything else) on domain 0 floods
     // discovery, wedges the ros2 CLI daemon, and presents as "the node is hung".
-    "ROS_DOMAIN_ID": "42"
+    "ROS_DOMAIN_ID": "42",
+
+    // SOFTWARE GL, deliberately.
+    //
+    // Without a GPU, RViz dies with "MESA: Failed to query drm device / failed to load
+    // driver: iris" -- which reads like a broken install but is really just a missing
+    // /dev/dri. This file cannot probe the host, and hard-coding `--device=/dev/dri`
+    // would make the container fail to START on any machine without one (macOS, Windows,
+    // headless servers, most CI).
+    //
+    // So the devcontainer takes the path that ALWAYS works. It is slower, and for this
+    // point-cloud viewer you will feel it.
+    //
+    // Want hardware GL? Use `./docker/run.sh`, which detects /dev/dri and passes it
+    // through (with the right group), falling back to software only when there is none.
+    "LIBGL_ALWAYS_SOFTWARE": "1"
   },
 
   "remoteUser": "ubuntu",

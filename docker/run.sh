@@ -37,12 +37,37 @@ if [[ "$REBUILD" -eq 1 ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; th
   docker build -f "${REPO_DIR}/docker/Dockerfile" -t "$IMAGE" "$REPO_DIR"
 fi
 
-# GUI (RViz) on a Linux host. Harmless if there is no X server -- use run_bag.sh -n.
-X11_ARGS=()
+# --- GUI (RViz) ------------------------------------------------------------------------
+# Harmless if there is no X server -- in that case use `run_bag.sh -n` (headless).
+GUI_ARGS=()
 if [[ -n "${DISPLAY:-}" && -d /tmp/.X11-unix ]]; then
-  X11_ARGS=(--env "DISPLAY=${DISPLAY}" --volume /tmp/.X11-unix:/tmp/.X11-unix:rw)
+  GUI_ARGS+=(--env "DISPLAY=${DISPLAY}" --volume /tmp/.X11-unix:/tmp/.X11-unix:rw)
   # Let the container talk to the host X server. Narrow: local connections only.
   command -v xhost >/dev/null 2>&1 && xhost +local:docker >/dev/null 2>&1 || true
+
+  # THE GPU. Without /dev/dri the container has no hardware GL, and RViz dies with
+  #
+  #     MESA: error: Failed to query drm device.
+  #     glx: failed to create dri3 screen
+  #     failed to load driver: iris
+  #
+  # which reads like a broken install but is really just a missing device. Pass it
+  # through when the host has one -- and add the device's own group, or the container
+  # user cannot open it (the node is root:video, mode 0660).
+  if [[ -d /dev/dri ]]; then
+    GUI_ARGS+=(--device /dev/dri)
+    for node in /dev/dri/*; do
+      [[ -c "$node" ]] || continue
+      gid="$(stat -c '%g' "$node")"
+      GUI_ARGS+=(--group-add "$gid")
+    done
+    log "GPU: passing /dev/dri through (hardware GL)"
+  else
+    # No GPU visible: fall back to Mesa's software rasteriser. Slow, but RViz WORKS,
+    # which beats a cryptic driver error. Requires libgl1-mesa-dri, which the image has.
+    GUI_ARGS+=(--env LIBGL_ALWAYS_SOFTWARE=1)
+    log "GPU: none visible -- using software GL (slower, but it works)"
+  fi
 fi
 
 # --net=host + --ipc=host: DDS discovery and rosbag2/RViz shared-memory transfers are
@@ -52,7 +77,7 @@ exec docker run --rm -it \
   --net=host \
   --ipc=host \
   --env ROS_DOMAIN_ID=42 \
-  "${X11_ARGS[@]}" \
+  "${GUI_ARGS[@]}" \
   --volume "${REPO_DIR}:/ws/src/glasslio:rw" \
   --workdir /ws \
   "$IMAGE" \
