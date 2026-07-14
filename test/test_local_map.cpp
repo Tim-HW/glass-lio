@@ -103,6 +103,95 @@ int main()
     assert(m.num_points() == 1);
   }
 
+  // --- The density cap must SAMPLE, not truncate.
+  //
+  // A voxel holding a wall/floor CORNER (two perpendicular surfaces) is not planar, and
+  // fitPlane must refuse it. But feed the points in raster order and a "keep the first
+  // N" cap fills the voxel from only the first couple of x-slices -- leaving points that
+  // span 1 m in y/z but a sliver in x. PCA then reports the SLIVER's axis (x) as the
+  // normal, and the planarity gate passes it, because a thin slab genuinely looks
+  // planar. The voxel yields a confident plane pointing perpendicular to the real
+  // geometry.
+  //
+  // Reservoir sampling keeps a representative subset, so the corner looks like what it
+  // is -- a corner -- and is correctly rejected.
+  {
+    LocalMap m(1.0, 20, 1000.0);
+    CloudXYZI c;
+    // Raster order: x outermost, exactly as a naive generator (or a raster sensor)
+    // would emit it. The voxel is [0,1)^3.
+    for (float x = 0.02f; x < 1.0f; x += 0.05f) {
+      for (float t = 0.02f; t < 1.0f; t += 0.05f) {
+        add(c, x, 0.0f, t);      // wall  (y = 0)  -> true normal +/- Y
+        add(c, x, t, 0.0f);      // floor (z = 0)  -> true normal +/- Z
+      }
+    }
+    m.insert(c);
+
+    glasslio::Plane pl;
+    const bool got = m.closestPlane(Eigen::Vector3d(0.5, 0.1, 0.1), 1.5, pl);
+
+    // Whatever happens, the one thing that must NEVER happen is a plane whose normal
+    // points along X -- the axis that only *looks* thin because we truncated it.
+    if (got) {
+      assert(std::abs(pl.normal.x()) < 0.5 &&
+        "corner voxel produced an X-facing plane: the cap is truncating, not sampling");
+    }
+  }
+
+  // --- ...and a genuinely planar voxel must still yield the RIGHT normal, raster order
+  // or not. (The fix must not break the case that always worked.)
+  {
+    LocalMap m(1.0, 20, 1000.0);
+    CloudXYZI c;
+    for (float x = 0.02f; x < 1.0f; x += 0.05f) {
+      for (float z = 0.02f; z < 1.0f; z += 0.05f) {
+        add(c, x, 0.3f, z);      // a flat wall at y = 0.3
+      }
+    }
+    m.insert(c);
+
+    glasslio::Plane pl;
+    assert(m.closestPlane(Eigen::Vector3d(0.5, 0.3, 0.5), 1.5, pl));
+    assert(std::abs(std::abs(pl.normal.y()) - 1.0) < 1e-3 &&
+      "a flat wall must still fit a Y-facing plane");
+  }
+
+  // --- The planarity gate is a PARAMETER, and it actually gates.
+  //
+  // Same points both times -- a deliberately noisy, barely-planar patch. A tight gate
+  // must REFUSE it; a loose gate must accept it. If the ratio were still a compiled-in
+  // constant we could not test this at all, which is half the reason it moved to config.
+  {
+    CloudXYZI c;
+    for (float x = 0.05f; x < 1.0f; x += 0.1f) {
+      for (float y = 0.05f; y < 1.0f; y += 0.1f) {
+        // A plane at z = 0.5 with substantial thickness: planar-ish, not planar.
+        const float wobble = 0.12f * ((static_cast<int>(x * 10 + y * 10) % 3) - 1);
+        add(c, x, y, 0.5f + wobble);
+      }
+    }
+
+    LocalMap tight(1.0, 100, 1000.0, 5, 0.02);    // strict: reject anything but a sheet
+    LocalMap loose(1.0, 100, 1000.0, 5, 0.9);     // permissive: accept almost anything
+    tight.insert(c);
+    loose.insert(c);
+
+    assert(tight.num_planes() == 0 && "a tight planarity gate must reject a thick patch");
+    assert(loose.num_planes() == 1 && "a loose planarity gate must accept it");
+  }
+
+  // --- min_points_for_plane gates too: below it, PCA is not even attempted.
+  {
+    CloudXYZI c;
+    for (float x = 0.1f; x < 0.5f; x += 0.1f) {
+      add(c, x, 0.3f, 0.3f);       // 4 collinear-ish points on a plane
+    }
+    LocalMap strict(1.0, 100, 1000.0, 10, 0.1);   // needs 10, has 4
+    strict.insert(c);
+    assert(strict.num_planes() == 0 && "min_points_for_plane must gate");
+  }
+
   std::printf("test_local_map: all assertions passed\n");
   return 0;
 }

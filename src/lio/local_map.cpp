@@ -8,10 +8,14 @@
 namespace glasslio
 {
 
-LocalMap::LocalMap(double voxel_size, int max_points_per_voxel, double max_range)
+LocalMap::LocalMap(
+  double voxel_size, int max_points_per_voxel, double max_range,
+  int min_points_for_plane, double planarity_ratio)
 : voxel_size_(voxel_size),
   max_points_per_voxel_(static_cast<std::size_t>(max_points_per_voxel)),
   max_range_(max_range),
+  min_points_for_plane_(static_cast<std::size_t>(min_points_for_plane)),
+  planarity_ratio_(planarity_ratio),
   target_cache_(new CloudXYZI())
 {
 }
@@ -42,9 +46,39 @@ void LocalMap::insert(const CloudXYZI & cloud_world)
     }
     const Eigen::Vector3d p(pt.x, pt.y, pt.z);
     auto & v = voxels_[keyOf(p)];
+    ++v.seen;
+
     if (v.points.size() < max_points_per_voxel_) {
       v.points.emplace_back(p.cast<float>());
       v.dirty = true;   // plane must be refitted -- lazily, on first query
+      continue;
+    }
+
+    // RESERVOIR SAMPLING (Vitter's Algorithm R), and it is not a nicety.
+    //
+    // The obvious policy -- "keep the first N, drop the rest" -- is NOT spatially
+    // neutral. Points arrive in whatever order the sensor emits them, so the retained
+    // subset inherits that order's bias. Feed it a raster-ordered cloud and a voxel
+    // fills up from the first couple of scan lines: the kept points then span the full
+    // voxel in two axes but a sliver in the third.
+    //
+    // PCA cannot tell that sliver apart from a genuinely thin surface. It reports the
+    // sliver's axis as the normal, and the planarity gate PASSES it -- because a thin
+    // slab really does look planar. The result is a confident plane whose normal is
+    // perpendicular to the actual geometry. In a corridor test this manufactured
+    // 1.2e6 of spurious stiffness in the one axis the LiDAR was supposed to be blind to.
+    //
+    // Reservoir sampling keeps a UNIFORM random subset of everything the voxel has ever
+    // seen, so the retained points are spatially representative of the surface and
+    // fitPlane's planarity gate can do its job -- correctly REJECTING mixed-surface
+    // voxels (a wall/floor corner) instead of fitting a fiction to a truncated slab.
+    //
+    // O(1) per point, one RNG draw only once a voxel is full.
+    std::uniform_int_distribution<std::uint64_t> pick(0, v.seen - 1);
+    const std::uint64_t j = pick(rng_);
+    if (j < max_points_per_voxel_) {
+      v.points[static_cast<std::size_t>(j)] = p.cast<float>();
+      v.dirty = true;
     }
   }
   dirty_ = true;
@@ -68,7 +102,7 @@ void LocalMap::fitPlane(Voxel & v) const
   v.dirty = false;
   v.plane_ok = false;
 
-  if (v.points.size() < kMinPointsForPlane) {
+  if (v.points.size() < min_points_for_plane_) {
     return;
   }
 
@@ -92,7 +126,7 @@ void LocalMap::fitPlane(Voxel & v) const
   // Eigenvalues ascending: [0] smallest. A plane means the spread ACROSS the
   // surface is tiny compared with the spread along it.
   const Eigen::Vector3d ev = es.eigenvalues();
-  if (ev[1] < 1e-12 || ev[0] > kPlanarityRatio * ev[1]) {
+  if (ev[1] < 1e-12 || ev[0] > planarity_ratio_ * ev[1]) {
     return;   // a blob or an edge, not a plane -- a normal here would be noise
   }
 

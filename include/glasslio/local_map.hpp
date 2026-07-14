@@ -2,6 +2,7 @@
 #define GLASSLIO_LOCAL_MAP_HPP
 
 #include <cstdint>
+#include <random>
 #include <unordered_map>
 #include <vector>
 
@@ -50,7 +51,22 @@ struct Plane
 class LocalMap
 {
 public:
-  LocalMap(double voxel_size, int max_points_per_voxel, double max_range);
+  /// `min_points_for_plane` : points a voxel needs before PCA is even attempted.
+  ///                           PCA needs >= 3 to fit anything; 5 is a robustness margin.
+  /// `planarity_ratio`      : the PLANARITY GATE. The smallest eigenvalue must be at
+  ///                           most this fraction of the middle one, or the points are a
+  ///                           blob (foliage) or an edge (a corner) and any "normal"
+  ///                           fitted to them is noise.
+  ///
+  /// The gate is genuinely environment-dependent, which is why it is a parameter and not
+  /// a constant: vegetation and clutter want it TIGHTER (blobs otherwise sneak through
+  /// and inject garbage normals); sparse indoor scenes want it LOOSER, or the solve is
+  /// starved of planes. It is the knob to reach for when the rmse looks fine but the pose
+  /// is mushy.
+  LocalMap(
+    double voxel_size, int max_points_per_voxel, double max_range,
+    int min_points_for_plane = kDefaultMinPointsForPlane,
+    double planarity_ratio = kDefaultPlanarityRatio);
 
   /// Add a scan already transformed into the world frame. Points landing in a
   /// full voxel are dropped — that cap is the density control.
@@ -75,16 +91,17 @@ public:
   VoxelKey keyOf(const Eigen::Vector3d & p) const;
   Eigen::Vector3d voxelCenter(const VoxelKey & k) const;
 
-  /// Minimum points in a voxel before a plane is even attempted.
-  static constexpr std::size_t kMinPointsForPlane = 5;
-  /// Planarity gate: smallest eigenvalue must be << the middle one, else the
-  /// points are a blob or an edge and the "plane" would be noise.
-  static constexpr double kPlanarityRatio = 0.1;
+  /// Defaults, used when the caller does not care (tests, mostly).
+  static constexpr int kDefaultMinPointsForPlane = 5;
+  static constexpr double kDefaultPlanarityRatio = 0.1;
 
 private:
   struct Voxel
   {
     std::vector<Eigen::Vector3f> points;
+    /// Total points that have EVER landed here, including those we declined to keep.
+    /// Reservoir sampling needs the true count, not the retained count.
+    std::uint64_t seen = 0;
     Plane plane;
     bool plane_ok = false;
     bool dirty = true;     ///< points changed since the plane was fitted
@@ -97,8 +114,15 @@ private:
   double voxel_size_;
   std::size_t max_points_per_voxel_;
   double max_range_;
+  std::size_t min_points_for_plane_;
+  double planarity_ratio_;
 
   mutable std::unordered_map<VoxelKey, Voxel, VoxelKeyHash> voxels_;
+
+  /// For reservoir sampling. Deterministically seeded: a map that reshuffles itself
+  /// differently on every run is not reproducible, and an estimator you cannot
+  /// reproduce is one you cannot debug. Touched only by the worker thread.
+  mutable std::mt19937 rng_{12345};
 
   mutable CloudXYZI::Ptr target_cache_;
   mutable bool dirty_ = true;
