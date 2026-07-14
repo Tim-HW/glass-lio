@@ -8,7 +8,6 @@
 
 **A transparent LiDAR-inertial odometry for Livox — written to be read.**
 
-ROS 2 · C++17 · Sophus · Eigen · PCL
 
 ![glasslio running on the test bag](images/lio.gif)
 
@@ -64,20 +63,6 @@ which is both the reason it works and its central hazard.
 **Status: it holds real time (10 Hz) on the test bag — zero scans dropped, zero diverged,
 `rmse` steady at ~0.13 m.**
 
-### It was not always real time
-
-Registration started out as PCL's GICP and ran at **0.3 Hz** — 30× too slow. The fix was not
-tuning, and it was not threading:
-
-| | GICP (100 m map) | GICP (20 m map) | point-to-plane (100 m map) |
-|---|---|---|---|
-| throughput | ~0.3 Hz | 4.4 Hz | **≥ 10 Hz (real time)** |
-
-GICP recomputes per-point covariances over the **entire map** every time the target changes —
-O(map), every scan, forever. It is built for *pairwise* alignment, where you pay that once.
-Caching one plane per voxel and refitting only the voxels an insert dirtied makes it
-**O(changed)**. Two orders of magnitude, and **no number of cores would have bought it** —
-the gap was algorithmic. ([6-local-map.md](doc/6-local-map.md))
 
 ## Why glasslio
 
