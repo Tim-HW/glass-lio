@@ -330,5 +330,16 @@ what `scripts/download_bag.sh` fetches.
 
 ## License
 
-MIT (the code). The test bag is CC-BY-4.0 and belongs to its author — see
-[Dataset](#dataset).
+**[MIT](LICENSE)** — the code, the config, the docs. Do what you like; keep the notice.
+
+Two things in this repo are **not** ours and keep their own terms:
+
+- **Sophus** ([`include/sophus/`](include/sophus/)) — MIT, © Hauke Strasdat & Steven
+  Lovegrove. Vendored headers; its notice travels with it
+  ([`include/sophus/LICENSE`](include/sophus/LICENSE)).
+- **The test bag** — CC-BY-4.0, © Kenji Koide. Not in the repo; fetched by
+  `download_bag.sh`. **Attribution required** if you publish results from it (see
+  [Dataset](#dataset)).
+
+Full breakdown, including the build dependencies you inherit when you ship:
+**[THIRD_PARTY.md](THIRD_PARTY.md)**.
