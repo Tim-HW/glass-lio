@@ -34,7 +34,10 @@ where getting them subtly wrong still produces plausible output.
 # build
 colcon build --packages-select glasslio
 
-# run on the bundled test bag (node + RViz, isolated ROS domain)
+# fetch the test bag (~1.4 GB, from Zenodo -- resumable, checksum-verified)
+./scripts/download_bag.sh
+
+# run it (node + RViz, on an isolated ROS domain)
 ./scripts/run_bag.sh
 ./scripts/run_bag.sh -n        # headless
 ./scripts/run_bag.sh -l        # loop the bag (exercises the estimator reset path)
@@ -42,6 +45,10 @@ colcon build --packages-select glasslio
 # the self-checks
 colcon test --packages-select glasslio
 ```
+
+The bag is **not** in the repo — it is 1.4 GB, so `data/` is gitignored and
+`download_bag.sh` fetches it. Re-running the script is safe: if the bag is already
+there and its checksum matches, it does nothing.
 
 Output: `/glasslio_node/odom` (`nav_msgs/Odometry`) plus a TF `odom → livox_frame`.
 

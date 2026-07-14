@@ -207,6 +207,7 @@ actually bite:
 ## Running
 
 ```bash
+./scripts/download_bag.sh     # fetch the test bag (~1.4 GB; not in git)
 ./scripts/run_bag.sh          # node + bag + RViz, on an isolated ROS domain
 ./scripts/run_bag.sh -n       # headless
 ./scripts/run_bag.sh -l       # loop the bag (exercises the estimator reset path)
