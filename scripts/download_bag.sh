@@ -7,7 +7,9 @@
 #   ./scripts/download_bag.sh --keep-zip   keep the archive afterwards
 #
 # ~1.4 GB extracted, which is why it is not in git (data/.gitignore excludes it).
-# Source: https://zenodo.org/records/14841855
+#
+# Source: Koide, K. (2025). "Driving SLAM Test with Livox MID360" [Data set].
+#         Zenodo. https://doi.org/10.5281/zenodo.14841855  -- CC-BY-4.0.
 #
 # Safe to re-run: if the bag is already present and its checksum matches, this
 # does nothing.

@@ -1,0 +1,54 @@
+{
+  "name": "glasslio (ROS 2 Jazzy)",
+
+  // The image itself lives in docker/, not in here -- it is a plain Dockerfile with no
+  // VS Code specifics, so it can be built and run by hand, wired into your own compose
+  // file, or used in CI. This file is only the VS Code wrapper around it.
+  "build": {
+    "dockerfile": "../docker/Dockerfile",
+    // Context is the repo root, so the Dockerfile can COPY package.xml for rosdep.
+    "context": ".."
+  },
+
+  // The repo is a ROS package, not a workspace. Mount it AS the src/ of a workspace at
+  // /ws, so `colcon build` works from /ws exactly as it does on a normal machine.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/ws/src/glasslio,type=bind,consistency=cached",
+  "workspaceFolder": "/ws/src/glasslio",
+
+  "runArgs": [
+    // host networking + shared IPC: DDS discovery and the large shared-memory transfers
+    // rosbag2/RViz use are painful otherwise.
+    "--net=host",
+    "--ipc=host",
+    // GUI (RViz). Linux hosts: works as-is once you have run `xhost +local:docker`.
+    // macOS / Windows: leave these; they are harmless, and use `run_bag.sh -n` (headless).
+    "--env=DISPLAY=${localEnv:DISPLAY}",
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw"
+  ],
+
+  "containerEnv": {
+    // Keep DDS off the default domain: a nav2 stack (or anything else) on domain 0 floods
+    // discovery, wedges the ros2 CLI daemon, and presents as "the node is hung".
+    "ROS_DOMAIN_ID": "42"
+  },
+
+  "remoteUser": "ubuntu",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-iot.vscode-ros",
+        "llvm-vs-code-extensions.vscode-clangd"
+      ],
+      "settings": {
+        "C_Cpp.default.compileCommands": "/ws/build/glasslio/compile_commands.json"
+      }
+    }
+  },
+
+  // The bag is 1.4 GB and NOT in git, so a fresh container has no data to run on. Fetch
+  // it once, on creation. Comment this out if you only want to build and run the tests.
+  "postCreateCommand": "bash -lc './scripts/download_bag.sh || echo \"[devcontainer] bag download skipped/failed -- run ./scripts/download_bag.sh by hand\"'"
+}

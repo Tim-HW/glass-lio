@@ -1,8 +1,20 @@
 # glasslio
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
+[![ROS 2: Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white)](#dependencies)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)](#layout)
+[![Sensor: Livox MID-360](https://img.shields.io/badge/sensor-Livox%20MID--360-brightgreen)](config/livox_mid_360.yaml)
+[![Docs: 8 write-ups](https://img.shields.io/badge/docs-8%20write--ups-8A2BE2)](#documentation)
+
 **A transparent LiDAR-inertial odometry for Livox — written to be read.**
 
 ROS 2 · C++17 · Sophus · Eigen · PCL
+
+![glasslio running on the test bag](images/lio.gif)
+
+*Scan-to-map odometry on the test bag: each ~100 ms Livox sweep is deskewed with the
+gyro, registered against the accumulated voxel-plane map, and folded back into it. The
+pose you see is `/glasslio_node/odom` — no ground truth, no loop closure.*
 
 ---
 
@@ -12,7 +24,8 @@ ICP solved by Gauss-Newton on SE(3) — and every non-obvious decision in it is 
 and justified, including the ones that turned out to be wrong.
 
 The real subject is **Lie algebra and least squares on a manifold**, taught through a system
-where getting them subtly wrong still produces plausible output.
+where getting them subtly wrong still produces plausible output. New to the Lie theory side?
+Start with [this primer on Lie algebra](https://aalok.uk/projects/lietheory/).
 
 > ### The thing that makes this domain hard
 >
@@ -28,7 +41,43 @@ where getting them subtly wrong still produces plausible output.
 
 ---
 
+## Why glasslio
+
+- **Every stage has a write-up, in execution order** — six stage docs plus the solver, each
+  one explaining the trap that stage sets, not just the code it runs ([docs](#documentation)).
+- **The bugs are documented, not hidden** — including the ones still standing: tight coupling
+  is built, unit-verified, and **diverges on the real bag**, and the *why* is written down.
+- **No Ceres, no GTSAM, no g2o** — the manifold least-squares solver is under 200 lines of
+  Eigen and you are meant to read it ([`gauss_newton.hpp`](include/glasslio/gauss_newton.hpp)).
+- **The tests are oracles, not smoke tests** — finite differences pin every Jacobian; mutation
+  testing checks that the tests would actually notice ([doc/testing.md](doc/testing.md)).
+- **One command to a running node** — Dockerfile + devcontainer pinned to Jazzy, and a
+  checksum-verified test bag ([Quickstart](#quickstart)).
+
 ## Quickstart
+
+### Try it in Docker (no ROS install)
+
+```bash
+./docker/run.sh ./scripts/download_bag.sh          # fetch the bag (once)
+./docker/run.sh colcon build --packages-select glasslio
+./docker/run.sh                                    # drop into a shell, then: ./src/glasslio/scripts/run_bag.sh
+```
+
+The image is pinned to **ROS 2 Jazzy on Ubuntu Noble** and installs the package's own
+dependencies straight from `package.xml` via `rosdep`, so it cannot drift from the manifest.
+The repo mounts as the `src/` of a workspace at `/ws`; build artefacts stay inside the
+container, so they never collide with a host build of the same tree.
+
+[`docker/Dockerfile`](docker/Dockerfile) is a **plain image with no editor specifics** —
+build it by hand, drop it in your own compose file, or use it in CI.
+[`.devcontainer/`](.devcontainer/devcontainer.json) is only the VS Code wrapper around that
+same image (“Reopen in Container”), and fetches the bag on create.
+
+RViz works on a Linux host out of the box (`run.sh` handles the X11 plumbing). On
+macOS/Windows, run headless: `./docker/run.sh ./src/glasslio/scripts/run_bag.sh -n`.
+
+### Or on a host with ROS 2 Jazzy
 
 ```bash
 # build
@@ -58,16 +107,17 @@ not in a table somewhere else.
 
 ## What it does
 
-```
- /livox/imu  ─┐
-              ├─► [2] sync ──► [3] deskew ──► [4] downsample ──► [5] register ──► /odom + TF
- /livox/lidar ┘       ▲                                              │
-                      │                                              ▼
-                 [1] IMU init                              [6] insert into map
-                 (gate: nothing                                      │
-                  runs until done)                                   └──► local map
-                                                                            │
-                                                                            └─(target)─┘
+```mermaid
+flowchart LR
+    imu(["/livox/imu"]) --> sync
+    lidar(["/livox/lidar"]) --> sync
+    init["1 · IMU init<br/><i>gate: nothing runs until done</i>"] -.-> sync
+    imu --> init
+    sync["2 · sync"] --> deskew["3 · deskew"] --> down["4 · downsample"] --> reg["5 · register"]
+    reg --> odom(["/odom + TF"])
+    reg --> insert["6 · insert into map"]
+    insert --> map[("local map<br/>voxel hash + planes")]
+    map -- target --> reg
 ```
 
 A Livox scan is a **~100 ms sweep, not a snapshot**. We integrate the gyro on SO(3) to
@@ -179,6 +229,8 @@ src/lio/              the pipeline stages, ROS-free
 src/glasslio_node.cpp the ROS shell: subscriptions, threading, publishing
 test/                 assert-based self-checks, no framework
 doc/                  the actual product
+docker/               pinned ROS 2 Jazzy image + a plain-docker runner
+.devcontainer/        VS Code wrapper around docker/Dockerfile
 include/sophus/       vendored (Lie group primitives)
 ```
 
@@ -187,6 +239,16 @@ include/sophus/       vendored (Lie group primitives)
 ROS 2 (Jazzy), Eigen 3, PCL (common / io / filters), and a vendored Sophus. No Ceres, no
 GTSAM — the whole solver is under 200 lines, and you are meant to read it.
 
+## Dataset
+
+The test bag is **not** ours. It is *Driving SLAM Test with Livox MID360* by Kenji Koide
+(AIST), released on Zenodo under **CC-BY-4.0** — a Livox MID-360 driving sequence, which is
+what `scripts/download_bag.sh` fetches.
+
+> Koide, K. (2025). *Driving SLAM Test with Livox MID360* [Data set]. Zenodo.
+> <https://doi.org/10.5281/zenodo.14841855>
+
 ## License
 
-MIT.
+MIT (the code). The test bag is CC-BY-4.0 and belongs to its author — see
+[Dataset](#dataset).
