@@ -15,6 +15,7 @@
 #include "glasslio/tight_registration.hpp"
 
 using namespace glasslio;
+using namespace glass_core;
 using Sophus::SO3d;
 
 static const Eigen::Vector3d kG(0.0, 0.0, -9.80665);

@@ -1,19 +1,27 @@
-#ifndef GLASSLIO_IMU_INIT_HPP
-#define GLASSLIO_IMU_INIT_HPP
+#ifndef GLASS_CORE_IMU_INIT_HPP
+#define GLASS_CORE_IMU_INIT_HPP
 
 #include <vector>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <sensor_msgs/msg/imu.hpp>
 
 #include "sophus/so3.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 /// Standard gravity, m/s^2.
 inline constexpr double kGravity = 9.80665;
+
+/// One IMU reading, in the engine's own ROS-free vocabulary. Whoever owns the
+/// sensor (a ROS node, a bag reader, a test) fills this at the boundary; the
+/// engine never sees sensor_msgs. `accel` is raw sensor units -- see accel_scale.
+struct ImuSample
+{
+  Eigen::Vector3d accel;   ///< linear acceleration, raw units (g on Livox)
+  Eigen::Vector3d gyro;    ///< angular velocity, rad/s
+};
 
 /// Estimates gyro bias and gravity from a STATIC window of IMU samples, and
 /// derives the initial gravity-aligned orientation.
@@ -23,8 +31,8 @@ inline constexpr double kGravity = 9.80665;
 /// estimator is then permanently, silently wrong with no error to chase. So a
 /// window that fails the motion check is DISCARDED and we keep waiting.
 ///
-/// Units: the Livox driver publishes linear_acceleration in *g*, not m/s^2
-/// (contrary to the sensor_msgs/Imu spec). `accel_scale` converts to SI.
+/// Units: the Livox driver publishes linear_acceleration in *g*, not m/s^2.
+/// `accel_scale` converts the raw ImuSample::accel to SI.
 class ImuInit
 {
 public:
@@ -35,7 +43,7 @@ public:
   ImuInit(int num_samples, double max_gyro, double max_accel_sd, double accel_scale);
 
   /// Feed one sample. Returns true once initialization has completed.
-  bool add(const sensor_msgs::msg::Imu & msg);
+  bool add(const ImuSample & s);
 
   bool initialized() const {return initialized_;}
 
@@ -53,8 +61,8 @@ public:
   /// How many times a candidate window was rejected for motion.
   int rejected_windows() const {return rejected_;}
 
-  /// Convert a raw ROS Imu accel into SI units (m/s^2).
-  Eigen::Vector3d accel_si(const sensor_msgs::msg::Imu & msg) const;
+  /// Convert a raw sample's accel into SI units (m/s^2).
+  Eigen::Vector3d accel_si(const ImuSample & s) const;
 
 private:
   void evaluate();
@@ -74,6 +82,6 @@ private:
   Sophus::SO3d R_wi_;
 };
 
-}  // namespace glasslio
+}  // namespace glass_core
 
-#endif  // GLASSLIO_IMU_INIT_HPP
+#endif  // GLASS_CORE_IMU_INIT_HPP

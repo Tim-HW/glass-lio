@@ -1,8 +1,8 @@
-#include "glasslio/preintegration.hpp"
+#include "glass_core/preintegration.hpp"
 
-#include "glasslio/so3_jacobian.hpp"
+#include "glass_core/so3_jacobian.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 using Sophus::SO3d;
@@ -119,4 +119,4 @@ Eigen::Vector3d ImuPreintegration::dp_corrected(
   return dp_ + dp_dbg_ * dbg + dp_dba_ * dba;
 }
 
-}  // namespace glasslio
+}  // namespace glass_core

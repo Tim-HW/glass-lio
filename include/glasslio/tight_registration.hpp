@@ -5,11 +5,14 @@
 
 #include "glasslio/types.hpp"   // CloudXYZI, MeasureGroup
 #include "glasslio/local_map.hpp"
-#include "glasslio/nav_state.hpp"
-#include "glasslio/preintegration.hpp"
+#include "glass_core/nav_state.hpp"
+#include "glass_core/preintegration.hpp"
 
 namespace glasslio
 {
+
+// The estimation math lives in glass_core; pull its names in (see lio_estimator.hpp).
+using namespace glass_core;  // NOLINT(build/namespaces)
 
 struct TightParams
 {

@@ -7,7 +7,7 @@ repository that is **not** ours, and what it is licensed under.
 
 | Component | Where | Licence | Notes |
 |---|---|---|---|
-| **Sophus** | [`include/sophus/`](include/sophus/) | MIT | Lie group primitives (SO(3), SE(3), `Exp`/`Log`). Vendored as headers. © Hauke Strasdat, Steven Lovegrove. See [`include/sophus/LICENSE`](include/sophus/LICENSE). Upstream: <https://github.com/strasdat/Sophus> |
+| **Sophus** | [`glass_core/include/sophus/`](glass_core/include/sophus/) | MIT | Lie group primitives (SO(3), SE(3), `Exp`/`Log`). Vendored as headers. © Hauke Strasdat, Steven Lovegrove. See [`glass_core/include/sophus/LICENSE`](glass_core/include/sophus/LICENSE). Upstream: <https://github.com/strasdat/Sophus> |
 
 That is the only third-party *code* in the tree. Everything else under `src/`,
 `include/glasslio/`, `test/`, `doc/`, `config/`, `scripts/` and `docker/` is ours and is
@@ -39,7 +39,7 @@ Two obligations, and only two:
 
 1. **Keep [`LICENSE`](LICENSE)** — MIT's single condition is that the copyright notice
    travels with the code.
-2. **Keep [`include/sophus/LICENSE`](include/sophus/LICENSE)** if you keep the Sophus
+2. **Keep [`glass_core/include/sophus/LICENSE`](glass_core/include/sophus/LICENSE)** if you keep the Sophus
    headers. The same condition applies to it, and it is not ours to waive.
 
 If you use the test bag in a paper or a demo, cite Koide (2025) above — that one is a

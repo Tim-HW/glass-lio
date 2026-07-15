@@ -71,7 +71,7 @@ which is both the reason it works and its central hazard.
 - **The bugs are documented, not hidden** — including the ones still standing: tight coupling
   is built, unit-verified, and **diverges on the real bag**, and the *why* is written down.
 - **No Ceres, no GTSAM, no g2o** — the manifold least-squares solver is under 200 lines of
-  Eigen and you are meant to read it ([`gauss_newton.hpp`](include/glasslio/gauss_newton.hpp)).
+  Eigen and you are meant to read it ([`gauss_newton.hpp`](glass_core/include/glass_core/gauss_newton.hpp)).
 - **The tests are oracles, not smoke tests** — finite differences pin every Jacobian; mutation
   testing checks that the tests would actually notice ([doc/testing.md](doc/testing.md)).
 - **One command to a running node** — Dockerfile + devcontainer pinned to Jazzy, and a
@@ -222,7 +222,7 @@ follow the stages in execution order.
 
 **The optimizer does not know what a point cloud is.**
 
-[`gauss_newton.hpp`](include/glasslio/gauss_newton.hpp) owns the *generic* half — normal
+[`gauss_newton.hpp`](glass_core/include/glass_core/gauss_newton.hpp) owns the *generic* half — normal
 equations, robust weighting, the LDLT solve, and the retraction back onto the manifold.
 [`registration.cpp`](src/lio/registration.cpp) supplies only the LiDAR-specific half:
 **association** (hash the point to its voxel, take the nearest plane) and the residual.
@@ -290,21 +290,32 @@ Each cost real debugging time, and each produced *plausible output* rather than 
 
 ## Layout
 
+The estimation engine is split out into **`glass_core/`** — a pure-CMake, **ROS-free**
+library of the on-manifold math, so a second front-end (a visual-inertial `glassvio`) can
+share the exact same solver instead of copying it. `glasslio` is the LiDAR front-end built
+on top; it pulls the engine in with `add_subdirectory(glass_core)`.
+
 ```
-include/glasslio/     the library headers — each one is the doc for its stage
+glass_core/           the sensor-agnostic engine — pure CMake + Eigen, NO ROS
+  include/glass_core/
+    gauss_newton.hpp    generic manifold least squares (knows nothing about LiDAR)
+    so3_jacobian.hpp    the SO(3) right Jacobian — the one bit Sophus does not give you
+    preintegration.hpp  on-manifold IMU preintegration (Forster)
+    nav_state.hpp       the 15-DoF state and its retraction
+    nav_residual.hpp    the IMU factor + Jacobians
+    imu_init.hpp        gyro-bias / gravity init (speaks a plain ImuSample, not sensor_msgs)
+  glass_core/include/sophus/       vendored Lie group primitives (MIT)
+  src/, test/           the two .cpp files, and the engine's own self-checks
+
+include/glasslio/     the LiDAR front-end headers — each one is the doc for its stage
   types.hpp             the shared vocabulary (CloudXYZI, MeasureGroup) — depends on nothing
-  gauss_newton.hpp      generic manifold least squares (knows nothing about LiDAR)
-  so3_jacobian.hpp      the SO(3) right Jacobian — the one bit Sophus does not give you
-  preintegration.hpp    on-manifold IMU preintegration (Forster)
-  nav_state.hpp         the 15-DoF state and its retraction
   local_map.hpp         voxel hash + cached per-voxel planes
-src/lio/              the pipeline stages, ROS-free
+src/lio/              the pipeline stages, ROS-free apart from the message types they parse
 src/glasslio_node.cpp the ROS shell: subscriptions, threading, publishing
 test/                 assert-based self-checks, no framework
 doc/                  the actual product
 docker/               pinned ROS 2 Jazzy image + a plain-docker runner
 .devcontainer/        VS Code wrapper around docker/Dockerfile
-include/sophus/       vendored (Lie group primitives)
 ```
 
 ## Dependencies
@@ -327,9 +338,9 @@ what `scripts/download_bag.sh` fetches.
 
 Two things in this repo are **not** ours and keep their own terms:
 
-- **Sophus** ([`include/sophus/`](include/sophus/)) — MIT, © Hauke Strasdat & Steven
+- **Sophus** ([`glass_core/include/sophus/`](glass_core/include/sophus/)) — MIT, © Hauke Strasdat & Steven
   Lovegrove. Vendored headers; its notice travels with it
-  ([`include/sophus/LICENSE`](include/sophus/LICENSE)).
+  ([`glass_core/include/sophus/LICENSE`](glass_core/include/sophus/LICENSE)).
 - **The test bag** — CC-BY-4.0, © Kenji Koide. Not in the repo; fetched by
   `download_bag.sh`. **Attribution required** if you publish results from it (see
   [Dataset](#dataset)).

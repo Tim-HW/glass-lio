@@ -1,11 +1,11 @@
-#ifndef GLASSLIO_PREINTEGRATION_HPP
-#define GLASSLIO_PREINTEGRATION_HPP
+#ifndef GLASS_CORE_PREINTEGRATION_HPP
+#define GLASS_CORE_PREINTEGRATION_HPP
 
 #include <Eigen/Core>
 
 #include "sophus/so3.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 /// IMU PREINTEGRATION (Forster et al., "On-Manifold Preintegration", TRO 2017).
@@ -109,6 +109,6 @@ private:
   Eigen::Matrix3d dp_dba_ = Eigen::Matrix3d::Zero();
 };
 
-}  // namespace glasslio
+}  // namespace glass_core
 
-#endif  // GLASSLIO_PREINTEGRATION_HPP
+#endif  // GLASS_CORE_PREINTEGRATION_HPP

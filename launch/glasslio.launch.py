@@ -7,22 +7,22 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 DEFAULT_CONFIG = os.path.join(
-    get_package_share_directory("glasslio"), "config", "livox_mid_360.yaml"
+    get_package_share_directory('glasslio'), 'config', 'livox_mid_360.yaml'
 )
 
 
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
-            "config",
+            'config',
             default_value=DEFAULT_CONFIG,
-            description="Sensor parameter file (topics, extrinsic, voxel size).",
+            description='Sensor parameter file (topics, extrinsic, voxel size).',
         ),
         Node(
-            package="glasslio",
-            executable="glasslio_node",
-            name="glasslio_node",
-            output="screen",
-            parameters=[LaunchConfiguration("config")],
+            package='glasslio',
+            executable='glasslio_node',
+            name='glasslio_node',
+            output='screen',
+            parameters=[LaunchConfiguration('config')],
         ),
     ])

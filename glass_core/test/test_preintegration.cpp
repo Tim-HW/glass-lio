@@ -10,10 +10,10 @@
 #include <random>
 #include <vector>
 
-#include "glasslio/preintegration.hpp"
-#include "glasslio/so3_jacobian.hpp"
+#include "glass_core/preintegration.hpp"
+#include "glass_core/so3_jacobian.hpp"
 
-using namespace glasslio;
+using namespace glass_core;
 using Sophus::SO3d;
 
 static const Eigen::Vector3d kGravityVec(0.0, 0.0, -9.80665);

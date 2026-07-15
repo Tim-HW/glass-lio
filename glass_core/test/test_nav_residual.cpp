@@ -10,11 +10,11 @@
 #include <random>
 #include <vector>
 
-#include "glasslio/nav_residual.hpp"
-#include "glasslio/nav_state.hpp"
-#include "glasslio/preintegration.hpp"
+#include "glass_core/nav_residual.hpp"
+#include "glass_core/nav_state.hpp"
+#include "glass_core/preintegration.hpp"
 
-using namespace glasslio;
+using namespace glass_core;
 using Sophus::SO3d;
 
 static const Eigen::Vector3d kG(0.0, 0.0, -9.80665);

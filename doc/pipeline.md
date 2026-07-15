@@ -33,7 +33,7 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 
 | # | Stage | Doc | Code |
 |---|---|---|---|
-| **1** | **IMU initialization** — gyro bias, gravity, world frame. *A gate: nothing runs until it completes.* | [1-imu-init.md](1-imu-init.md) | [`imu_init.cpp`](../src/lio/imu_init.cpp) |
+| **1** | **IMU initialization** — gyro bias, gravity, world frame. *A gate: nothing runs until it completes.* | [1-imu-init.md](1-imu-init.md) | [`imu_init.cpp`](../glass_core/src/imu_init.cpp) |
 | **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | [`sync.cpp`](../src/lio/sync.cpp) |
 | **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`deskew.cpp`](../src/lio/deskew.cpp), [`gyr_int.cpp`](../src/lio/gyr_int.cpp) |
 | **4** | **Downsample** — voxel grid, 0.5 m leaf | [4-downsample.md](4-downsample.md) | `LioEstimator::downsample()` |

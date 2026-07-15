@@ -1,8 +1,8 @@
-#include "glasslio/imu_init.hpp"
+#include "glass_core/imu_init.hpp"
 
 #include <cmath>
 
-namespace glasslio
+namespace glass_core
 {
 
 ImuInit::ImuInit(int num_samples, double max_gyro, double max_accel_sd, double accel_scale)
@@ -13,23 +13,19 @@ ImuInit::ImuInit(int num_samples, double max_gyro, double max_accel_sd, double a
 {
 }
 
-Eigen::Vector3d ImuInit::accel_si(const sensor_msgs::msg::Imu & msg) const
+Eigen::Vector3d ImuInit::accel_si(const ImuSample & s) const
 {
-  return Eigen::Vector3d(
-    msg.linear_acceleration.x,
-    msg.linear_acceleration.y,
-    msg.linear_acceleration.z) * accel_scale_;
+  return s.accel * accel_scale_;
 }
 
-bool ImuInit::add(const sensor_msgs::msg::Imu & msg)
+bool ImuInit::add(const ImuSample & s)
 {
   if (initialized_) {
     return true;
   }
 
-  gyros_.emplace_back(
-    msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z);
-  accels_.push_back(accel_si(msg));
+  gyros_.push_back(s.gyro);
+  accels_.push_back(accel_si(s));
 
   if (gyros_.size() < num_samples_) {
     return false;
@@ -89,4 +85,4 @@ void ImuInit::evaluate()
   accels_.clear();
 }
 
-}  // namespace glasslio
+}  // namespace glass_core

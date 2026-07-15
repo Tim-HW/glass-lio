@@ -5,26 +5,20 @@
 #include <cstdio>
 #include <random>
 
-#include "glasslio/imu_init.hpp"
+#include "glass_core/imu_init.hpp"
 
-using glasslio::ImuInit;
-using glasslio::kGravity;
+using glass_core::ImuInit;
+using glass_core::ImuSample;
+using glass_core::kGravity;
 
 // Bag defaults: 200 samples (1 s @ 200 Hz), 0.1 rad/s, 0.5 m/s^2, accel in g.
 static ImuInit makeInit() {return ImuInit(200, 0.1, 0.5, kGravity);}
 
-/// Build an Imu msg. accel is in *g* (as the Livox driver publishes it).
-static sensor_msgs::msg::Imu msg(
+/// Build a sample. accel is in *g* (as the Livox driver publishes it).
+static ImuSample msg(
   double gx, double gy, double gz, double ax_g, double ay_g, double az_g)
 {
-  sensor_msgs::msg::Imu m;
-  m.angular_velocity.x = gx;
-  m.angular_velocity.y = gy;
-  m.angular_velocity.z = gz;
-  m.linear_acceleration.x = ax_g;
-  m.linear_acceleration.y = ay_g;
-  m.linear_acceleration.z = az_g;
-  return m;
+  return ImuSample{{ax_g, ay_g, az_g}, {gx, gy, gz}};
 }
 
 int main()

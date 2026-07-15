@@ -30,12 +30,7 @@ struct EIGEN_ALIGN16 LivoxPoint
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
   glasslio::LivoxPoint,
-  (float, x, x)
-  (float, y, y)
-  (float, z, z)
-  (float, intensity, intensity)
-  (std::uint8_t, tag, tag)
-  (std::uint8_t, line, line)
-  (double, timestamp, timestamp))
+  (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(std::uint8_t, tag,
+  tag)(std::uint8_t, line, line)(double, timestamp, timestamp))
 
 #endif  // GLASSLIO_LIVOX_POINT_HPP

@@ -17,7 +17,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 
 #include "glasslio/deskew.hpp"
-#include "glasslio/imu_init.hpp"
+#include "glass_core/imu_init.hpp"
 #include "glasslio/lio_estimator.hpp"
 #include "glasslio/local_map.hpp"
 #include "glasslio/sync.hpp"
@@ -25,6 +25,8 @@
 
 namespace glasslio
 {
+
+using namespace glass_core;  // the estimation engine (NOLINT: build/namespaces)
 
 /// LiDAR-inertial odometry node -- the ROS SHELL, and nothing more.
 ///
@@ -308,7 +310,12 @@ private:
     }
 
     if (!imu_init_->initialized()) {
-      if (imu_init_->add(*msg)) {
+      // Convert the ROS message to the engine's ROS-free ImuSample at the boundary.
+      // glass_core never sees sensor_msgs. Accel stays raw (in g); ImuInit scales it.
+      const glass_core::ImuSample sample{
+        {msg->linear_acceleration.x, msg->linear_acceleration.y, msg->linear_acceleration.z},
+        {msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z}};
+      if (imu_init_->add(sample)) {
         onInitialized();
       }
       return;   // no scans are processed until the IMU is initialized

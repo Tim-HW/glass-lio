@@ -13,10 +13,11 @@
 #include <cstdio>
 #include <random>
 
-#include "glasslio/gauss_newton.hpp"
+#include "glass_core/gauss_newton.hpp"
 #include "glasslio/registration.hpp"
 
 using namespace glasslio;
+using namespace glass_core;
 
 using Vec6 = Eigen::Matrix<double, 6, 1>;
 using Mat16 = Eigen::Matrix<double, 1, 6>;

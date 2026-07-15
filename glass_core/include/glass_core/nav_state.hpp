@@ -1,11 +1,11 @@
-#ifndef GLASSLIO_NAV_STATE_HPP
-#define GLASSLIO_NAV_STATE_HPP
+#ifndef GLASS_CORE_NAV_STATE_HPP
+#define GLASS_CORE_NAV_STATE_HPP
 
 #include <Eigen/Core>
 
 #include "sophus/so3.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 /// The 15-DoF navigation state that a tightly-coupled estimator solves for.
@@ -78,6 +78,6 @@ inline NavState boxplus(const NavState & x, const NavVec & dx)
   return out;
 }
 
-}  // namespace glasslio
+}  // namespace glass_core
 
-#endif  // GLASSLIO_NAV_STATE_HPP
+#endif  // GLASS_CORE_NAV_STATE_HPP

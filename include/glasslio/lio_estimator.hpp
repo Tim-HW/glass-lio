@@ -8,15 +8,20 @@
 #include <rclcpp/logger.hpp>
 
 #include "glasslio/deskew.hpp"
-#include "glasslio/imu_init.hpp"   // kGravity
+#include "glass_core/imu_init.hpp"   // kGravity
 #include "glasslio/local_map.hpp"
-#include "glasslio/nav_state.hpp"
-#include "glasslio/preintegration.hpp"
+#include "glass_core/nav_state.hpp"
+#include "glass_core/preintegration.hpp"
 #include "glasslio/registration.hpp"
 #include "glasslio/tight_registration.hpp"
 
 namespace glasslio
 {
+
+// The estimation math lives in glass_core (SE(3) Gauss-Newton, IMU preintegration,
+// the 15-DoF nav state, the IMU factor). glasslio is the LiDAR front-end built on
+// top of it -- pull the engine's names into this namespace.
+using namespace glass_core;  // NOLINT(build/namespaces)
 
 /// Everything the estimator needs to be built. Parsed from ROS parameters by the node --
 /// which is the node's ONLY remaining say in how the estimator behaves.

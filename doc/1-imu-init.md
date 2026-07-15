@@ -3,8 +3,8 @@
 Estimates the **gyro bias** and the **direction of gravity** from a static window of
 IMU samples, and from gravity derives the initial gravity-aligned orientation.
 
-Code: [`imu_init.cpp`](../src/lio/imu_init.cpp), [`imu_init.hpp`](../include/glasslio/imu_init.hpp).
-Self-check: [`test_imu_init.cpp`](../test/test_imu_init.cpp).
+Code: [`imu_init.cpp`](../glass_core/src/imu_init.cpp), [`imu_init.hpp`](../glass_core/include/glass_core/imu_init.hpp).
+Self-check: [`test_imu_init.cpp`](../glass_core/test/test_imu_init.cpp).
 
 **This is a gate.** No scan is deskewed, registered, or mapped until it completes.
 Scans arriving before it are *dropped*, not buffered — the IMU samples that would

@@ -4,13 +4,13 @@
 It works on synthetic data and slowly diverges on the real bag. Both facts are
 instructive, and §7.8 explains exactly why.
 
-Code: [`preintegration.hpp`](../include/glasslio/preintegration.hpp),
-[`nav_state.hpp`](../include/glasslio/nav_state.hpp),
-[`nav_residual.hpp`](../include/glasslio/nav_residual.hpp),
+Code: [`preintegration.hpp`](../glass_core/include/glass_core/preintegration.hpp),
+[`nav_state.hpp`](../glass_core/include/glass_core/nav_state.hpp),
+[`nav_residual.hpp`](../glass_core/include/glass_core/nav_residual.hpp),
 [`tight_registration.cpp`](../src/lio/tight_registration.cpp),
-[`so3_jacobian.hpp`](../include/glasslio/so3_jacobian.hpp).
-Tests: [`test_preintegration.cpp`](../test/test_preintegration.cpp),
-[`test_nav_residual.cpp`](../test/test_nav_residual.cpp),
+[`so3_jacobian.hpp`](../glass_core/include/glass_core/so3_jacobian.hpp).
+Tests: [`test_preintegration.cpp`](../glass_core/test/test_preintegration.cpp),
+[`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp),
 [`test_tight.cpp`](../test/test_tight.cpp).
 
 ---
@@ -177,7 +177,7 @@ to `I` moves the rotation-block error from **5.5e-10 to 2.5e-02**, seven orders 
 magnitude.
 
 > Sophus gives you `exp`, `log`, `hat`, `vee` — and **not** `J_r`. It is the one piece of
-> Lie algebra we write ourselves ([so3_jacobian.hpp](../include/glasslio/so3_jacobian.hpp)),
+> Lie algebra we write ourselves ([so3_jacobian.hpp](../glass_core/include/glass_core/so3_jacobian.hpp)),
 > because it is the piece every non-trivial derivative on SO(3) needs.
 
 ### The small-angle cliff

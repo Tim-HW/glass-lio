@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+
+# glass_core links Eigen publicly, so downstream needs the Eigen3::Eigen target too.
+include(CMakeFindDependencyMacro)
+find_dependency(Eigen3)
+
+include("${CMAKE_CURRENT_LIST_DIR}/glass_coreTargets.cmake")
+
+check_required_components(glass_core)

@@ -2,11 +2,13 @@
 
 #include <cmath>
 
-#include "glasslio/gauss_newton.hpp"
+#include "glass_core/gauss_newton.hpp"
 #include "sophus/se3.hpp"
 
 namespace glasslio
 {
+
+using namespace glass_core;  // the Gauss-Newton solver (NOLINT: build/namespaces)
 
 RegistrationResult alignPointToPlane(
   const CloudXYZI & source,

@@ -2,8 +2,8 @@
 
 #include <cmath>
 
-#include "glasslio/gauss_newton.hpp"
-#include "glasslio/nav_residual.hpp"
+#include "glass_core/gauss_newton.hpp"
+#include "glass_core/nav_residual.hpp"
 
 namespace glasslio
 {

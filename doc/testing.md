@@ -56,7 +56,7 @@ what lets us assert agreement to `1e-9` instead of squinting at `1e-4`.
 **Perturb *through the retraction*, never by addition.** The state lives on a manifold, so
 the perturbation must be applied the way the solver applies it —
 $\mathrm{Exp}(h\,\mathbf{e}_i)$ — not by adding $h$ to a rotation matrix. In
-[`test_nav_residual.cpp`](../test/test_nav_residual.cpp) the numeric Jacobian goes through
+[`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp) the numeric Jacobian goes through
 `boxplus()`, the *same* retraction the optimizer uses. A finite-difference check that
 perturbs the wrong way tests the wrong function.
 
@@ -107,7 +107,7 @@ assert(err > 1e-3 && "the swapped cross product should NOT match; test 1 has no 
 ```
 
 **Load-bearing assertions.** Is the `J_r⁻¹` term in the IMU Jacobian actually doing work, or
-would we pass with it stubbed out? [`test_nav_residual.cpp`](../test/test_nav_residual.cpp)
+would we pass with it stubbed out? [`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp)
 replaces it with the identity matrix — the classic shortcut — and measures the damage:
 
 ```

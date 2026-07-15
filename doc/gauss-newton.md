@@ -2,7 +2,7 @@
 
 Iterative least squares on SE(3). This file has **never heard of a point cloud**.
 
-Code: [`gauss_newton.hpp`](../include/glasslio/gauss_newton.hpp).
+Code: [`gauss_newton.hpp`](../glass_core/include/glass_core/gauss_newton.hpp).
 
 It is split out from [5-registration.md](5-registration.md) on purpose, and the split is
 the lesson: **swap the residual and the same solver becomes a different estimator.** It is

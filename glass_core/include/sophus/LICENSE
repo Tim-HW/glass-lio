@@ -1,7 +1,7 @@
 Sophus — C++ implementation of Lie Groups using Eigen.
 
 The files in this directory are VENDORED third-party code. They are not part of
-glasslio and are not covered by glasslio's licence. They are redistributed here
+glass_core and are not covered by glass_core's licence. They are redistributed here
 under their own terms, reproduced below.
 
 Upstream: https://github.com/strasdat/Sophus

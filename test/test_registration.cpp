@@ -61,7 +61,8 @@ static CloudXYZI transformed(const CloudXYZI & in, const Eigen::Isometry3d & T)
 static Eigen::Isometry3d makePose(double tx, double ty, double tz, double yaw_deg)
 {
   Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
-  T.linear() = Eigen::AngleAxisd(yaw_deg * M_PI / 180.0, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  T.linear() = Eigen::AngleAxisd(yaw_deg * M_PI / 180.0,
+    Eigen::Vector3d::UnitZ()).toRotationMatrix();
   T.translation() = Eigen::Vector3d(tx, ty, tz);
   return T;
 }

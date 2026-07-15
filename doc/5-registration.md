@@ -5,7 +5,7 @@ stage that produces `pose_`; everything else feeds it or consumes it.
 
 Code: [`registration.cpp`](../src/lio/registration.cpp),
 [`registration.hpp`](../include/glasslio/registration.hpp).
-The *solver* lives separately in [`gauss_newton.hpp`](../include/glasslio/gauss_newton.hpp)
+The *solver* lives separately in [`gauss_newton.hpp`](../glass_core/include/glass_core/gauss_newton.hpp)
 — see [gauss_newton.md](gauss-newton.md).
 Self-check: [`test_registration.cpp`](../test/test_registration.cpp).
 

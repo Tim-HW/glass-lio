@@ -1,5 +1,5 @@
-#ifndef GLASSLIO_SO3_JACOBIAN_HPP
-#define GLASSLIO_SO3_JACOBIAN_HPP
+#ifndef GLASS_CORE_SO3_JACOBIAN_HPP
+#define GLASS_CORE_SO3_JACOBIAN_HPP
 
 #include <cmath>
 
@@ -7,7 +7,7 @@
 
 #include "sophus/so3.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 /// The RIGHT JACOBIAN of SO(3), and its inverse.
@@ -110,6 +110,6 @@ inline Eigen::Matrix3d rightJacobianInverse(const Eigen::Vector3d & phi)
   return Eigen::Matrix3d::Identity() + 0.5 * W + c * W * W;
 }
 
-}  // namespace glasslio
+}  // namespace glass_core
 
-#endif  // GLASSLIO_SO3_JACOBIAN_HPP
+#endif  // GLASS_CORE_SO3_JACOBIAN_HPP

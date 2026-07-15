@@ -1,13 +1,13 @@
-#ifndef GLASSLIO_NAV_RESIDUAL_HPP
-#define GLASSLIO_NAV_RESIDUAL_HPP
+#ifndef GLASS_CORE_NAV_RESIDUAL_HPP
+#define GLASS_CORE_NAV_RESIDUAL_HPP
 
 #include <Eigen/Core>
 
-#include "glasslio/nav_state.hpp"
-#include "glasslio/preintegration.hpp"
-#include "glasslio/so3_jacobian.hpp"
+#include "glass_core/nav_state.hpp"
+#include "glass_core/preintegration.hpp"
+#include "glass_core/so3_jacobian.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 /// The residuals a tightly-coupled solve stacks into one linear system.
@@ -186,6 +186,6 @@ inline Eigen::Matrix<double, 6, kNavDim> biasJacobian()
   return J;
 }
 
-}  // namespace glasslio
+}  // namespace glass_core
 
-#endif  // GLASSLIO_NAV_RESIDUAL_HPP
+#endif  // GLASS_CORE_NAV_RESIDUAL_HPP

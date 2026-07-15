@@ -35,16 +35,21 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 
+# The sensor-agnostic estimation engine (SE(3) Gauss-Newton, IMU preintegration, the
+# nav state + IMU factor, SO(3) Jacobians, IMU init). Pure CMake, no ROS -- pulled in
+# from a subdirectory rather than find_package'd, so this monorepo builds in one shot
+# and glassvio will share the exact same engine by including the same dir. It provides
+# glass_core::glass_core and, transitively, the vendored Sophus headers.
+add_subdirectory(glass_core)
+
 # The pipeline stages, ROS-free apart from the message types they parse. Built
 # once as a library so the node and the tests share the same objects instead of
 # each re-listing (and re-compiling) the sources.
 add_library(lio SHARED
   src/lio/deskew.cpp
   src/lio/gyr_int.cpp
-  src/lio/imu_init.cpp
   src/lio/lio_estimator.cpp
   src/lio/local_map.cpp
-  src/lio/preintegration.cpp
   src/lio/registration.cpp
   src/lio/sync.cpp
   src/lio/tight_registration.cpp)
@@ -52,7 +57,9 @@ target_include_directories(lio PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 ament_target_dependencies(lio rclcpp sensor_msgs pcl_conversions)
-target_link_libraries(lio ${PCL_LIBRARIES} Eigen3::Eigen)
+# glass_core is PUBLIC: its headers (engine + Sophus) appear in lio's own headers, so
+# the node and tests that link lio must see them too. Plain link = public usage reqs.
+target_link_libraries(lio ${PCL_LIBRARIES} Eigen3::Eigen glass_core::glass_core)
 
 # The node is just the ROS shell: subscriptions, threading, publishing.
 add_executable(glasslio_node src/glasslio_node.cpp)
@@ -84,7 +91,10 @@ if(BUILD_TESTING)
   #
   # CRITICAL: -UNDEBUG. Release builds define NDEBUG, which compiles assert()
   # out entirely -- the tests would then pass while checking nothing at all.
-  foreach(t test_local_map test_registration test_imu_init test_jacobian test_preintegration test_nav_residual test_tight test_sync)
+  # test_imu_init, test_preintegration, test_nav_residual moved to glass_core -- they
+  # test the engine, and now live with it. What stays here tests the LiDAR front-end
+  # (and test_jacobian pins the point-to-plane Jacobian, which is glasslio's).
+  foreach(t test_local_map test_registration test_jacobian test_tight test_sync)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} lio ${PCL_LIBRARIES})
     target_compile_options(${t} PRIVATE -UNDEBUG)

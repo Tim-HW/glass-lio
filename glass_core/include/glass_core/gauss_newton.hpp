@@ -1,5 +1,5 @@
-#ifndef GLASSLIO_GAUSS_NEWTON_HPP
-#define GLASSLIO_GAUSS_NEWTON_HPP
+#ifndef GLASS_CORE_GAUSS_NEWTON_HPP
+#define GLASS_CORE_GAUSS_NEWTON_HPP
 
 #include <cmath>
 
@@ -8,7 +8,7 @@
 
 #include "sophus/se3.hpp"
 
-namespace glasslio
+namespace glass_core
 {
 
 /// Iterative least squares on the SE(3) manifold. Knows nothing about LiDAR,
@@ -195,6 +195,6 @@ GaussNewtonResult optimizeSE3(
   return result;
 }
 
-}  // namespace glasslio
+}  // namespace glass_core
 
-#endif  // GLASSLIO_GAUSS_NEWTON_HPP
+#endif  // GLASS_CORE_GAUSS_NEWTON_HPP

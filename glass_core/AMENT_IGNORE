@@ -1,0 +1,4 @@
+# glass_core is a self-contained, pure-CMake subproject (the estimation engine) that
+# glasslio pulls in via add_subdirectory. It is NOT glasslio's code and vendors Sophus,
+# so glasslio's ament_lint must not descend into it. This marker stops ament tooling here;
+# CMake add_subdirectory is unaffected, so the engine still builds as part of glasslio.
