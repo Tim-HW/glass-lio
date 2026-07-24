@@ -1,15 +1,11 @@
 # Testing an estimator that never crashes
 
-The most transferable thing in this repo is not the LiDAR-inertial odometry. It is the
-method used to find the bugs in it.
-
-**Every serious bug in this project produced plausible output.** Not one of them crashed,
-NaN'd, or threw. A sign-flipped Jacobian still converges. A Jacobian that has silently lost
-its first-order term still runs. A plane fitted perpendicular to the actual wall still
-gives ICP something to chew on. A tightly-coupled estimator with a 3° gravity error still
-tracks — for a while.
-
-That is the defining hazard of estimator code, and it dictates everything below.
+The most transferable thing in this repo is not the LiDAR-inertial odometry — it is the
+method used to find the bugs in it. Because **every serious bug here produced plausible
+output** (see the [README](../README.md)): none crashed, NaN'd, or threw. A sign-flipped
+Jacobian still converges; a plane fitted perpendicular to the wall still gives ICP
+something to chew on. That is the defining hazard of estimator code, and it dictates
+everything below.
 
 ---
 
@@ -36,11 +32,8 @@ production path.** You get correctness *and* speed instead of trading one for th
 
 ## 2. Finite differences, on the manifold
 
-The analytic Jacobian in production is closed-form and exact:
-
-$$
-\mathbf{J}_i = \begin{bmatrix} \mathbf{n}_i^\top & (\mathbf{q}_i \times \mathbf{n}_i)^\top \end{bmatrix}
-$$
+The analytic Jacobian in production is closed-form and exact (for point-to-plane,
+`[nᵢᵀ (qᵢ×nᵢ)ᵀ]` — derived in [5-registration.md §3.4](5-registration.md)).
 
 The oracle perturbs the state and watches what *actually happens*:
 
