@@ -78,6 +78,30 @@ inline NavState boxplus(const NavState & x, const NavVec & dx)
   return out;
 }
 
+/// The INVERSE of boxplus (boxminus):  x [-] y  =  the dx for which  y [+] dx  ==  x.
+///
+/// The difference between two states, expressed in the tangent space at `y`. It exists for
+/// one reason: a PRIOR on the state. "x should be near y, with covariance P" is not
+/// expressible without it, because the rotation block cannot be subtracted -- Log of the
+/// RELATIVE rotation is what a difference means on SO(3), exactly as in imuResidual.
+///
+/// THE SIDE MATTERS, and it is fixed by boxplus. Since boxplus composes on the RIGHT
+/// (R <- R Exp(dphi)), inverting it gives Log(y.R^-1 x.R), NOT Log(x.R y.R^-1). Swap them and
+/// the residual is still small, still shrinks, and pulls the state to the wrong place.
+///
+/// Exactness is the contract: boxminus(boxplus(x, dx), x) == dx for any dx in the domain of
+/// Log. Pinned in test_nav_residual.cpp.
+inline NavVec boxminus(const NavState & x, const NavState & y)
+{
+  NavVec dx;
+  dx.segment<3>(kIdxPhi) = (y.R.inverse() * x.R).log();   // manifold: Log of the relative
+  dx.segment<3>(kIdxPos) = x.p - y.p;                     // vector space: subtract
+  dx.segment<3>(kIdxVel) = x.v - y.v;
+  dx.segment<3>(kIdxBg) = x.bg - y.bg;
+  dx.segment<3>(kIdxBa) = x.ba - y.ba;
+  return dx;
+}
+
 }  // namespace glass_core
 
 #endif  // GLASS_CORE_NAV_STATE_HPP

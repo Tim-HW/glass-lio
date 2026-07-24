@@ -1,7 +1,6 @@
 #include "glasslio/lio_estimator.hpp"
 
 #include <algorithm>
-#include <cmath>
 
 #include <pcl/common/transforms.h>
 

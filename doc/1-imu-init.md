@@ -6,9 +6,9 @@ IMU samples, and from gravity derives the initial gravity-aligned orientation.
 Code: [`imu_init.cpp`](../glass_core/src/imu_init.cpp), [`imu_init.hpp`](../glass_core/include/glass_core/imu_init.hpp).
 Self-check: [`test_imu_init.cpp`](../glass_core/test/test_imu_init.cpp).
 
-**This is a gate.** No scan is deskewed, registered, or mapped until it completes.
-Scans arriving before it are *dropped*, not buffered — the IMU samples that would
-deskew them have already been consumed by the init window.
+> **This is a gate.** No scan is deskewed, registered, or mapped until it completes.
+> Scans arriving before it are *dropped*, not buffered — the IMU samples that would
+> deskew them have already been consumed by the init window.
 
 ---
 
@@ -18,7 +18,7 @@ Two things downstream are undefined without it.
 
 **The gyro bias `b_g`.** A MEMS gyro reports a non-zero rate while perfectly still.
 Integrate that unremoved and orientation walks away linearly in time. Over one 0.1 s
-scan the bias here contributes ~0.02° — negligible. But the *same* integrator feeds
+scan the bias here contributes ~0.03° — negligible. But the *same* integrator feeds
 the cross-scan rotation prior that registration starts from, and there it
 accumulates. Bias is subtracted at the source, in `GyrInt`, so nothing downstream
 has to think about it.
@@ -59,16 +59,10 @@ after scaling, it logs an ERROR naming the parameter.
 
 Accumulate `N` samples (`num_samples: 200` = 1 s at 200 Hz), then require **both**:
 
-$$
-\max_i \lVert \boldsymbol{\omega}_i \rVert < \omega_{\max}
-\quad (0.1\ \text{rad/s})
-\qquad \Longrightarrow \quad \text{not rotating}
-$$
-$$
-\max_{\text{axis}} \; \sigma(\mathbf{a}) < \sigma_{a,\max}
-\quad (0.5\ \text{m/s}^2)
-\qquad \Longrightarrow \quad \text{not translating}
-$$
+| Check | Threshold | Rules out |
+|---|---|---|
+| `maxᵢ ‖ωᵢ‖` | < 0.1 rad/s | rotation |
+| `max_axis σ(a)` | < 0.5 m/s² | translation (acceleration) |
 
 **The second check is not redundant**, and it is the one people leave out. A
 gyro-only test passes happily while the sensor is carried in a straight line at
@@ -95,8 +89,8 @@ On our own test bag the robot is **already cruising at ~1.5 m/s** when the recor
 starts. The check reports "static". It is not lying: constant velocity means zero
 acceleration, so gravity is uncorrupted and the init is *valid*.
 
-But we then spent real time reading a correctly-tracked 1.6 m/s trajectory as
-"drift", because we'd read the log line as meaning the robot was stopped.
+But we then read the "static" log line as "the robot is stopped", and spent real time
+mistaking a correctly-tracked 1.6 m/s trajectory for drift.
 
 **Never read "static window detected" as "the robot is stationary."** It means "the
 robot is not accelerating."
@@ -118,18 +112,12 @@ $$
 
 ### Why yaw is left at zero
 
-`R_wi` is the **minimal** rotation carrying measured "up" onto world +Z, which is
-what `Eigen::Quaterniond::FromTwoVectors` gives you.
-
-Gravity is a single vector. It pins down two degrees of freedom — roll and pitch —
-and says **nothing whatsoever** about the third. Rotate the sensor about the gravity
-axis and the accelerometer reads exactly the same. **Yaw is unobservable from
-gravity alone.**
-
-So leaving yaw at zero is not a shortcut or a TODO: it is the correct response to an
-unobservable quantity. Inventing a value would be worse than admitting we don't have
-one. (This is why odometry frames are conventionally defined *up to* yaw, and why
-recovering absolute yaw needs a magnetometer or a map.)
+Gravity is a single vector: it pins down roll and pitch, but rotate the sensor about
+the gravity axis and the accelerometer reads exactly the same. **Yaw is unobservable
+from gravity alone.** So `R_wi` is the *minimal* rotation carrying measured "up" onto
+world +Z (what `Eigen::Quaterniond::FromTwoVectors` returns), and leaving yaw at zero
+is not a shortcut — it is the correct response to an unobservable quantity. Inventing a
+value would be worse than admitting we don't have one.
 
 ### Applying the extrinsic
 
@@ -141,25 +129,23 @@ $$
 $$
 
 Forget this and the whole trajectory is tilted by the mount angle between the two
-sensors. (On the Mid-360 `R_il` is genuinely identity, so this term does nothing
-*here* — see [deskew.md §5](3-deskew.md). It is still written out, because the moment
-anyone runs this on an Avia or an external IMU it stops being identity, and a bug
-that only appears on someone else's hardware is the worst kind.)
+sensors. On the Mid-360 `R_il` is identity so it is a no-op *here* (see
+[deskew.md §5](3-deskew.md)), but it is written out for external-IMU setups where it
+isn't — a bug that only appears on someone else's hardware is the worst kind.
 
 ---
 
 ## 5. Measured on the test bag
 
 ```
-gyro bias : [+0.003, −0.001, +0.003] rad/s
+gyro bias : [−0.0026, −0.0004, −0.0043] rad/s
 |g|       : 9.781 m/s²                      (vs 9.80665 standard)
 mount tilt: 7.33° from vertical
 windows rejected for motion: 0
 ```
 
-The **7.33° tilt is real** — the sensor is genuinely not mounted level. That is
-precisely the quantity `R_wi` exists to remove, and skipping the alignment would
-render flat ground as a 7° slope.
+The **7.33° tilt is real**, not an error — the sensor is genuinely not mounted level,
+and `R_wi` is exactly what removes it.
 
 `|g|` = 9.781 vs 9.80665 is a 0.26% discrepancy: accelerometer scale-factor error,
 well within spec for a MEMS part, and a reminder that `accel_in_g` is a *unit*

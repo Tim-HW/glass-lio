@@ -7,7 +7,6 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
-#include <algorithm>
 #include <random>
 
 #include "glasslio/local_map.hpp"

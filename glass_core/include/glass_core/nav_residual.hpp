@@ -114,6 +114,96 @@ inline ImuJacobian imuJacobian(
   return J;
 }
 
+/// The IMU's own prediction of the next state: xj = xi (+) preintegrated delta.
+///
+/// The FORWARD DUAL of imuResidual: the same three lines run forwards instead of
+/// compared. imuResidual asks "do xi and xj agree with the IMU?"; this asks "given
+/// xi, where does the IMU say xj is?". Keeping the two adjacent is deliberate -- edit
+/// one without the other and the residual stops being the error of this prediction.
+///
+/// As a guess it REPLACES a constant-velocity model, and is strictly better
+/// information: constant-velocity assumes the acceleration was zero, while this uses
+/// the accelerometer that actually measured it.
+///
+/// GRAVITY ENTERS HERE, exactly as in imuResidual and for the same reason: it was kept
+/// out of the preintegration so the deltas would not depend on xi.
+inline NavState predictState(
+  const NavState & xi, const ImuPreintegration & pre, const Eigen::Vector3d & gravity)
+{
+  const double dt = pre.dt();
+
+  NavState xj;
+  xj.R = xi.R * pre.dR();
+  xj.v = xi.v + gravity * dt + xi.R * pre.dv();
+  xj.p = xi.p + xi.v * dt + 0.5 * gravity * dt * dt + xi.R * pre.dp();
+  // Biases are modelled as constant over one interval; the solve refines them.
+  xj.bg = xi.bg;
+  xj.ba = xi.ba;
+  return xj;
+}
+
+/// d(imuResidual) / d(dx_I) -- the OTHER half, wrt the state held fixed.
+///
+/// WHY IT WAS MISSING. imuJacobian differentiates wrt x_j only, because both front-ends solve
+/// for x_j with x_i a constant. That is not merely an omission: passing x_i as a number
+/// ASSERTS IT IS PERFECT. Over a short interval the IMU's own information is enormous -- and
+/// correctly so -- so an infinitely-certain x_i lets the factor overrule every other
+/// measurement, and the solve collapses into dead reckoning. Measured on EuRoC V1_01: with
+/// this missing, reprojection error grew monotonically to 643 px while 135 landmarks sat in
+/// view, unrejected and simply outvoted. glasslio's README records the same divergence from
+/// the LiDAR side ("x_i is held infinitely certain -- a factor, not a filter").
+///
+/// WHAT IT BUYS. The residual's true covariance is not the delta's alone:
+///
+///     Sigma_eff = Sigma_pre + J_i P_i J_i^T
+///
+/// i.e. inflate the IMU's information by whatever x_i was already unsure of. That is what
+/// lets a caller carry a posterior forward (NormalEquationsN::H() exists for exactly this)
+/// without moving to a two-state solve. It is also precisely the block a two-state window
+/// would need, so it is not throwaway.
+///
+/// NO BIAS COLUMNS: imuResidual corrects the deltas using xj.bg / xj.ba, so the bias belongs
+/// to j. Those blocks are structurally absent, not merely zero.
+///
+/// Analytic; verified against finite differences in test_nav_residual.cpp.
+inline ImuJacobian imuJacobianI(
+  const NavState & xi, const NavState & xj,
+  const ImuPreintegration & pre, const Eigen::Vector3d & gravity)
+{
+  const double dt = pre.dt();
+  const Eigen::Vector3d dbg = xj.bg - pre.bias_gyro();
+  const Eigen::Matrix3d Ri_T = xi.R.matrix().transpose();
+
+  const Sophus::SO3d dR_hat = pre.dR_corrected(dbg);
+  const Eigen::Vector3d r_dR = (dR_hat.inverse() * xi.R.inverse() * xj.R).log();
+
+  ImuJacobian J = ImuJacobian::Zero();
+
+  // --- r_dR ------------------------------------------------------------------
+  // Perturbing R_i on the RIGHT puts Exp(-dphi_i) inside the Log, on the far side of dR_hat.
+  // Pushing it out costs the adjoint (R_j^T R_i) and the curvature term Jr^-1 -- the same
+  // Jr^-1 that imuJacobian's r_dR block needs, and the same one that is silently survivable
+  // at small angles.
+  J.block<3, 3>(0, kIdxPhi) =
+    -rightJacobianInverse(r_dR) * xj.R.matrix().transpose() * xi.R.matrix();
+
+  // --- r_dv ------------------------------------------------------------------
+  // r_dv = R_i^T (v_j - v_i - g dt) - dv_hat. Under R_i <- R_i Exp(dphi),
+  // R_i^T -> (I - dphi^) R_i^T, so the term picks up -dphi^ a = +hat(a) dphi.
+  const Eigen::Vector3d a_v = Ri_T * (xj.v - xi.v - gravity * dt);
+  J.block<3, 3>(3, kIdxPhi) = Sophus::SO3d::hat(a_v);
+  J.block<3, 3>(3, kIdxVel) = -Ri_T;
+
+  // --- r_dp ------------------------------------------------------------------
+  const Eigen::Vector3d a_p =
+    Ri_T * (xj.p - xi.p - xi.v * dt - 0.5 * gravity * dt * dt);
+  J.block<3, 3>(6, kIdxPhi) = Sophus::SO3d::hat(a_p);
+  J.block<3, 3>(6, kIdxPos) = -Ri_T;
+  J.block<3, 3>(6, kIdxVel) = -Ri_T * dt;
+
+  return J;
+}
+
 // =================================================================================
 // 2. THE LIDAR FACTOR, re-derived for the RIGHT perturbation.
 // =================================================================================
@@ -183,6 +273,55 @@ inline Eigen::Matrix<double, 6, kNavDim> biasJacobian()
   Eigen::Matrix<double, 6, kNavDim> J = Eigen::Matrix<double, 6, kNavDim>::Zero();
   J.block<3, 3>(0, kIdxBg) = Eigen::Matrix3d::Identity();
   J.block<3, 3>(3, kIdxBa) = Eigen::Matrix3d::Identity();
+  return J;
+}
+
+// =================================================================================
+// 4. THE STATE PRIOR. 15 residuals -- the bias prior, widened to the whole state.
+// =================================================================================
+
+using PriorResidual = Eigen::Matrix<double, kNavDim, 1>;
+using PriorJacobian = Eigen::Matrix<double, kNavDim, kNavDim>;
+
+/// "x should be near `ref`, with information Omega."  r = x [-] ref.
+///
+/// WHY THIS EXISTS. The IMU factor takes TWO states and only ever gets a Jacobian for the
+/// second: imuJacobian is d r / d dx_j, and x_i enters as a CONSTANT. That silently asserts
+/// the previous state was perfect. It is not, and the assertion is expensive -- over a short
+/// interval the IMU's own information is enormous and correctly so, so an infinitely-certain
+/// x_i lets the factor overrule every other measurement and the solve degenerates into dead
+/// reckoning. Measured on EuRoC: reprojection error grew monotonically to 643 px while 135
+/// landmarks sat in view, unrejected and unheeded.
+///
+/// A prior is what gives the previous state a FINITE certainty. `ref` is the prediction
+/// carried forward, and Omega is the inverse of the covariance carried with it -- which is
+/// what NormalEquationsN::H() has always been for ("callers that carry a POSTERIOR covariance
+/// forward: P_posterior = (P_prior^-1 + H)^-1").
+///
+/// This is the same shape as the bias prior above, and for the same reason. That one anchors
+/// 6 DoF because biases are unobservable when the vehicle is not excited; this anchors 15
+/// because the previous state is uncertain rather than unknown.
+inline PriorResidual priorResidual(const NavState & x, const NavState & ref)
+{
+  return boxminus(x, ref);
+}
+
+/// d(priorResidual) / d(dx) under the RIGHT perturbation.
+///
+/// NOT THE IDENTITY, and that is the whole subtlety. The vector blocks are identity, but the
+/// rotation block is not: r_phi = Log(R_ref^-1 R Exp(dphi)), and dphi sits INSIDE the Log.
+/// The identity
+///     Log(Exp(phi) Exp(d)) ~= phi + Jr^-1(phi) d
+/// says the perturbation is stretched by the manifold's curvature on its way out.
+///
+/// Replace it with I and nothing crashes -- the prior is merely mis-weighted in rotation,
+/// worst when the state has moved far from `ref`, i.e. exactly when the prior is doing work.
+/// The same term, and the same trap, as imuJacobian's r_dR block. Jr^-1 -> I as phi -> 0,
+/// which is precisely why it survives testing.
+inline PriorJacobian priorJacobian(const NavState & x, const NavState & ref)
+{
+  PriorJacobian J = PriorJacobian::Identity();
+  J.block<3, 3>(kIdxPhi, kIdxPhi) = rightJacobianInverse((ref.R.inverse() * x.R).log());
   return J;
 }
 

@@ -239,6 +239,102 @@ static void testResidualZeroAtPrediction()
   std::printf("  residual == 0 at prediction : |r| = %.2e                    OK\n", r.norm());
 }
 
+// =================================================================================
+// THE OTHER HALF OF THE IMU JACOBIAN: d r / d dx_I.
+//
+// The oracle perturbs x_I this time, not x_J. Nothing else about the test changes -- which is
+// the point: the same finite-difference machinery pins both halves, and neither derivation is
+// ever checked against itself.
+// =================================================================================
+
+static void testImuJacobianI()
+{
+  std::printf("imuJacobianI (wrt the state usually held fixed):\n");
+  Fixture f;
+
+  const ImuJacobian J_analytic = imuJacobianI(f.xi, f.xj, f.pre, kG);
+  const auto J_numeric = numericJacobian<9>(
+    f.xi, [&](const NavState & s) {return imuResidual(s, f.xj, f.pre, kG);});
+  const double err = (J_analytic - J_numeric).cwiseAbs().maxCoeff();
+  assert(err < 1e-5 && "imuJacobianI disagrees with finite differences");
+  std::printf("  d r / d dx_i vs finite differences : max err = %.2e         OK\n", err);
+
+  // The bias columns must be structurally ABSENT, not merely small: imuResidual corrects its
+  // deltas with xj.bg / xj.ba, so the bias belongs to j and x_i cannot touch it.
+  const bool bg_zero = (J_analytic.block<9, 3>(0, kIdxBg).isZero());
+  const bool ba_zero = (J_analytic.block<9, 3>(0, kIdxBa).isZero());
+  assert(bg_zero && "x_i has no gyro-bias influence -- the bias belongs to j");
+  assert(ba_zero && "x_i has no accel-bias influence -- the bias belongs to j");
+  std::printf("  bias columns exactly zero          :                         OK\n");
+
+  // The two halves are DIFFERENT matrices. If someone ever "reuses" imuJacobian for x_i, this
+  // is what should stop them: same residual, different variable, different derivative.
+  const ImuJacobian J_j = imuJacobian(f.xi, f.xj, f.pre);
+  const double diff = (J_analytic - J_j).cwiseAbs().maxCoeff();
+  assert(diff > 1e-3 && "the two halves must not be interchangeable");
+  std::printf("  differs from imuJacobian (d/dx_j)  : max diff = %.2e         OK\n", diff);
+}
+
+// =================================================================================
+// THE STATE PRIOR. Four claims, and the third is the one that bites.
+// =================================================================================
+
+static void testPriorJacobian()
+{
+  std::printf("prior:\n");
+  Fixture f;
+
+  // A reference well away from x: a prior Jacobian that is only right at x == ref is a prior
+  // Jacobian that is wrong, because AT x == ref the rotation block genuinely IS the identity.
+  NavState ref = f.xi;
+  ref.R = ref.R * Sophus::SO3d::exp(Eigen::Vector3d(0.21, -0.14, 0.33));
+  ref.p += Eigen::Vector3d(0.4, -0.2, 0.1);
+  ref.v += Eigen::Vector3d(0.05, 0.02, -0.03);
+  ref.bg += Eigen::Vector3d(0.002, -0.001, 0.003);
+  ref.ba += Eigen::Vector3d(0.01, 0.02, -0.01);
+
+  // --- 1. boxminus really is boxplus's inverse. Without this the prior anchors to nonsense.
+  {
+    NavVec dx;
+    dx << 0.11, -0.07, 0.19, 0.3, -0.2, 0.1, 0.05, -0.02, 0.04,
+      0.001, -0.002, 0.003, 0.01, -0.02, 0.03;
+    const NavVec round_trip = boxminus(boxplus(f.xi, dx), f.xi);
+    const double err = (round_trip - dx).norm();
+    assert(err < 1e-12 && "boxminus must invert boxplus exactly");
+    std::printf("  boxminus(boxplus(x, dx), x) == dx : err = %.2e             OK\n", err);
+  }
+
+  // --- 2. The analytic Jacobian against finite differences THROUGH boxplus.
+  const PriorJacobian J_analytic = priorJacobian(f.xi, ref);
+  const auto J_numeric = numericJacobian<kNavDim>(
+    f.xi, [&](const NavState & s) {return priorResidual(s, ref);});
+  const double err = (J_analytic - J_numeric).cwiseAbs().maxCoeff();
+  assert(err < 1e-5 && "prior Jacobian disagrees with finite differences");
+  std::printf("  d r / d dx vs finite differences   : max err = %.2e         OK\n", err);
+
+  // --- 3. Jr^-1 IS LOAD-BEARING. The lazy prior Jacobian is the identity -- every vector
+  //        block is one, so it looks right. It is not: dphi sits inside a Log, and the
+  //        manifold stretches it by Jr^-1. Assert the shortcut is measurably WRONG, so nobody
+  //        "simplifies" it back. It converges to the identity as the rotation shrinks, which
+  //        is exactly why this kind of bug survives casual testing.
+  {
+    const PriorJacobian J_lazy = PriorJacobian::Identity();
+    const double lazy_err = (J_lazy - J_numeric).cwiseAbs().maxCoeff();
+    assert(lazy_err > 1e-3 && "identity should be visibly wrong here -- the test is toothless");
+    std::printf(
+      "  identity instead of Jr^-1          : err = %.2e (%.0fx worse)   OK\n",
+      lazy_err, lazy_err / std::max(err, 1e-12));
+  }
+
+  // --- 4. The residual vanishes at the reference. A prior that pulled at its own anchor
+  //        would bias every solve it touched.
+  {
+    const PriorResidual r = priorResidual(ref, ref);
+    assert(r.norm() < 1e-12 && "prior residual must vanish at ref");
+    std::printf("  residual == 0 at ref               : |r| = %.2e             OK\n", r.norm());
+  }
+}
+
 int main()
 {
   std::printf("test_nav_residual: tightly-coupled residuals and Jacobians\n");
@@ -248,6 +344,8 @@ int main()
   testLeftAndRightLidarJacobiansDiffer();
   testBiasJacobian();
   testResidualZeroAtPrediction();
+  testImuJacobianI();
+  testPriorJacobian();
   std::printf("test_nav_residual: all checks passed\n");
   return 0;
 }

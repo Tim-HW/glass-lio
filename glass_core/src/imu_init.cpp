@@ -1,6 +1,6 @@
 #include "glass_core/imu_init.hpp"
 
-#include <cmath>
+#include <algorithm>   // std::max
 
 namespace glass_core
 {
@@ -13,11 +13,6 @@ ImuInit::ImuInit(int num_samples, double max_gyro, double max_accel_sd, double a
 {
 }
 
-Eigen::Vector3d ImuInit::accel_si(const ImuSample & s) const
-{
-  return s.accel * accel_scale_;
-}
-
 bool ImuInit::add(const ImuSample & s)
 {
   if (initialized_) {
@@ -25,7 +20,7 @@ bool ImuInit::add(const ImuSample & s)
   }
 
   gyros_.push_back(s.gyro);
-  accels_.push_back(accel_si(s));
+  accels_.push_back(s.accel * accel_scale_);   // raw (g on Livox) -> SI, m/s^2
 
   if (gyros_.size() < num_samples_) {
     return false;

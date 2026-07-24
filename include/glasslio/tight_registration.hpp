@@ -5,6 +5,7 @@
 
 #include "glasslio/types.hpp"   // CloudXYZI, MeasureGroup
 #include "glasslio/local_map.hpp"
+#include "glass_core/nav_residual.hpp"   // predictState (and the IMU factor itself)
 #include "glass_core/nav_state.hpp"
 #include "glass_core/preintegration.hpp"
 
@@ -106,13 +107,9 @@ TightResult alignTightlyCoupled(
   const Eigen::Matrix<double, 6, 6> & bias_information,
   const TightParams & params);
 
-/// The IMU's own prediction of the next state: xj = xi (+) preintegrated delta.
-///
-/// This REPLACES the constant-velocity guess. It is strictly better information: the
-/// constant-velocity model assumes the acceleration was zero, while this one uses the
-/// accelerometer that actually measured it.
-NavState predictState(
-  const NavState & xi, const ImuPreintegration & pre, const Eigen::Vector3d & gravity);
+// predictState() now lives in glass_core/nav_residual.hpp, beside the imuResidual it is
+// the forward dual of -- it is engine, not LiDAR, and glassvio needs it too. The
+// using-directive above re-exports it into glasslio, so call sites are unchanged.
 
 }  // namespace glasslio
 

@@ -61,9 +61,6 @@ public:
   /// How many times a candidate window was rejected for motion.
   int rejected_windows() const {return rejected_;}
 
-  /// Convert a raw sample's accel into SI units (m/s^2).
-  Eigen::Vector3d accel_si(const ImuSample & s) const;
-
 private:
   void evaluate();
 

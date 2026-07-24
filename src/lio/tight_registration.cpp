@@ -10,23 +10,8 @@ namespace glasslio
 
 using NavEquations = NormalEquationsN<kNavDim>;
 
-NavState predictState(
-  const NavState & xi, const ImuPreintegration & pre, const Eigen::Vector3d & gravity)
-{
-  const double dt = pre.dt();
-
-  NavState xj;
-  // Same three lines as the residual, run forwards instead of compared. Gravity is
-  // added analytically here, exactly as in imuResidual -- it was kept out of the
-  // preintegration so the deltas would not depend on xi.
-  xj.R = xi.R * pre.dR();
-  xj.v = xi.v + gravity * dt + xi.R * pre.dv();
-  xj.p = xi.p + xi.v * dt + 0.5 * gravity * dt * dt + xi.R * pre.dp();
-  // Biases are modelled as constant over one scan; the solve refines them.
-  xj.bg = xi.bg;
-  xj.ba = xi.ba;
-  return xj;
-}
+// predictState() moved to glass_core/nav_residual.hpp, beside the imuResidual it is the
+// forward dual of. It is engine, not LiDAR, and glassvio needs it too.
 
 TightResult alignTightlyCoupled(
   const CloudXYZI & source,
