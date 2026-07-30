@@ -1,0 +1,52 @@
+# docker compose wrapper for the glasslio dev container -- the declarative form of
+# docker/run.sh. Same image (glasslio-dev), same host networking, same GUI wiring.
+#
+# THE POINT of this file: the workspace is a live BIND MOUNT, not copied into the image.
+# The repo on your host *is* /ws/src/glasslio in the container -- edits are live both ways,
+# nothing is baked in. The Dockerfile only COPYs package.xml (to cache rosdep); the source
+# never enters the image.
+#
+# Usage (paths are relative to this file, so -f docker/docker-compose.yml from the repo root):
+#   docker compose -f docker/docker-compose.yml build                       # build the image once
+#   docker compose -f docker/docker-compose.yml run --rm glasslio           # interactive shell
+#   docker compose -f docker/docker-compose.yml run --rm glasslio colcon build --packages-select glasslio
+#   docker compose -f docker/docker-compose.yml run --rm glasslio ./src/glasslio/scripts/run_bag.sh -n
+#
+# GUI (RViz): X11 is forwarded below; on the host, once per session:  xhost +local:docker
+# Software GL is the default so RViz works with no GPU. For hardware GL, see the block at the bottom.
+
+name: glasslio
+
+services:
+  glasslio:
+    image: glasslio-dev
+    build:
+      context: ..                    # repo root -- the Dockerfile COPYs package.xml from here
+      dockerfile: docker/Dockerfile
+    # DDS discovery and rosbag2/RViz shared-memory transfers want host networking + IPC.
+    # ROS_DOMAIN_ID keeps us off domain 0, where a stray nav2 stack floods discovery and
+    # wedges the ros2 CLI daemon (presents as "the node is hung").
+    network_mode: host
+    ipc: host
+    working_dir: /ws
+    stdin_open: true                 # docker run -i
+    tty: true                        # docker run -t
+    environment:
+      ROS_DOMAIN_ID: "42"
+      DISPLAY: "${DISPLAY:-}"
+      # Mesa software rasteriser: RViz works even with no GPU visible. Slower than hardware
+      # GL, but it always works. Drop this if you enable the GPU block at the bottom.
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    volumes:
+      # The repo, shared as a volume instead of copied. This is the whole request.
+      - ..:/ws/src/glasslio:rw
+      # Host X server socket, so RViz can reach the display.
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # NOTE: build/ install/ log are deliberately NOT mounted. They stay inside the
+      # container (under /ws, owned by ubuntu), exactly like docker/run.sh -- artefacts
+      # never touch the host, and there are no named volumes to manage. They are ephemeral:
+      # a `run --rm` container is discarded on exit, so a build does NOT persist across
+      # separate `compose run` calls. Build and run in ONE shell session
+      # (`... run --rm glasslio bash`, then colcon build && run_bag inside), or accept a
+      # fresh build each command.
+    command: bash

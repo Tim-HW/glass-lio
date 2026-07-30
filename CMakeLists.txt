@@ -77,7 +77,10 @@ install(DIRECTORY include/
 install(DIRECTORY launch config rviz
   DESTINATION share/${PROJECT_NAME}/)
 
-install(PROGRAMS scripts/run_bag.sh
+install(PROGRAMS
+  scripts/download_bag.sh
+  scripts/run_local.sh
+  scripts/run_docker.sh
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)

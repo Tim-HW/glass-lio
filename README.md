@@ -81,19 +81,25 @@ which is both the reason it works and its central hazard.
 
 ### Try it in Docker (no ROS install)
 
+One command builds the image, fetches the bag, builds glasslio, and launches the node + bag
++ RViz — all inside the container:
+
 ```bash
-./docker/run.sh ./scripts/download_bag.sh          # fetch the bag (once)
-./docker/run.sh colcon build --packages-select glasslio
-./docker/run.sh                                    # drop into a shell, then: ./src/glasslio/scripts/run_bag.sh
+./scripts/run_docker.sh          # everything: image → fetch bag → build → node + bag + RViz
+./scripts/run_docker.sh -n       # headless (no RViz)
+./scripts/run_docker.sh -r 0.5   # any run_local.sh flag is forwarded (-r -l -d -b)
 ```
 
-The image is pinned to **ROS 2 Jazzy on Ubuntu Noble** and installs the package's own
-dependencies straight from `package.xml` via `rosdep`, so it cannot drift from the manifest.
-The repo mounts as the `src/` of a workspace at `/ws`; build artefacts stay inside the
-container, so they never collide with a host build of the same tree.
+It wraps [`docker/docker-compose.yml`](docker/docker-compose.yml), which **bind-mounts the
+repo** rather than copying it — your host edits are live in the container, and `build/`,
+`install/`, `log/` stay inside the container, never touching your tree. The image is pinned
+to **ROS 2 Jazzy on Ubuntu Noble** and installs the package's own dependencies from
+`package.xml` via `rosdep`, so it cannot drift from the manifest.
 
-[`docker/Dockerfile`](docker/Dockerfile) is a **plain image with no editor specifics** —
-build it by hand, drop it in your own compose file, or use it in CI.
+Want a shell instead? `./docker/run.sh` drops you in. Do the download, build and run in that
+**one** session — the build is ephemeral, so a separate `./docker/run.sh colcon build` would
+build into a container that is then discarded. `docker/run.sh` is itself a thin wrapper over
+the same compose file.
 
 <details>
 <summary><b>Or in VS Code (devcontainer)</b></summary>
@@ -111,7 +117,7 @@ From there:
 ```bash
 colcon build --packages-select glasslio
 colcon test  --packages-select glasslio
-./src/glasslio/scripts/run_bag.sh -n     # headless
+./src/glasslio/scripts/run_local.sh -n   # headless
 ```
 
 It wraps the *same* [`docker/Dockerfile`](docker/Dockerfile) — the devcontainer is a
@@ -130,9 +136,9 @@ colcon build --packages-select glasslio
 ./scripts/download_bag.sh
 
 # run it (node + RViz, on an isolated ROS domain)
-./scripts/run_bag.sh
-./scripts/run_bag.sh -n        # headless
-./scripts/run_bag.sh -l        # loop the bag (exercises the estimator reset path)
+./scripts/run_local.sh
+./scripts/run_local.sh -n      # headless
+./scripts/run_local.sh -l      # loop the bag (exercises the estimator reset path)
 
 # the self-checks
 colcon test --packages-select glasslio
