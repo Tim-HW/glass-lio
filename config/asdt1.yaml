@@ -1,0 +1,42 @@
+# Parameters for glasslio_node with the ASDT1 sensor (the tim_house / tim_street bags).
+#
+# This is a DIFFERENT sensor from the Livox Mid-360 that config/livox_mid_360.yaml targets,
+# and every override below exists because of a concrete difference -- see the comments. It
+# tracks well on tim_house (0% diverged) and works, degraded, outdoors on tim_street.
+#
+# Run:  ros2 run glasslio glasslio_node --ros-args --params-file config/asdt1.yaml
+# then: ros2 bag play data/tim_house    (or data/tim_street)
+#
+# `/**` applies to the node whatever name it is launched under.
+/**:
+  ros__parameters:
+
+    # --- Topics. The driver publishes on /asdt1_driver/*, not /livox/*.
+    lidar_topic: "/asdt1_driver/point_cloud"
+    imu_topic:   "/asdt1_driver/imu"
+
+    # --- IMU units. This IMU is spec-compliant: linear_acceleration is in m/s^2, NOT g
+    # (|a| at rest ~= 9.8). The Livox violates the spec and needs true; this sensor needs
+    # false, or init scales gravity by 9.8x and trips the |g| guard.
+    imu:
+      accel_in_g: false
+
+    registration:
+      # --- LOOSE coupling. THE make-or-break setting. The code default is 1.0 (tight on),
+      # and tight coupling diverges after the 10-scan warmup on real data (documented in
+      # doc/7-tight-coupling.md). Loose lets ICP measure velocity and self-correct. 0 = loose.
+      imu_prior_weight: 0.0
+
+      # --- Sparse-cloud tuning. This sensor delivers ~576 points per scan (a Livox gives
+      # 20k+). The defaults, tuned for dense clouds, starve registration; these keep enough
+      # points and correspondences to fit planes and solve.
+      min_correspondences: 20            # default 50 -- too high for a 576-point cloud
+      max_correspondence_distance: 0.5   # default 1.0 -- tighter, indoor scale
+
+    # Keep more points through downsampling: a 0.5 m leaf collapses the sparse cloud to
+    # almost nothing.
+    voxel_leaf_size: 0.10                 # default 0.5
+
+    map:
+      voxel_size: 0.30                    # must stay >= voxel_leaf_size and >= corr distance
+      min_points_for_plane: 4             # default 5 -- fit planes from fewer sparse points

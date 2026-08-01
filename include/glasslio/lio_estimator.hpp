@@ -60,6 +60,10 @@ struct EstimatorParams
   /// random walk, which only says how fast it may drift from wherever it already is.
   double bias_sigma0_gyro = 0.01;
   double bias_sigma0_accel = 0.3;
+  /// Gravity prior std (m/s^2): how far the data may move gravity from the carried anchor
+  /// each scan. Gravity is now a solved 3-DoF state (roadmap Phase 1) -- this is what makes
+  /// a tilt error at init correctable instead of frozen.
+  double gravity_sigma = 0.5;
 
   /// Multiply raw IMU accel by this to get m/s^2 (9.80665 if the driver reports g, which
   /// Livox does -- a sensor_msgs/Imu spec violation).

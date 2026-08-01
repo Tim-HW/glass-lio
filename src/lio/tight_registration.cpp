@@ -8,7 +8,10 @@
 namespace glasslio
 {
 
-using NavEquations = NormalEquationsN<kNavDim>;
+// The augmented state is [nav (15) ; gravity (3)] -- 18 DoF. Gravity is a free world-frame
+// vector estimated alongside the pose, so an initial tilt error can be corrected instead of
+// frozen at init (roadmap Phase 1).
+using NavEquations = NormalEquationsN<kTightDim>;
 
 // predictState() moved to glass_core/nav_residual.hpp, beside the imuResidual it is the
 // forward dual of. It is engine, not LiDAR, and glassvio needs it too.
@@ -21,10 +24,12 @@ TightResult alignTightlyCoupled(
   const Eigen::Vector3d & gravity,
   const NavState & guess,
   const Eigen::Matrix<double, 6, 6> & bias_information,
+  const Eigen::Matrix3d & gravity_information,
   const TightParams & params)
 {
   TightResult result;
   result.state = guess;
+  result.gravity = gravity;
 
   if (map.empty() || source.empty()) {
     return result;
@@ -48,6 +53,7 @@ TightResult alignTightlyCoupled(
   // begin with -- and an accel bias is exactly a quantity you start out wrong about.
 
   NavState x = guess;
+  Eigen::Vector3d g = gravity;   // the gravity iterate; `gravity` is now the prior anchor
 
   for (int iter = 0; iter < params.max_iterations; ++iter) {
     NavEquations eq;
@@ -77,10 +83,11 @@ TightResult alignTightlyCoupled(
       }
 
       const double r = pointToPlaneResidualNav(x, p_sensor, plane.centroid, plane.normal);
-      eq.addScalar(
-        r * inv_sigma,
-        pointToPlaneJacobianNav(x, p_sensor, plane.normal) * inv_sigma,
-        huber_whitened);
+      // Widen to the augmented state: a laser return sees the pose, not gravity, so its
+      // gravity columns are structurally zero.
+      Eigen::Matrix<double, 1, kTightDim> Jl = Eigen::Matrix<double, 1, kTightDim>::Zero();
+      Jl.leftCols<kNavDim>() = pointToPlaneJacobianNav(x, p_sensor, plane.normal);
+      eq.addScalar(r * inv_sigma, Jl * inv_sigma, huber_whitened);
 
       lidar_sq_err += r * r;   // raw, so the reported rmse stays in metres
       ++n_corr;
@@ -92,22 +99,36 @@ TightResult alignTightlyCoupled(
       return result;
     }
 
-    // --- 2. The IMU factor: one 9-vector, weighted by its own information.
-    eq.addBlock<9>(
-      imuResidual(xi, x, pre, gravity), imuJacobian(xi, x, pre), imu_information);
+    // --- 2. The IMU factor: one 9-vector. It is the ONLY thing that couples gravity to the
+    //        rest of the state (through the dv/dp residuals), so its gravity columns come
+    //        from imuGravityJacobian. Residual uses the CURRENT gravity iterate `g`.
+    Eigen::Matrix<double, 9, kTightDim> Jimu = Eigen::Matrix<double, 9, kTightDim>::Zero();
+    Jimu.leftCols<kNavDim>() = imuJacobian(xi, x, pre);
+    Jimu.rightCols<3>() = imuGravityJacobian(xi, pre);
+    eq.addBlock<9>(imuResidual(xi, x, pre, g), Jimu, imu_information);
 
-    // --- 3. The bias random-walk prior: keeps the biases from absorbing real motion
-    //        in the (common) case where they are unobservable.
-    eq.addBlock<6>(biasResidual(xi, x), biasJacobian(), bias_information);
+    // --- 3. The bias random-walk prior (gravity columns zero: biases don't see gravity).
+    Eigen::Matrix<double, 6, kTightDim> Jb = Eigen::Matrix<double, 6, kTightDim>::Zero();
+    Jb.leftCols<kNavDim>() = biasJacobian();
+    eq.addBlock<6>(biasResidual(xi, x), Jb, bias_information);
 
-    // --- Solve and retract. Identical to the SE(3) case, just wider.
-    const NavVec dx = eq.solve();
+    // --- 4. Gravity prior: anchor g to the carried estimate. The IMU factor is the only
+    //        thing that touches gravity and per scan that is a weak constraint, so without
+    //        this anchor gravity wanders. r_g = g - g_prior; Jacobian is I on the gravity
+    //        block. gravity_information (stiffness) decides how far the data may move it.
+    Eigen::Matrix<double, 3, kTightDim> Jg = Eigen::Matrix<double, 3, kTightDim>::Zero();
+    Jg.block<3, 3>(0, kIdxGrav) = Eigen::Matrix3d::Identity();
+    eq.addBlock<3>(g - gravity, Jg, gravity_information);
+
+    // --- Solve and retract. The increment is over the 18-DoF augmented state.
+    const Eigen::Matrix<double, kTightDim, 1> dx = eq.solve();
     if (!dx.allFinite()) {
       result.valid = false;
       return result;
     }
 
-    x = boxplus(x, dx);   // RIGHT perturbation on R; additive elsewhere
+    x = boxplus(x, dx.head<kNavDim>());   // nav: RIGHT perturbation on R, additive elsewhere
+    g += dx.segment<3>(kIdxGrav);         // gravity: additive in R^3
     result.H = eq.H();    // hand the information back so the caller can shrink its P
 
     result.iterations = iter + 1;
@@ -124,6 +145,7 @@ TightResult alignTightlyCoupled(
   }
 
   result.state = x;
+  result.gravity = g;
   return result;
 }
 

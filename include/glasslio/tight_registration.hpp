@@ -15,6 +15,13 @@ namespace glasslio
 // The estimation math lives in glass_core; pull its names in (see lio_estimator.hpp).
 using namespace glass_core;  // NOLINT(build/namespaces)
 
+/// Gravity, estimated as a free 3-DoF world-frame vector, augments the 15-DoF nav state to
+/// 18 (roadmap Phase 1). The tight solve is over [dx_nav (15) ; dg (3)]. Gravity is ONE
+/// global vector, not a per-state field, so it lives at the tight-solve level, appended
+/// after the nav state -- not inside NavState.
+inline constexpr int kIdxGrav = kNavDim;       ///< gravity block offset in the augmented state
+inline constexpr int kTightDim = kNavDim + 3;  ///< 18 = nav (15) + gravity (3)
+
 struct TightParams
 {
   // --- LiDAR side: identical semantics to the loose path, so the tuning carries over.
@@ -57,15 +64,20 @@ struct TightParams
 struct TightResult
 {
   NavState state;
-  /// The total information matrix at the solution, H = sum(J^T Omega J).
+  /// The solved gravity (world frame). Carried forward by the caller as the next scan's
+  /// prior anchor -- this is what lets an initial tilt error be corrected over time instead
+  /// of frozen at the init window.
+  Eigen::Vector3d gravity = Eigen::Vector3d::Zero();
+  /// The total information matrix at the solution, H = sum(J^T Omega J), over the FULL
+  /// 18-DoF augmented state [nav (15) ; gravity (3)].
   ///
   /// Handed back so the caller can carry a POSTERIOR covariance forward:
   ///     P_posterior = (P_prior^-1 + H_data)^-1
   /// which is the whole difference between a filter and a one-shot factor. Without it,
-  /// the estimator can never become MORE certain about a bias than it started, and a
-  /// quantity like the accel bias -- which only the data can reveal -- stays frozen.
-  Eigen::Matrix<double, kNavDim, kNavDim> H =
-    Eigen::Matrix<double, kNavDim, kNavDim>::Zero();
+  /// the estimator can never become MORE certain about a bias (or gravity) than it started,
+  /// and a quantity like the accel bias -- which only the data can reveal -- stays frozen.
+  Eigen::Matrix<double, kTightDim, kTightDim> H =
+    Eigen::Matrix<double, kTightDim, kTightDim>::Zero();
   bool valid = false;
   bool converged = false;
   int iterations = 0;
@@ -105,6 +117,7 @@ TightResult alignTightlyCoupled(
   const Eigen::Vector3d & gravity,
   const NavState & guess,
   const Eigen::Matrix<double, 6, 6> & bias_information,
+  const Eigen::Matrix3d & gravity_information,
   const TightParams & params);
 
 // predictState() now lives in glass_core/nav_residual.hpp, beside the imuResidual it is

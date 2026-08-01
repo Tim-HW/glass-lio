@@ -67,9 +67,17 @@ ament_target_dependencies(glasslio_node
   rclcpp sensor_msgs nav_msgs geometry_msgs pcl_conversions tf2_ros)
 target_link_libraries(glasslio_node lio ${PCL_LIBRARIES})
 
+# Deterministic offline driver of the estimator (roadmap Phase 0): reads a bag and drives
+# LioEstimator synchronously, ending with the scale gate. Reproducible, unlike the node.
+find_package(rosbag2_cpp REQUIRED)
+add_executable(tight_replay src/tight_replay.cpp)
+ament_target_dependencies(tight_replay
+  rclcpp sensor_msgs pcl_conversions rosbag2_cpp)
+target_link_libraries(tight_replay lio ${PCL_LIBRARIES})
+
 install(TARGETS lio
   DESTINATION lib)
-install(TARGETS glasslio_node
+install(TARGETS glasslio_node tight_replay
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/
   DESTINATION include)

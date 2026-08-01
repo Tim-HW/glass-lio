@@ -130,6 +130,40 @@ static void testJrInverseIsLoadBearing()
     err_true, err_naive);
 }
 
+// ---------------------------------------------------------------------------------
+// 2b. GRAVITY as a free 3-DoF state (the 18-DoF extension; roadmap Phase 1). Gravity
+//     enters r_dv and r_dp linearly, so this block is exact -- assert agreement to 1e-8,
+//     and that the rotation residual sees nothing (a structural zero).
+static void testGravityJacobian()
+{
+  const Fixture f;
+
+  const Eigen::Matrix<double, 9, 3> analytic = imuGravityJacobian(f.xi, f.pre);
+
+  // Numeric: central difference of imuResidual wrt the gravity VECTOR itself (R^3, adds).
+  const double h = 1e-6;
+  Eigen::Matrix<double, 9, 3> numeric;
+  for (int i = 0; i < 3; ++i) {
+    Eigen::Vector3d gp = kG, gm = kG;
+    gp[i] += h;
+    gm[i] -= h;
+    numeric.col(i) =
+      (imuResidual(f.xi, f.xj, f.pre, gp) - imuResidual(f.xi, f.xj, f.pre, gm)) / (2 * h);
+  }
+
+  const double err = (analytic - numeric).cwiseAbs().maxCoeff();
+  assert(err < 1e-8 && "gravity Jacobian disagrees with finite differences");
+
+  // STRUCTURAL: the rotation residual (rows 0-2) never sees gravity -- exactly zero.
+  // (Double parens: block<3, 3>'s comma would otherwise split the assert macro's args.)
+  assert((analytic.block<3, 3>(0, 0).isZero() && "gravity leaked into the rotation residual"));
+  // LOAD-BEARING: the dv/dp blocks must be non-trivial, or the check above tests nothing.
+  assert((analytic.block<3, 3>(3, 0).cwiseAbs().maxCoeff() > 1e-2));
+  assert((analytic.block<3, 3>(6, 0).cwiseAbs().maxCoeff() > 1e-3));
+
+  std::printf("  gravity (3-DoF state)       : max err %.2e, r_dR block zero   OK\n", err);
+}
+
 // =================================================================================
 // 3. The LiDAR Jacobian under the RIGHT perturbation -- a DIFFERENT derivative from
 //    the left-perturbation one in registration.hpp, for the very same residual.
@@ -340,6 +374,7 @@ int main()
   std::printf("test_nav_residual: tightly-coupled residuals and Jacobians\n");
   testImuJacobian();
   testJrInverseIsLoadBearing();
+  testGravityJacobian();
   testLidarJacobianNav();
   testLeftAndRightLidarJacobiansDiffer();
   testBiasJacobian();

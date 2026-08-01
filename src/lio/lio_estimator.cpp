@@ -293,8 +293,15 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
     return true;
   }
 
+  // Gravity prior stiffness. Fixed (not carried as a covariance yet -- that is Phase 2's
+  // marginalisation); a proxy for "gravity was known to ~gravity_sigma at init and the data
+  // may refine it from there".
+  const Eigen::Matrix3d gravity_information =
+    Eigen::Matrix3d::Identity() / (p_.gravity_sigma * p_.gravity_sigma);
+
   const TightResult r = alignTightlyCoupled(
-    *scan, *map_, state_, pre, gravity_, guess, bias_cov_.inverse(), p_.tight);
+    *scan, *map_, state_, pre, gravity_, guess, bias_cov_.inverse(),
+    gravity_information, p_.tight);
   last_rmse_ = r.rmse;
   last_corr_ = r.correspondences;
 
@@ -323,6 +330,10 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
   if (posterior_cov.allFinite()) {
     bias_cov_ = posterior_cov;
   }
+
+  // Carry the corrected gravity forward as the next scan's anchor. This is what lets a tilt
+  // error at init drain away over scans instead of being frozen (roadmap Phase 1).
+  gravity_ = r.gravity;
 
   commitState(r.state);
   return true;

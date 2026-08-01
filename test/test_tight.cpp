@@ -26,6 +26,13 @@ static Eigen::Matrix<double, 6, 6> biasInfo()
   return Eigen::Matrix<double, 6, 6>::Identity() * 1e8;
 }
 
+// A stiff gravity prior effectively PINS gravity, so these scenarios (which do not test
+// gravity estimation) behave exactly as they did when gravity was a fixed constant.
+static Eigen::Matrix3d gravInfo()
+{
+  return Eigen::Matrix3d::Identity() * 1e8;
+}
+
 static void add(CloudXYZI & c, double x, double y, double z)
 {
   pcl::PointXYZI p;
@@ -188,7 +195,8 @@ static void testCorridorIsRescuedByImu()
 
   TightParams tp;
   tp.imu_prior_weight = 1.0;
-  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, bad, biasInfo(), tp);
+  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, bad, biasInfo(), gravInfo(),
+    tp);
   assert(tight.valid);
 
   // --- The loose baseline, given the SAME handicapped guess.
@@ -241,7 +249,8 @@ static void testWellConditionedSceneStillWorks()
   bad.p.y() += 0.15;
 
   TightParams tp;
-  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, bad, biasInfo(), tp);
+  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, bad, biasInfo(), gravInfo(),
+    tp);
 
   assert(tight.valid);
   const double err = (tight.state.p - Eigen::Vector3d(true_dx, 0.0, 0.0)).norm();
@@ -278,7 +287,8 @@ static void testLidarWinsWhenGeometryIsStrong()
 
   const NavState guess = predictState(xi, pre, kG);
   TightParams tp;
-  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, guess, biasInfo(), tp);
+  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, guess, biasInfo(),
+    gravInfo(), tp);
   assert(tight.valid);
 
   // The geometry is unambiguous here, so it must dominate the bad prior.

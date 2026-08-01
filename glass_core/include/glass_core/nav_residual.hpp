@@ -114,6 +114,30 @@ inline ImuJacobian imuJacobian(
   return J;
 }
 
+/// d(imuResidual) / d(gravity), for gravity estimated as a free 3-DoF world-frame vector
+/// (the perturbation adds in R^3 -- the 18-DoF extension the nav_state header anticipated).
+///
+/// Gravity appears ONLY in r_dv and r_dp, and only LINEARLY, so this block is exact -- no
+/// manifold curvature, no bias coupling:
+///
+///     d r_dv / d g = -dt      R_i^T
+///     d r_dp / d g = -1/2 dt^2 R_i^T
+///     d r_dR / d g = 0         (the rotation residual never sees gravity)
+///
+/// This is what makes a tilt error in the world frame CORRECTABLE: with gravity fixed, a
+/// wrong "up" is baked in forever; as a state, the dv/dp residuals push back on it. Pinned
+/// against finite differences in test_nav_residual.cpp, same as every other block here.
+inline Eigen::Matrix<double, 9, 3> imuGravityJacobian(
+  const NavState & xi, const ImuPreintegration & pre)
+{
+  const double dt = pre.dt();
+  const Eigen::Matrix3d Ri_T = xi.R.matrix().transpose();
+  Eigen::Matrix<double, 9, 3> J = Eigen::Matrix<double, 9, 3>::Zero();
+  J.block<3, 3>(3, 0) = -dt * Ri_T;
+  J.block<3, 3>(6, 0) = -0.5 * dt * dt * Ri_T;
+  return J;
+}
+
 /// The IMU's own prediction of the next state: xj = xi (+) preintegrated delta.
 ///
 /// The FORWARD DUAL of imuResidual: the same three lines run forwards instead of
