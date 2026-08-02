@@ -33,6 +33,14 @@ static Eigen::Matrix3d gravInfo()
   return Eigen::Matrix3d::Identity() * 1e8;
 }
 
+// A ZERO x_i covariance means no IMU-information inflation, i.e. x_i held exactly certain --
+// which is what these fixtures assume (the corridor test needs the IMU at full strength to
+// rescue the unobservable axis). Sigma_eff = Sigma_pre + J_i * 0 * J_i^T = Sigma_pre.
+static Eigen::Matrix<double, kNavDim, kNavDim> xiCov()
+{
+  return Eigen::Matrix<double, kNavDim, kNavDim>::Zero();
+}
+
 static void add(CloudXYZI & c, double x, double y, double z)
 {
   pcl::PointXYZI p;
@@ -196,6 +204,7 @@ static void testCorridorIsRescuedByImu()
   TightParams tp;
   tp.imu_prior_weight = 1.0;
   const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, bad, biasInfo(), gravInfo(),
+    xiCov(),
     tp);
   assert(tight.valid);
 
@@ -250,6 +259,7 @@ static void testWellConditionedSceneStillWorks()
 
   TightParams tp;
   const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, bad, biasInfo(), gravInfo(),
+    xiCov(),
     tp);
 
   assert(tight.valid);
@@ -288,7 +298,7 @@ static void testLidarWinsWhenGeometryIsStrong()
   const NavState guess = predictState(xi, pre, kG);
   TightParams tp;
   const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, guess, biasInfo(),
-    gravInfo(), tp);
+    gravInfo(), xiCov(), tp);
   assert(tight.valid);
 
   // The geometry is unambiguous here, so it must dominate the bad prior.

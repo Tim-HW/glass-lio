@@ -192,7 +192,22 @@ the estimator meets *reality*:
 > needed.** Both bugs were about the interface between correct components — precisely the
 > region unit tests are structurally blind to.
 
-This is why `run_bag.sh` exists, and why "all tests pass" is never the last step here.
+### The sequel, which proved the point twice over
+
+Later, two *more* correct primitives were built to close that divergence — gravity promoted
+to a state, and `x_i`'s uncertainty carried into the IMU factor
+([7-tight-coupling.md §7.8b](7-tight-coupling.md)). Both cleared the same bar: gravity's
+Jacobian to `4.6e-10`, a Schur-marginalisation kernel exact to `2.1e-17`, 15/15 suites green.
+The narrative was airtight — *the docs blamed exactly these two causes.*
+
+It exploded to **1.5 million metres** the first time it met the real bag.
+
+That is the thesis at its purest: correct maths, green tests, a plausible story, and a system
+still catastrophically wrong — caught only by a deterministic driver that *runs it on the
+data* and gates the result. Verified primitives are necessary; they are not the system.
+
+This is why `run_local.sh` and the deterministic `tight_replay` exist, and why "all tests
+pass" is never the last step here.
 
 ## 8. The landmine under all of it
 

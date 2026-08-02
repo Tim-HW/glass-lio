@@ -118,6 +118,7 @@ TightResult alignTightlyCoupled(
   const NavState & guess,
   const Eigen::Matrix<double, 6, 6> & bias_information,
   const Eigen::Matrix3d & gravity_information,
+  const Eigen::Matrix<double, kNavDim, kNavDim> & xi_cov,
   const TightParams & params);
 
 // predictState() now lives in glass_core/nav_residual.hpp, beside the imuResidual it is

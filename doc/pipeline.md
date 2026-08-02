@@ -100,7 +100,7 @@ is useless. Persistent "worker behind" warnings mean registration is too slow.
 - The **sensor buffers** are touched only under `buf_mutex_`.
 - The **queue is the single hand-off point.**
 
-This is why a **bag restart** (a backwards time jump > 1 s, e.g. `run_bag.sh -l`) does
+This is why a **bag restart** (a backwards time jump > 1 s, e.g. `run_local.sh -l`) does
 *not* reset the estimator from the callback that detects it. The worker may already have
 popped a scan and be mid-`handleScan`, so freeing the map under it would be a
 **use-after-free** — and clearing the queue does not help, because the in-flight scan is
@@ -163,18 +163,20 @@ rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 
 ## Not implemented
 
-- **Tight coupling** — **built, verified, and switched off.** The whole 15-DoF
-  joint solve exists (`R, p, v, b_g, b_a`), with on-manifold IMU preintegration, and every
-  Jacobian pinned against finite differences. On a synthetic corridor it recovers the axis
-  the LiDAR literally cannot see (0.40 m → 0.00 m error). On the **real bag it slowly
-  diverges**, for a *structural* reason: `x_i` is held fixed and infinitely certain, and
-  gravity is not a state — so a tilt error in the world frame can never be corrected.
-  **What we built is a factor, not a filter.** Note that "unfreeze the accel bias" was
-  tried, and made it **worse** (rejections 266 → 579): loosening one block while `x_i`
-  stays infinitely stiff just shovels every error into the only free variable.
-  **You cannot fix a filter by loosening one block of a factor.** The real fix is an
-  18-DoF state plus marginalisation of `x_i`. Full write-up, and the bugs that *were*
-  fixed along the way, in [7-tight-coupling.md](7-tight-coupling.md).
+- **Tight coupling** — **built, verified, and switched off.** The whole **18-DoF**
+  joint solve exists (`R, p, v, b_g, b_a, g` — gravity is now a state), with on-manifold IMU
+  preintegration, and every Jacobian pinned against finite differences. On a synthetic
+  corridor it recovers the axis the LiDAR literally cannot see (0.40 m → 0.00 m error). On the
+  **real bag it diverges catastrophically** — and, the hard lesson, it *still* diverges after
+  two of the documented structural fixes were built (gravity promoted to a state; `x_i`'s
+  uncertainty carried into the IMU factor via `Σ_eff = Σ_pre + Jᵢ Pᵢ Jᵢᵀ`, plus a verified
+  Schur-marginalisation kernel). Measured deterministically with
+  [`tight_replay`](../src/tight_replay.cpp): ~1.5 M m runaway. The fixes were necessary and
+  correct; they were **not sufficient**, because the inflation is a per-factor shortcut, not
+  a fixed-lag window that *re-estimates* `x_i`. **What we built is still a factor, not a
+  filter** — a slightly better-weighted one. Full accounting, including the earlier
+  "loosening one block made it worse" lesson, in
+  [7-tight-coupling.md §7.8b](7-tight-coupling.md).
 - **Translational deskew** — needs a trustworthy velocity, which tight coupling would
   produce (and it would retire `use_constant_velocity` with it). See
   [3-deskew.md §7](3-deskew.md).
@@ -211,9 +213,9 @@ actually bite:
 
 ```bash
 ./scripts/download_bag.sh     # fetch the test bag (~1.4 GB; not in git)
-./scripts/run_bag.sh          # node + bag + RViz, on an isolated ROS domain
-./scripts/run_bag.sh -n       # headless
-./scripts/run_bag.sh -l       # loop the bag (exercises the estimator reset path)
+./scripts/run_local.sh          # node + bag + RViz, on an isolated ROS domain
+./scripts/run_local.sh -n       # headless
+./scripts/run_local.sh -l       # loop the bag (exercises the estimator reset path)
 colcon test --packages-select glasslio
 ```
 

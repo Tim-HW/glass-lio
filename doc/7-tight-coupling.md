@@ -1,8 +1,12 @@
 # [7] Tight coupling — the IMU as a residual, not a hint
 
 **Status: implemented, math verified, and OFF by default (`imu_prior_weight: 0`).**
-It works on synthetic data and slowly diverges on the real bag. Both facts are
-instructive, and §7.8 explains exactly why.
+It works on synthetic data and **diverges catastrophically on the real bag** — and, the
+sharpest lesson here, it *still* diverges after two of the three structural fixes below were
+built (gravity promoted to a state; `x_i`'s uncertainty carried into the IMU factor). The
+fixes were necessary and correct; they were **not sufficient**. §7.8 explains why, now with
+a deterministic offline driver ([`tight_replay`](../src/tight_replay.cpp)) that pins the
+divergence as a hard, reproducible number instead of a threaded, run-to-run impression.
 
 Code: [`preintegration.hpp`](../glass_core/include/glass_core/preintegration.hpp),
 [`nav_state.hpp`](../glass_core/include/glass_core/nav_state.hpp),
@@ -336,7 +340,8 @@ What is left is structural, and the two failures above are symptoms of it:
 - **$\mathbf{x}_i$ is held fixed and infinitely certain.** This is odometry, not a sliding
   window — so an error in $\mathbf{x}_i$ can **never** be corrected.
 - **Gravity is not a state**, so a tilt error in the world frame (and init measured gravity
-  while the robot was *already moving*) is permanent.
+  while the robot was *already moving*) is permanent. *(Since fixed — gravity is a solved
+  3-DoF state now; see §7.8b. It was necessary, and it was not enough.)*
 - **The biases cannot absorb any of it** — and, as shown above, letting them try in
   isolation makes it worse, not better.
 
@@ -379,12 +384,67 @@ That is a real piece of work, not a patch. Everything it needs — preintegratio
 residuals, the Jacobians, and the finite-difference harness that verifies them — is already
 built and tested.
 
+## 7.8b Update — two fixes built, and why it STILL diverges
+
+Two of the three structural items above were then actually built. **Both were verified
+correct, and the estimator still diverges catastrophically on the real bag.** This section
+is the honest accounting, because "the fixes target the documented causes and the tests are
+green" is *exactly* the plausible-but-wrong story this repository exists to distrust.
+
+**Built — gravity as a state (18-DoF).** The nav state is now `[R, p, v, b_g, b_a, g]`. The
+IMU factor's gravity Jacobian (`imuGravityJacobian`, the block `[0; -Δt R_i^T; -½Δt² R_i^T]`)
+is pinned against finite differences at `4.6e-10` and mutation-tested. A tilt error in the
+world frame is now **correctable**, not frozen at init. The `gravity` block is anchored by a
+prior of stiffness `gravity_sigma` and carried forward each scan.
+
+**Built — `x_i`'s uncertainty, carried into the IMU factor.** Rather than a full two-state
+window, the closed-form marginalization of a Gaussian `x_i` out of the single IMU factor:
+
+$$
+\Sigma_{\text{eff}} = \Sigma_{\text{pre}} + \mathbf{J}_i\,\mathbf{P}_i\,\mathbf{J}_i^\top
+$$
+
+where `J_i = imuJacobianI` (the `d/dx_i` block, verified) and `P_i` is `x_i`'s carried
+covariance. With `P_i = 0` this is the old infinitely-certain factor; with `P_i` finite, the
+IMU stops being able to overrule everything. A general **Schur-complement marginalization**
+kernel ([`marginalization.hpp`](../glass_core/include/glass_core/marginalization.hpp)) is
+also built and verified exact to `2.1e-17` — the primitive a *real* sliding window needs.
+
+**The result, measured deterministically** (`tight_replay`, Livox bag):
+
+| Variant | max ‖pose‖ | rejected |
+|---|---|---|
+| gravity-state, no `x_i` inflation | **1.9 M m** | 2575 |
+| gravity-state **+** `x_i` inflation | **1.5 M m** | 2323 |
+
+The inflation helped *marginally* and nowhere near enough. (The "+6 km" figure earlier in
+§7.8 was a shorter run; the runaway is **exponential** — `9.5k → 367k → 1.36M m` — so the
+final number is set by how long it runs, not by how wrong the code is. Both are the same
+disease.) A regression check confirmed the fixes did not *cause* the blow-up: it was already
+this bad, and Phase 2 nudged it the right way.
+
+**Why it still diverges — the shortcut is not a window.** The inflation is the marginalization
+of `x_i` out of *one factor*; it is not a fixed-lag window that **re-estimates** `x_i` against
+the next measurement. `x_i` itself is still committed and never revisited, velocity is still
+bootstrapped by the `tight_warmup_scans` hack rather than a large `P_v`, and there is no
+full-state `P ← FPF^T + GQG^T` propagation. So it remains, in the phrase above, **a factor —
+now a slightly better-weighted one — not a filter.** Closing it means wiring the
+marginalization kernel into an actual sliding window, which is the same "real piece of work"
+§7.8 named, not a patch on top of it.
+
+> **The meta-lesson, and it landed on the author this time.** Two correct primitives, a clean
+> integration, 15/15 green, and a tidy narrative ("the docs blame the two causes I just
+> fixed") — and it exploded to 1.5 million metres the first time it met the real bag. Unit
+> tests verify the maths you wrote; only running the system verifies the maths you needed.
+> That is why `tight_replay` and its scale gate exist, and why tight coupling stays **OFF**.
+
 ## 7.9 Parameters
 
 | Param | Meaning |
 |---|---|
-| `registration.imu_prior_weight` | **0 = loose** (6-DoF SE(3), the healthy default). `> 0` = tight (15-DoF joint solve). |
+| `registration.imu_prior_weight` | **0 = loose** (6-DoF SE(3), the healthy default). `> 0` = tight (18-DoF joint solve — `[R,p,v,b_g,b_a,g]`). |
 | `registration.lidar_sigma` | Point-to-plane noise (m). **Decides which sensor wins.** §7.6. |
 | `registration.tight_warmup_scans` | Loose scans before engaging the IMU, to measure the velocity init cannot observe. |
+| `gravity_sigma` | Prior std (m/s²) on gravity, now a solved state (§7.8b). Larger = the data may move gravity further from init each scan. |
 | `imu.gyro_noise`, `imu.accel_noise` | Noise densities. Physics, from the datasheet — not knobs. |
 | `imu.bias_rw_gyro`, `imu.bias_rw_accel` | How fast a bias may physically drift. Stops the biases absorbing real motion when they are unobservable. |

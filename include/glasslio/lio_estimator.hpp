@@ -170,6 +170,10 @@ private:
   /// Gravity in the gravity-aligned world frame. Overwritten by initialize().
   Eigen::Vector3d gravity_{0.0, 0.0, -kGravity};
   Eigen::Matrix<double, 6, 6> bias_cov_ = Eigen::Matrix<double, 6, 6>::Identity();
+  /// x's carried 15-DoF covariance. Next scan it is x_i's uncertainty, inflating the IMU
+  /// factor so x_i is not treated as infinitely certain (roadmap Phase 2 -- the freeze fix).
+  Eigen::Matrix<double, kNavDim, kNavDim> nav_cov_ =
+    Eigen::Matrix<double, kNavDim, kNavDim>::Identity();
   int scans_done_ = 0;
   /// Scan-end time of the previous scan: the lower edge of the IMU factor's integration
   /// window. -1 until the first tight scan.

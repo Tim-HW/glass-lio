@@ -25,6 +25,7 @@ TightResult alignTightlyCoupled(
   const NavState & guess,
   const Eigen::Matrix<double, 6, 6> & bias_information,
   const Eigen::Matrix3d & gravity_information,
+  const Eigen::Matrix<double, kNavDim, kNavDim> & xi_cov,
   const TightParams & params)
 {
   TightResult result;
@@ -35,17 +36,9 @@ TightResult alignTightlyCoupled(
     return result;
   }
 
-  // --- Information matrices, built once. -------------------------------------
-  //
-  // The IMU factor is weighted by the INVERSE of the covariance preintegration
-  // accumulated. This is what makes the fusion self-tuning: a longer gap between scans
-  // means a bigger Sigma, hence a smaller Sigma^-1, hence less pull from the IMU. No
-  // heuristic decides that -- the propagated uncertainty does.
-  Eigen::Matrix<double, 9, 9> imu_information =
-    pre.covariance().inverse() * params.imu_prior_weight;
-  if (!imu_information.allFinite()) {
-    imu_information.setZero();   // a singular covariance means we learned nothing
-  }
+  // The IMU factor's weight is built INSIDE the loop now: it depends on xi_cov through the
+  // residual-covariance inflation Sigma_eff = Sigma_pre + J_i P_i J_i^T, and J_i (the d/dx_i
+  // block) depends on the current x_j iterate. See the IMU factor below.
 
   // The bias prior comes from the CALLER, which carries a covariance and updates it with
   // what each solve learns. It deliberately does NOT come from a random-walk constant:
@@ -102,6 +95,22 @@ TightResult alignTightlyCoupled(
     // --- 2. The IMU factor: one 9-vector. It is the ONLY thing that couples gravity to the
     //        rest of the state (through the dv/dp residuals), so its gravity columns come
     //        from imuGravityJacobian. Residual uses the CURRENT gravity iterate `g`.
+    //
+    // WEIGHT: inflate the preintegration covariance by x_i's uncertainty,
+    //     Sigma_eff = Sigma_pre + J_i P_i J_i^T,
+    // which is the exact marginalization of a Gaussian x_i out of this factor. This is the
+    // fix for the FREEZE: with x_i held infinitely certain (P_i = 0) the IMU's information
+    // is enormous and it overrules the LiDAR, pinning the pose (roadmap Phase 2). J_i is the
+    // d/dx_i block; it depends on the current x_j iterate, so this is per-iteration.
+    const ImuJacobian Ji = imuJacobianI(xi, x, pre, g);
+    const Eigen::Matrix<double, 9, 9> sigma_eff =
+      pre.covariance() + Ji * xi_cov * Ji.transpose();
+    Eigen::Matrix<double, 9, 9> imu_information =
+      sigma_eff.inverse() * params.imu_prior_weight;
+    if (!imu_information.allFinite()) {
+      imu_information.setZero();   // a singular effective covariance means we learned nothing
+    }
+
     Eigen::Matrix<double, 9, kTightDim> Jimu = Eigen::Matrix<double, 9, kTightDim>::Zero();
     Jimu.leftCols<kNavDim>() = imuJacobian(xi, x, pre);
     Jimu.rightCols<3>() = imuGravityJacobian(xi, pre);

@@ -89,6 +89,7 @@ install(PROGRAMS
   scripts/download_bag.sh
   scripts/run_local.sh
   scripts/run_docker.sh
+  scripts/run_asdt.sh
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)

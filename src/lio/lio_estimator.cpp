@@ -105,6 +105,20 @@ void LioEstimator::resetBiasCovariance()
     Eigen::Matrix3d::Identity() * (p_.bias_sigma0_gyro * p_.bias_sigma0_gyro);
   bias_cov_.block<3, 3>(3, 3) =
     Eigen::Matrix3d::Identity() * (p_.bias_sigma0_accel * p_.bias_sigma0_accel);
+
+  // x_i's carried covariance, used to INFLATE the IMU factor's information each scan
+  // (Sigma_eff = Sigma_pre + J_i P_i J_i^T) so x_i is no longer treated as infinitely
+  // certain -- the fix for the freeze (roadmap Phase 2). Pose is well known from the
+  // previous scan; VELOCITY starts uncertain (v0 = 0 is a guess, not a measurement, and
+  // treating it as certain is exactly what pinned the pose); biases as the bias prior.
+  nav_cov_.setZero();
+  nav_cov_.block<3, 3>(kIdxPhi, kIdxPhi) = Eigen::Matrix3d::Identity() * 1e-4;
+  nav_cov_.block<3, 3>(kIdxPos, kIdxPos) = Eigen::Matrix3d::Identity() * 1e-4;
+  nav_cov_.block<3, 3>(kIdxVel, kIdxVel) = Eigen::Matrix3d::Identity() * 1.0;
+  nav_cov_.block<3, 3>(kIdxBg, kIdxBg) =
+    Eigen::Matrix3d::Identity() * (p_.bias_sigma0_gyro * p_.bias_sigma0_gyro);
+  nav_cov_.block<3, 3>(kIdxBa, kIdxBa) =
+    Eigen::Matrix3d::Identity() * (p_.bias_sigma0_accel * p_.bias_sigma0_accel);
 }
 
 
@@ -301,7 +315,7 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
 
   const TightResult r = alignTightlyCoupled(
     *scan, *map_, state_, pre, gravity_, guess, bias_cov_.inverse(),
-    gravity_information, p_.tight);
+    gravity_information, nav_cov_, p_.tight);
   last_rmse_ = r.rmse;
   last_corr_ = r.correspondences;
 
@@ -334,6 +348,16 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
   // Carry the corrected gravity forward as the next scan's anchor. This is what lets a tilt
   // error at init drain away over scans instead of being frozen (roadmap Phase 1).
   gravity_ = r.gravity;
+
+  // Carry x_j's posterior covariance forward: next scan it becomes x_i's uncertainty, which
+  // inflates the IMU factor there (roadmap Phase 2). r.H is the posterior information over
+  // the augmented state; its nav block, inverted, is x_j's covariance. Skip on a singular
+  // block (a degenerate scene) -- keep the prior rather than invent certainty.
+  const Eigen::Matrix<double, kNavDim, kNavDim> post_cov =
+    r.H.topLeftCorner<kNavDim, kNavDim>().inverse();
+  if (post_cov.allFinite()) {
+    nav_cov_ = post_cov;
+  }
 
   commitState(r.state);
   return true;

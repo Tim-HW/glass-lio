@@ -290,7 +290,7 @@ registration. It is also published on `~/deskewed` for inspection.
 ## 9. Verifying it
 
 ```bash
-./scripts/run_bag.sh          # node + bag + RViz
+./scripts/run_local.sh          # node + bag + RViz
 ```
 
 The deskew log line is at DEBUG level (the per-scan INFO line now reports pose and
