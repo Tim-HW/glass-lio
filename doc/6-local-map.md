@@ -153,7 +153,7 @@ genuinely environment-dependent:
 
 It is the knob to reach for when the `rmse` looks fine but the pose feels mushy.
 
-### This is the ~50× over GICP
+### This is the ~35× over GICP
 
 The voxel **is** the neighbourhood. So:
 

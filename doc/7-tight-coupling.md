@@ -309,7 +309,7 @@ be *estimated* as the body-frame quantity it actually is.
 
 Given the above, the obvious next step: the accel bias was also **frozen**. Its prior
 information was $1/(\sigma_{rw}^2\,\Delta t) \approx 10^7$, against the IMU factor's
-$\approx 2\times 10^5$ — **pinned 40× harder than the data that would move it.** So it was
+$\approx 2\times 10^5$ — **pinned ~50× harder than the data that would move it.** So it was
 given a carried covariance, starting loose and shrinking as the data constrained it.
 
 **Rejections went from 266 to 579. It got worse.**

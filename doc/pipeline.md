@@ -156,7 +156,7 @@ agree, so registration is tracking real motion.
 |---|---|---|---|
 | throughput | ~0.3 Hz | 4.4 Hz | **≥ 10 Hz (real time)** |
 
-Two orders of magnitude at the same map size. The cause, and why it was algorithmic
+About 35× at the same map size (0.3 → ≥10 Hz). The cause, and why it was algorithmic
 rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 
 ---

@@ -111,9 +111,9 @@ Without that check, you could ship the identity-matrix version and never know. I
 NaN, it does not diverge — it just quietly mis-weights rotation, worst when you are rotating
 hardest.
 
-**Convergence-order assertions.** The bias correction claims to be *first-order accurate*
-(error $O(\delta b^2)$). Don't assert a magic tolerance — assert the **order**: halve the
-bias offset and the error must fall ~4×.
+**Convergence-order assertions.** The bias *correction* is **first-order** (it keeps only the
+linear term), so its residual **error** is $O(\delta b^2)$. Don't assert a magic tolerance —
+assert the **order**: halve the bias offset and the error must fall ~4×.
 
 ```
 bias first-order correction : err 6.88e-07, halving db -> 4.0x smaller
@@ -197,7 +197,7 @@ the estimator meets *reality*:
 Later, two *more* correct primitives were built to close that divergence — gravity promoted
 to a state, and `x_i`'s uncertainty carried into the IMU factor
 ([7-tight-coupling.md §7.8b](7-tight-coupling.md)). Both cleared the same bar: gravity's
-Jacobian to `4.6e-10`, a Schur-marginalisation kernel exact to `2.1e-17`, 15/15 suites green.
+Jacobian to `4.6e-10`, a Schur-marginalisation kernel exact to `2.1e-17`, every suite green.
 The narrative was airtight — *the docs blamed exactly these two causes.*
 
 It exploded to **1.5 million metres** the first time it met the real bag.
@@ -261,7 +261,7 @@ For any non-trivial piece of estimator maths:
 The final row deserves its own note, because it is the only bug here that was introduced by
 a **fix**.
 
-The diagnosis was right: the accel bias was frozen (pinned 40× harder than the data that
+The diagnosis was right: the accel bias was frozen (pinned ~50× harder than the data that
 would move it), so it was given a carried covariance and allowed to move. That is a locally
 sensible change, it compiles, it converges, and **rejections went from 266 to 579.**
 
