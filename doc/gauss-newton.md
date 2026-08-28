@@ -93,7 +93,7 @@ That is the whole of Gauss-Newton's bookkeeping, and it is precisely what
 ### The shape is the point
 
 However many residuals you stack — 3 000 correspondences, 20 000 — $\mathbf{H}$ stays
-**$n \times n$** (6×6 for SE(3); 15×15 tightly coupled). Each residual contributes a
+**$n \times n$** (6×6 for SE(3); 18×18 tightly coupled). Each residual contributes a
 **rank-1 outer product** $\mathbf{J}_i^\top\mathbf{J}_i$, folded into a fixed-size
 accumulator. Memory is constant; only the accumulation is linear in the number of points.
 

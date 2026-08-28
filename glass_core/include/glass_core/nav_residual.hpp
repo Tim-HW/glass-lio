@@ -166,6 +166,45 @@ inline NavState predictState(
   return xj;
 }
 
+/// The STATE-TRANSITION JACOBIAN of predictState: F = d(x_j) / d(dx_i), the 15x15 map from a
+/// perturbation of the previous state to the resulting perturbation of the IMU-predicted next
+/// state, under the same RIGHT-perturbation retraction as everything else here.
+///
+/// This is the piece a real filter / fixed-lag window needs to carry a FULL-state covariance
+/// across the IMU interval:
+///
+///     P_j = F P_i F^T + G Q G^T
+///
+/// where the second term is already accumulated as ImuPreintegration::covariance(). Without
+/// F, x_i can only be held infinitely certain -- the exact origin of the divergence documented
+/// in doc/7-tight-coupling.md (§7.8b). It is the missing half of "a factor, not a filter".
+///
+/// It is literally the derivative of predictState, so it uses the RAW deltas predictState uses.
+/// Two consequences fall out:
+///   * gravity is constant in x_i, so it drops out -- F does not depend on gravity, and
+///   * the bias blocks are IDENTITY (predictState does not bias-correct the deltas). A predict
+///     that corrected them would add bias->pose coupling here; this matches predictState as it
+///     stands, which is what the finite-difference oracle pins.
+inline Eigen::Matrix<double, kNavDim, kNavDim> imuStateTransition(
+  const NavState & xi, const ImuPreintegration & pre)
+{
+  const double dt = pre.dt();
+  const Eigen::Matrix3d Ri = xi.R.matrix();
+
+  Eigen::Matrix<double, kNavDim, kNavDim> F =
+    Eigen::Matrix<double, kNavDim, kNavDim>::Identity();
+
+  // R_j = R_i dR       =>  dphi_j = dR^T dphi_i
+  F.block<3, 3>(kIdxPhi, kIdxPhi) = pre.dR().matrix().transpose();
+  // v_j = v_i + g dt + R_i dv       (the R_i dv term rotates with dphi_i)
+  F.block<3, 3>(kIdxVel, kIdxPhi) = -Ri * Sophus::SO3d::hat(pre.dv());
+  // p_j = p_i + v_i dt + 1/2 g dt^2 + R_i dp
+  F.block<3, 3>(kIdxPos, kIdxPhi) = -Ri * Sophus::SO3d::hat(pre.dp());
+  F.block<3, 3>(kIdxPos, kIdxVel) = Eigen::Matrix3d::Identity() * dt;
+  // velocity, position (diagonal), and both bias blocks pass through as identity.
+  return F;
+}
+
 /// d(imuResidual) / d(dx_I) -- the OTHER half, wrt the state held fixed.
 ///
 /// WHY IT WAS MISSING. imuJacobian differentiates wrt x_j only, because both front-ends solve

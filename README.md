@@ -152,6 +152,23 @@ there and its checksum matches, it does nothing.
 
 Output: `/glasslio_node/odom` (`nav_msgs/Odometry`) plus a TF `odom → livox_frame`.
 
+### Just the math? No ROS, no bag.
+
+If you are here for the **Lie algebra and the solver**, not the LiDAR, skip all of the above.
+The engine lives in [`glass_core/`](glass_core/) — **pure CMake, no ROS, no PCL, no bag** — and
+its self-checks *are* the worked examples (finite-difference oracles for every Jacobian):
+
+```bash
+cmake -S glass_core -B build/glass_core && cmake --build build/glass_core
+ctest --test-dir build/glass_core --output-on-failure   # the tests ARE the tutorial
+```
+
+Read [gauss-newton.md](doc/gauss-newton.md) alongside `gauss_newton.hpp`, then step through
+the checks this build runs — `test_nav_residual` (the IMU factor's Jacobians vs finite
+differences), `test_preintegration`, `test_marginalization`. The SE(3) Gauss-Newton oracle
+itself (`test_jacobian`) rides along with the full ROS build above. Either way, that is the
+shortest path to the ideas in this repo.
+
 Configuration lives in **[`config/livox_mid_360.yaml`](config/livox_mid_360.yaml)**, which
 is heavily commented — the parameters that actually bite are explained where they are set,
 not in a table somewhere else.
@@ -259,21 +276,28 @@ select between them.
 | IMU init, sync, deskew, downsample | ✅ Working, self-checked |
 | Register (point-to-plane ICP on SE(3)) | ✅ Working, holds real time |
 | Local map (voxel hash + cached planes) | ✅ Working, self-checked |
-| **Tight coupling (15-DoF, preintegration)** | ⚠️ **Built and verified — but OFF by default** |
+| **Tight coupling (18-DoF, preintegration)** | ⚠️ **Built and verified — but OFF by default** |
 
 Tight coupling passes every unit test — preintegration matches brute-force integration to
 1e-14, every Jacobian is pinned against finite differences, and on a synthetic corridor it
 recovers the axis the LiDAR *cannot see* (0.40 m → 0.00 m error).
 
-**Then it diverges on the real bag**, and the reason is structural rather than a typo:
-`x_i` is held **fixed and infinitely certain**, and gravity is not a state — so a tilt error
-in the world frame can never be corrected. **What we built is a factor, not a filter.**
+**Then it diverges on the real bag** — a ~1.5 M m runaway, measured deterministically with
+[`tight_replay`](src/tight_replay.cpp) — and the hard lesson is that it **still** diverges
+after the two obvious structural fixes were built. Gravity was promoted to a state (the
+18-DoF above, so a world-frame tilt *can* now be corrected), and `x_i`'s uncertainty is
+carried into the IMU factor (`Σ_eff = Σ_pre + Jᵢ Pᵢ Jᵢᵀ`, backed by a verified
+Schur-marginalisation kernel) instead of being held infinitely certain. Both fixes were
+necessary and correct — and **not sufficient**: the inflation is a per-factor shortcut, not a
+fixed-lag window that *re-estimates* `x_i` across scans. **What we built is still a factor,
+not a filter** — a better-weighted one.
 
-The instructive part is what happened when we tried to fix it by hand. The accel bias was
-frozen, so we gave it a carried covariance and let the data move it — and **rejections went
-from 266 to 579.** Loosening one block while `x_i` stayed infinitely stiff meant every error
-that belonged to `x_i` got shovelled into the only free variable in the system. *You cannot
-fix a filter by loosening one block of a factor.*
+The cautionary tale that made this concrete came earlier, from trying to loosen the factor
+one block at a time. The accel bias was frozen, so we gave it a carried covariance and let
+the data move it — and **rejections went from 266 to 579.** Loosening one block while `x_i`
+stayed infinitely stiff meant every error that belonged to `x_i` got shovelled into the only
+free variable in the system. *You cannot fix a filter by loosening one block of a factor* —
+which is exactly why the real fix is a sliding window, not more inflation.
 
 Full write-up — including the two bugs that **were** fixed along the way —
 [7-tight-coupling.md](doc/7-tight-coupling.md). The failure taught more than the success

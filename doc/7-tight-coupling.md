@@ -368,8 +368,10 @@ in place — they are inert while `imu_prior_weight: 0`, and they are the seam t
 
 1. **Propagate** $\mathbf{P}$ across the IMU interval:
    $\mathbf{P} \leftarrow \mathbf{F}\mathbf{P}\mathbf{F}^\top + \mathbf{G}\mathbf{Q}\mathbf{G}^\top$.
-   `ImuPreintegration` already accumulates the noise term; it would also need to accumulate
-   the **state-transition Jacobian** $\mathbf{F}$.
+   Both halves now exist: the noise term $\mathbf{G}\mathbf{Q}\mathbf{G}^\top$ is
+   `ImuPreintegration::covariance()`, and the **state-transition Jacobian** $\mathbf{F}$ is
+   `imuStateTransition` (§7.8b) — what remains is a caller that actually *applies* the
+   recursion across scans.
 2. **Prior on the whole state**, not one block:
    $\lVert \mathbf{x} \boxminus \hat{\mathbf{x}} \rVert^2_{\mathbf{P}^{-1}}$.
 3. **Posterior**: $\mathbf{P} \leftarrow (\mathbf{P}^{-1} + \mathbf{H})^{-1}$ — the piece
@@ -409,6 +411,16 @@ covariance. With `P_i = 0` this is the old infinitely-certain factor; with `P_i`
 IMU stops being able to overrule everything. A general **Schur-complement marginalization**
 kernel ([`marginalization.hpp`](../glass_core/include/glass_core/marginalization.hpp)) is
 also built and verified exact to `2.1e-17` — the primitive a *real* sliding window needs.
+
+**Built — the state-transition Jacobian `F`.** `imuStateTransition` returns
+$\mathbf{F} = \partial\,\text{predictState}/\partial\,\mathbf{x}_i$ (the 15×15 map from a
+perturbation of the previous state to the predicted next one), pinned against a finite
+difference *of* `predictState` at `5.9e-09`. It is the missing half of the covariance
+recursion $\mathbf{P}_j = \mathbf{F}\mathbf{P}_i\mathbf{F}^\top + \mathbf{G}\mathbf{Q}\mathbf{G}^\top$
+— the noise half was always `covariance()`. With `F`, a genuine window could propagate
+`x_i`'s full covariance instead of the single-factor shortcut above. It is *available*, not
+yet *used*: the `Σ_eff` inflation still stands in for it, which is why the numbers below have
+not moved.
 
 **The result, measured deterministically** (`tight_replay`, Livox bag):
 

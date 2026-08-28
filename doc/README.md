@@ -54,11 +54,13 @@ it recomputed covariances over the whole map every scan.
 The IMU is fused **loosely** by default — it predicts, then ICP solves and the IMU gets no
 further vote.
 
-**Tight coupling is built** (15-DoF joint solve, on-manifold IMU preintegration, every
-Jacobian verified against finite differences) and **switched off**. It rescues an
-unobservable axis on synthetic data but slowly diverges on the real bag, because `x_i` is
-held infinitely certain and gravity is not a state — *a factor, not a filter*. The failure
-is more instructive than the success: [7-tight-coupling.md](7-tight-coupling.md).
+**Tight coupling is built** (18-DoF joint solve — gravity is now a state — with on-manifold
+IMU preintegration and every Jacobian verified against finite differences) and **switched
+off**. It rescues an unobservable axis on synthetic data but diverges on the real bag — and
+*still* diverges after the two structural fixes (gravity promoted to a state; `x_i`'s
+uncertainty carried into the IMU factor). Both were necessary and neither was sufficient: the
+inflation is a per-factor shortcut, not a fixed-lag window — *a factor, not a filter*. The
+failure is more instructive than the success: [7-tight-coupling.md](7-tight-coupling.md).
 
 ## Three landmines this sensor set, all of which cost real time
 

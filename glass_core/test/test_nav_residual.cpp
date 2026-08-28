@@ -164,6 +164,39 @@ static void testGravityJacobian()
   std::printf("  gravity (3-DoF state)       : max err %.2e, r_dR block zero   OK\n", err);
 }
 
+// ---------------------------------------------------------------------------------
+// 2c. The STATE-TRANSITION Jacobian F = d(predictState)/d(dx_i). The piece a filter needs
+//     to propagate a full-state covariance (P_j = F P_i F^T + Q). Pinned against finite
+//     differences OF predictState, taken through boxplus/boxminus on the manifold.
+static void testStateTransition()
+{
+  const Fixture f;
+
+  const Eigen::Matrix<double, kNavDim, kNavDim> analytic = imuStateTransition(f.xi, f.pre);
+
+  const NavState xj0 = predictState(f.xi, f.pre, kG);
+  const double h = 1e-7;
+  Eigen::Matrix<double, kNavDim, kNavDim> numeric;
+  for (int i = 0; i < kNavDim; ++i) {
+    NavVec dp = NavVec::Zero(), dm = NavVec::Zero();
+    dp(i) = h;
+    dm(i) = -h;
+    const NavVec rp = boxminus(predictState(boxplus(f.xi, dp), f.pre, kG), xj0);
+    const NavVec rm = boxminus(predictState(boxplus(f.xi, dm), f.pre, kG), xj0);
+    numeric.col(i) = (rp - rm) / (2 * h);
+  }
+
+  const double err = (analytic - numeric).cwiseAbs().maxCoeff();
+  assert(err < 1e-6 && "state-transition Jacobian F disagrees with finite differences");
+
+  // LOAD-BEARING: the cross-coupling blocks (how attitude/velocity error leaks into the
+  // predicted velocity and position) must be non-trivial, or the check tests only identity.
+  assert((analytic.block<3, 3>(kIdxVel, kIdxPhi).cwiseAbs().maxCoeff() > 1e-2));
+  assert((analytic.block<3, 3>(kIdxPos, kIdxVel).cwiseAbs().maxCoeff() > 1e-3));
+
+  std::printf("  state-transition F d(predict)/dx_i : max err %.2e   OK\n", err);
+}
+
 // =================================================================================
 // 3. The LiDAR Jacobian under the RIGHT perturbation -- a DIFFERENT derivative from
 //    the left-perturbation one in registration.hpp, for the very same residual.
@@ -375,6 +408,7 @@ int main()
   testImuJacobian();
   testJrInverseIsLoadBearing();
   testGravityJacobian();
+  testStateTransition();
   testLidarJacobianNav();
   testLeftAndRightLidarJacobiansDiffer();
   testBiasJacobian();
