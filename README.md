@@ -276,28 +276,34 @@ select between them.
 | IMU init, sync, deskew, downsample | ✅ Working, self-checked |
 | Register (point-to-plane ICP on SE(3)) | ✅ Working, holds real time |
 | Local map (voxel hash + cached planes) | ✅ Working, self-checked |
-| **Tight coupling (18-DoF, preintegration)** | ⚠️ **Built and verified — but OFF by default** |
+| **Tight coupling (18-DoF, preintegration)** | ⚠️ **Matches loose on the real bag, rescues degenerate geometry — OFF by default** |
 
 Tight coupling passes every unit test — preintegration matches brute-force integration to
 1e-14, every Jacobian is pinned against finite differences, and on a synthetic corridor it
 recovers the axis the LiDAR *cannot see* (0.40 m → 0.00 m error).
 
-**Then it diverges on the real bag** — a ~1.5 M m runaway, measured deterministically with
-[`tight_replay`](src/tight_replay.cpp) — and the hard lesson is that it **still** diverges
-after the two obvious structural fixes were built. Gravity was promoted to a state (the
-18-DoF above, so a world-frame tilt *can* now be corrected), and `x_i`'s uncertainty is
-carried into the IMU factor (`Σ_eff = Σ_pre + Jᵢ Pᵢ Jᵢᵀ`, backed by a verified
-Schur-marginalisation kernel) instead of being held infinitely certain. Both fixes were
-necessary and correct — and **not sufficient**: the inflation is a per-factor shortcut, not a
-fixed-lag window that *re-estimates* `x_i` across scans. **What we built is still a factor,
-not a filter** — a better-weighted one.
+**On the real bag it first diverged catastrophically** — a ~500 km free-fall, measured
+deterministically with [`tight_replay`](src/tight_replay.cpp). The documented diagnosis was
+structural: *"a factor, not a filter — it needs a real sliding window."* **That was the
+plausible-but-wrong story**, and a sophisticated one. Instrumenting the *state* instead of the
+pose showed the runaway was **gravity**: promoted to a state, but with its prior anchored to
+its own moving estimate, it had no restoring force — it wandered from `[0,0,−9.8]` to magnitude
+`~25` in 200 scans, injecting a fake acceleration that threw the pose off the planet. (The same
+"errors shovelled into the only free variable" failure as the earlier bias experiment, which
+sent rejections `266 → 579` — except this time the free variable was gravity.)
 
-The cautionary tale that made this concrete came earlier, from trying to loosen the factor
-one block at a time. The accel bias was frozen, so we gave it a carried covariance and let
-the data move it — and **rejections went from 266 to 579.** Loosening one block while `x_i`
-stayed infinitely stiff meant every error that belonged to `x_i` got shovelled into the only
-free variable in the system. *You cannot fix a filter by loosening one block of a factor* —
-which is exactly why the real fix is a sliding window, not more inflation.
+**Two calibration fixes closed it.** Anchoring gravity to the fixed init value dropped the
+divergence **~400× (500 km → 1.3 km)**; then one residual drift remained — velocity ramped to
+~40 m/s because the LiDAR was under-trusted (`lidar_sigma` set to 5 cm when a Livox's real noise
+is ~2 cm, and the point-to-plane residual has no velocity columns, so position is the only thing
+that disciplines velocity). Calibrating `lidar_sigma` to 0.02 collapsed it to **429 m — matching
+the trusted loose path (434 m)**, with sane 7 m/s velocities and gravity stable. Tight went
+*broken → drifting → at parity with loose* in two one-line fixes and **zero new architecture** —
+the opposite of the "it needs a whole sliding window" diagnosis. It **matches** loose here (good
+geometry, so the IMU rarely has to rescue anything) rather than provably beating it, so it stays
+**OFF** until validated on genuinely degenerate data. Full accounting — the miswired prior, the
+state fingerprint that caught it, and why the structural diagnosis was itself the trap — in
+[7-tight-coupling.md §7.8c](doc/7-tight-coupling.md).
 
 Full write-up — including the two bugs that **were** fixed along the way —
 [7-tight-coupling.md](doc/7-tight-coupling.md). The failure taught more than the success

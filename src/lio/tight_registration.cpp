@@ -22,6 +22,7 @@ TightResult alignTightlyCoupled(
   const NavState & xi,
   const ImuPreintegration & pre,
   const Eigen::Vector3d & gravity,
+  const Eigen::Vector3d & gravity_prior,
   const NavState & guess,
   const Eigen::Matrix<double, 6, 6> & bias_information,
   const Eigen::Matrix3d & gravity_information,
@@ -121,13 +122,17 @@ TightResult alignTightlyCoupled(
     Jb.leftCols<kNavDim>() = biasJacobian();
     eq.addBlock<6>(biasResidual(xi, x), Jb, bias_information);
 
-    // --- 4. Gravity prior: anchor g to the carried estimate. The IMU factor is the only
-    //        thing that touches gravity and per scan that is a weak constraint, so without
-    //        this anchor gravity wanders. r_g = g - g_prior; Jacobian is I on the gravity
-    //        block. gravity_information (stiffness) decides how far the data may move it.
+    // --- 4. Gravity prior: anchor g to a FIXED reference (`gravity_prior`, the init value),
+    //        NOT to the carried estimate. Gravity is ~unobservable per scan (the IMU factor
+    //        over 0.1 s barely constrains a world-frame 3-vector), so if the anchor chases
+    //        the estimate there is no restoring force and gravity random-walks off to
+    //        |g| ~ 25 within ~200 scans -- which injects a huge fake acceleration and the
+    //        pose free-falls (measured in tight_replay). Anchoring to the fixed init value
+    //        lets the solve drain a small init tilt but cannot wander. r_g = g - g_prior;
+    //        Jacobian I on the gravity block; gravity_information sets the stiffness.
     Eigen::Matrix<double, 3, kTightDim> Jg = Eigen::Matrix<double, 3, kTightDim>::Zero();
     Jg.block<3, 3>(0, kIdxGrav) = Eigen::Matrix3d::Identity();
-    eq.addBlock<3>(g - gravity, Jg, gravity_information);
+    eq.addBlock<3>(g - gravity_prior, Jg, gravity_information);
 
     // --- Solve and retract. The increment is over the 18-DoF augmented state.
     const Eigen::Matrix<double, kTightDim, 1> dx = eq.solve();

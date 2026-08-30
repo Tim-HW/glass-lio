@@ -388,6 +388,13 @@ built and tested.
 
 ## 7.8b Update — two fixes built, and why it STILL diverges
 
+> **Read [§7.8c](#78c-update--the-divergence-was-a-miswired-gravity-prior) next.** This
+> section's conclusion — "necessary but not sufficient, it needs a real window" — was *itself*
+> the plausible-but-wrong story. Instrumenting the **state** (not the pose) later showed the
+> catastrophic divergence was dominated by a **miswired gravity prior**, and fixing that one
+> line cut it ~400×. The account below is preserved as the honest record of what was believed
+> at the time; §7.8c is the correction.
+
 Two of the three structural items above were then actually built. **Both were verified
 correct, and the estimator still diverges catastrophically on the real bag.** This section
 is the honest accounting, because "the fixes target the documented causes and the tests are
@@ -450,6 +457,86 @@ marginalization kernel into an actual sliding window, which is the same "real pi
 > tests verify the maths you wrote; only running the system verifies the maths you needed.
 > That is why `tight_replay` and its scale gate exist, and why tight coupling stays **OFF**.
 
+## 7.8c Update — the divergence was a miswired gravity prior
+
+§7.8b concluded the divergence was structural: "a factor, not a filter — closing it means a
+real sliding window." **That conclusion was wrong**, and it was wrong in the most instructive
+way — it was a *sophisticated* plausible-but-wrong story, not a naive one.
+
+The break came from adding **state instrumentation** to `tight_replay`: instead of logging
+only the pose, log `‖v‖`, `‖b_a‖`, and the gravity vector `g` every scan. The fingerprint was
+unambiguous:
+
+| scan | `g` (should be `[0,0,−9.8]`) | `‖v‖` | `‖b_a‖` |
+|---|---|---|---|
+| 0–7 | `[0, 0, −9.8]` ✅ | 0 | 0.00 |
+| 199 | `[+15.8, −0.7, −4.5]` 💥 | 3.2 | 0.05 |
+| 599 | `[−25.5, −3.9, −13.0]` 💥 | 5.4 | 0.05 |
+| 799+ | garbage → pose free-falls | 344 → 5000 | 0.05 (fine!) |
+
+**Gravity was the runaway, not `x_i`, not the bias.** `b_a` sat at a sensible `0.05` the whole
+time; `‖v‖` exploding was a *symptom*. `g` drifted from a perfect `[0,0,−9.8]` to magnitude
+`~25` within 200 scans — and a gravity vector that wrong injects a huge fake acceleration, so
+the pose free-falls and the LiDAR loses the map.
+
+**The root cause was one line.** The gravity prior anchored `g` to the *carried estimate*
+(`gravity_ = r.gravity` each scan) — a random walk with **no restoring force**. Gravity is
+near-unobservable over a single 0.1 s scan, so the solver "explained" every small pose/velocity
+error by tilting `g`, the anchor chased it, and it compounded. This is the **exact** failure
+§7.8's bias experiment named ("errors get shovelled into the only free variable") — except the
+free variable was now *gravity*. Promoting gravity to a state did not fix the tilt; with a
+self-referential prior it created a new, worse sink.
+
+**The fix**, two lines: anchor the prior to the **fixed** init gravity (`gravity_init_`, held
+for the life of the run) instead of the moving estimate, and stiffen it (`gravity_sigma`
+`0.5 → 0.05`). Init measures gravity *well* (`|g| = 9.781`), so a firm anchor is right — gravity
+should drain a small tilt, never wander.
+
+**The result so far** (`tight_replay`, Livox bag, deterministic):
+
+| | trajectory | scale-gate ratio | max `‖v‖` | behaviour |
+|---|---|---|---|---|
+| Tight — original | **527 000 m** | 3342× | 5000 | free-fall; `g`→\|25\|; map lost |
+| Tight — **+ gravity anchor fix** | **1 339 m** | 8.49× | 42 m/s | `g` pinned; tracks the bag; but a `‖v‖` ramp drifts |
+| Tight — **+ `lidar_sigma` 0.05→0.02** | **429 m** | 2.72× | 7 m/s | **matches loose; no velocity ramp** |
+| Loose (trusted baseline) | 434 m | 2.76× | — | the reference |
+
+**Second bug — the LiDAR was under-trusted.** With gravity pinned, one drift remained: `‖v‖`
+ramped *smoothly* to ~40 m/s on a fast, geometrically-bland stretch, dragging the pose ~700 m
+off. The cause is structural — the point-to-plane residual has **zero velocity columns**
+(`pointToPlaneJacobianNav`), so the LiDAR never constrains velocity *directly*, only through
+position. `lidar_sigma` (the point-to-plane noise) was `0.05` m, but a Livox's real range noise
+is ~2 cm; at 5 cm the LiDAR was declared *less accurate than it is*, so it pinned position too
+weakly and the IMU over-integrated velocity with nothing to pull it straight. Calibrating to
+`0.02` collapsed the drift **1 339 m → 429 m** — matching loose — and `‖v‖` back to a sane 7 m/s.
+(The §7.6 lesson pointed the other way: `lidar_sigma` decides which sensor wins, and here it was
+set too loose.)
+
+**Where it stands — honestly:**
+
+- Tight now **tracks the Livox bag as well as the trusted loose path** (429 m vs 434 m, max
+  `‖v‖` 7 m/s, gravity stable, zero map-loss), and on the synthetic corridor it still recovers
+  the axis the LiDAR cannot see (0.40 → 0.00 m). That is exactly the contract: *no worse where
+  geometry is good, better where it is degenerate.*
+- It **matches** loose here; it has not been shown to **beat** it. This bag has good geometry, so
+  the IMU rarely has to rescue anything, and there is no ground truth to say which trajectory is
+  more accurate. It stays **OFF by default** until it demonstrably beats loose on a dataset where
+  geometry is genuinely degenerate.
+- The **scale gate is the wrong yardstick** for a driving bag: a large trajectory is *correct*,
+  which is why even trusted loose "fails" at 2.76×. The gate was built for a bounded room; here
+  "2.72×" means "tracks like loose," not "diverges."
+- The catastrophic divergence is gone, and so is the residual drift. Tight went from *broken* →
+  *drifting* → **at parity with loose**, in two calibration fixes and zero new architecture.
+
+> **The meta-meta-lesson.** §7.8b's diagnosis was not lazy — it was a careful, primitive-by-
+> primitive, "it must need a fixed-lag window" argument, and it was *still* a plausible-but-
+> wrong story. The dominant bug was not a missing filter; it was a prior anchored to the wrong
+> thing. It was invisible in the pose (which just says "everything is huge") and obvious in the
+> *state* (which says "gravity, specifically"). **Instrument the quantity, not the symptom** —
+> and distrust even your sophisticated conclusions until the data confirms them. That is the
+> thesis of this repository, and this time it caught the author twice: once in the code, once
+> in the write-up.
+
 ## 7.9 Parameters
 
 | Param | Meaning |
@@ -457,6 +544,6 @@ marginalization kernel into an actual sliding window, which is the same "real pi
 | `registration.imu_prior_weight` | **0 = loose** (6-DoF SE(3), the healthy default). `> 0` = tight (18-DoF joint solve — `[R,p,v,b_g,b_a,g]`). |
 | `registration.lidar_sigma` | Point-to-plane noise (m). **Decides which sensor wins.** §7.6. |
 | `registration.tight_warmup_scans` | Loose scans before engaging the IMU, to measure the velocity init cannot observe. |
-| `gravity_sigma` | Prior std (m/s²) on gravity, now a solved state (§7.8b). Larger = the data may move gravity further from init each scan. |
+| `gravity_sigma` | Prior std (m/s²) on gravity, a solved state anchored to the **fixed init value** (§7.8c). Default `0.05` (was `0.5`). Larger lets gravity wander from init — and a wandering gravity was the catastrophic-divergence bug, so keep it small. |
 | `imu.gyro_noise`, `imu.accel_noise` | Noise densities. Physics, from the datasheet — not knobs. |
 | `imu.bias_rw_gyro`, `imu.bias_rw_accel` | How fast a bias may physically drift. Stops the biases absorbing real motion when they are unobservable. |

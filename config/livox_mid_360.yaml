@@ -64,7 +64,8 @@
       #                  6-DoF SE(3) solve. The historical path, kept as a directly
       #                  comparable baseline. Velocity and biases are unobservable
       #                  without IMU information, so they are not estimated at all.
-      #   > 0  TIGHT   -- one joint 15-DoF solve (R, p, v, b_g, b_a). The IMU becomes a
+      #   > 0  TIGHT   -- one joint 18-DoF solve (R, p, v, b_g, b_a, g -- gravity is a
+      #                  state). The IMU becomes a
       #                  prior residual in the SAME normal equations as the LiDAR:
       #                  H = P^-1 + sum(J^T J / sigma^2). Where the geometry is
       #                  degenerate (a corridor), the LiDAR term has a null space and
@@ -79,29 +80,27 @@
       # pass, every Jacobian is pinned against finite differences, and on a synthetic
       # corridor it recovers the unobservable axis the LiDAR cannot see (0.40 m -> 0.00 m).
       #
-      # But on the REAL bag it slowly diverges (Z falls quadratically), and the cause is
-      # STRUCTURAL, not a typo:
+      # On the REAL bag it FIRST diverged catastrophically (~500 km free-fall). The documented
+      # diagnosis was "a factor, not a filter -- needs a sliding window". THAT WAS WRONG.
+      # Instrumenting the STATE (not the pose) in src/tight_replay.cpp showed the runaway was
+      # GRAVITY: promoted to a state but with its prior anchored to its own moving estimate, it
+      # had no restoring force and wandered from [0,0,-9.8] to |g|~25 in 200 scans, injecting a
+      # fake acceleration that threw the pose off the planet. (Same "errors shovelled into the
+      # only free variable" failure the accel-bias experiment hit -- rejections 266 -> 579 --
+      # except the free variable was gravity this time.)
       #
-      #   * We hold the previous state x_i FIXED and infinitely certain (this is odometry,
-      #     not a sliding window). An error in x_i can therefore never be corrected.
-      #   * GRAVITY IS NOT A STATE. Init measured it while the robot was already moving
-      #     (a static window cannot tell rest from constant velocity -- doc/1-imu-init.md),
-      #     so the world frame's "down" carries a small tilt error, which leaks a constant
-      #     acceleration into every integration.
+      # THE FIX (two lines): anchor the gravity prior to the FIXED init value (not the moving
+      # estimate) and stiffen it (gravity_sigma 0.5 -> 0.05). Divergence dropped ~400x
+      # (500 km -> 1.3 km): gravity now holds -9.8, the map is never lost, the pose tracks the
+      # whole bag -- BROKEN to merely drifting. A second calibration fix (lidar_sigma, below)
+      # then closed that remaining drift too, bringing tight to parity with loose. Full write-up
+      # with the fingerprints: doc/7-tight-coupling.md sec 7.8c.
       #
-      # NOTE: the accel bias IS estimated now -- it carries a covariance (bias_sigma0_*
-      # below) that starts loose and shrinks with the data. It used to be frozen by a
-      # random-walk prior whose information (~1e7) dwarfed the IMU factor's (~2e5).
-      #
-      # Unfreezing it MADE THINGS WORSE (rejections 266 -> 579), and that is the sharpest
-      # lesson here: the bias was given slack while x_i stayed infinitely stiff, so every
-      # error that belonged to x_i was shovelled into the only free variable in the system.
-      # YOU CANNOT FIX A FILTER BY LOOSENING ONE BLOCK OF A FACTOR -- the covariance has to
-      # be carried for the whole state, or none of it.
-      #
-      # The real fix is an 18-DoF state (gravity estimated) plus marginalisation of x_i.
-      # Until then this stays 0 and the loose path -- healthy: zero drops, zero diverged --
-      # runs. Full write-up: doc/7-tight-coupling.md.
+      # A second calibration fix (lidar_sigma 0.05 -> 0.02, below) then brought tight to PARITY
+      # with loose (429 m vs 434 m trajectory, sane velocities). It MATCHES loose here rather
+      # than provably beating it -- this bag has good geometry, so the IMU rarely has to rescue
+      # anything -- so it stays 0 until validated on genuinely degenerate data. The loose path
+      # (zero drops, zero diverged) runs meanwhile.
       imu_prior_weight: 0.0
 
       # Scans to run LOOSE before engaging the IMU.
@@ -123,7 +122,14 @@
       # declaring each laser return accurate to a METRE, while the IMU's covariance
       # claims millimetres -- and the IMU then wins every argument, including the ones
       # it should lose.
-      lidar_sigma: 0.05
+      #
+      # 0.02 = the Livox's REAL point-to-plane noise (~2 cm), not 0.05. Under-trusting the
+      # LiDAR (0.05) let the IMU over-integrate velocity on bland stretches -- the point-to-
+      # plane residual has ZERO velocity columns, so position is the only channel that
+      # disciplines velocity, and pinning it too weakly let |v| ramp to ~40 m/s. Calibrating
+      # to 2 cm collapsed tight drift from 1339 m to 429 m (= the loose baseline). See
+      # doc/7-tight-coupling.md sec 7.8c.
+      lidar_sigma: 0.02
 
     # Local map: the accumulated world geometry each scan is registered against.
     map:

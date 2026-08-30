@@ -63,7 +63,7 @@ struct EstimatorParams
   /// Gravity prior std (m/s^2): how far the data may move gravity from the carried anchor
   /// each scan. Gravity is now a solved 3-DoF state (roadmap Phase 1) -- this is what makes
   /// a tilt error at init correctable instead of frozen.
-  double gravity_sigma = 0.5;
+  double gravity_sigma = 0.05;
 
   /// Multiply raw IMU accel by this to get m/s^2 (9.80665 if the driver reports g, which
   /// Livox does -- a sensor_msgs/Imu spec violation).
@@ -124,6 +124,10 @@ public:
   const Eigen::Isometry3d & pose() const {return pose_;}
   const Eigen::Vector3d & velocity() const {return velocity_;}
   const LocalMap & map() const {return *map_;}
+  /// Read-only views of the tight-path state, for offline diagnostics (tight_replay): the
+  /// full nav state (velocity, gyro/accel bias) and the estimated world-frame gravity.
+  const NavState & navState() const {return state_;}
+  const Eigen::Vector3d & gravity() const {return gravity_;}
 
 private:
   // --- [4]
@@ -169,6 +173,10 @@ private:
   NavState state_;
   /// Gravity in the gravity-aligned world frame. Overwritten by initialize().
   Eigen::Vector3d gravity_{0.0, 0.0, -kGravity};
+  // The FIXED gravity reference the prior anchors to (set once at init). Distinct from
+  // gravity_, which is the moving estimate: anchoring the prior to the estimate gave gravity
+  // no restoring force and it random-walked the whole solve into divergence.
+  Eigen::Vector3d gravity_init_{0.0, 0.0, -kGravity};
   Eigen::Matrix<double, 6, 6> bias_cov_ = Eigen::Matrix<double, 6, 6>::Identity();
   /// x's carried 15-DoF covariance. Next scan it is x_i's uncertainty, inflating the IMU
   /// factor so x_i is not treated as infinitely certain (roadmap Phase 2 -- the freeze fix).

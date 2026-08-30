@@ -54,13 +54,17 @@ it recomputed covariances over the whole map every scan.
 The IMU is fused **loosely** by default — it predicts, then ICP solves and the IMU gets no
 further vote.
 
-**Tight coupling is built** (18-DoF joint solve — gravity is now a state — with on-manifold
-IMU preintegration and every Jacobian verified against finite differences) and **switched
-off**. It rescues an unobservable axis on synthetic data but diverges on the real bag — and
-*still* diverges after the two structural fixes (gravity promoted to a state; `x_i`'s
-uncertainty carried into the IMU factor). Both were necessary and neither was sufficient: the
-inflation is a per-factor shortcut, not a fixed-lag window — *a factor, not a filter*. The
-failure is more instructive than the success: [7-tight-coupling.md](7-tight-coupling.md).
+**Tight coupling is built** (18-DoF joint solve — gravity is a state — with on-manifold IMU
+preintegration and every Jacobian verified against finite differences) and **switched off**.
+It rescues an unobservable axis on synthetic data, and on the real bag it *first* diverged
+catastrophically (~500 km). The documented diagnosis — "a factor, not a filter; it needs a
+sliding window" — was itself the *plausible-but-wrong* story: instrumenting the **state**
+showed the runaway was a **miswired gravity prior** (anchored to its own moving estimate), and
+fixing that anchor cut divergence **~400×**; calibrating `lidar_sigma` to the Livox's true noise
+then closed the last drift, bringing tight to **parity with loose** (429 m vs 434 m) — two
+one-line fixes, no new architecture. It matches loose rather than provably beating it, so it
+stays off. The failure — and the wrong diagnosis of the failure — is more instructive than the
+success: [7-tight-coupling.md §7.8c](7-tight-coupling.md).
 
 ## Three landmines this sensor set, all of which cost real time
 

@@ -200,14 +200,24 @@ to a state, and `x_i`'s uncertainty carried into the IMU factor
 Jacobian to `4.6e-10`, a Schur-marginalisation kernel exact to `2.1e-17`, every suite green.
 The narrative was airtight — *the docs blamed exactly these two causes.*
 
-It exploded to **1.5 million metres** the first time it met the real bag.
+It exploded to **~500 km** the first time it met the real bag.
 
 That is the thesis at its purest: correct maths, green tests, a plausible story, and a system
-still catastrophically wrong — caught only by a deterministic driver that *runs it on the
-data* and gates the result. Verified primitives are necessary; they are not the system.
+still catastrophically wrong — caught only by a deterministic driver that *runs it on the data*.
 
-This is why `run_local.sh` and the deterministic `tight_replay` exist, and why "all tests
-pass" is never the last step here.
+**And then the thesis bit one level deeper.** The driver's *own* first diagnosis — "a factor,
+not a filter; it needs a real sliding window" — was **itself** a plausible-but-wrong story, and
+a sophisticated one (a careful, primitive-by-primitive argument). It was overturned only when
+`tight_replay` was made to log the **state** (`v`, `b_a`, `g`) instead of the pose. The
+fingerprint was instant: the runaway was **gravity**, wandering to magnitude `~25` because its
+prior was anchored to its own moving estimate — no restoring force. Two lines (anchor to the
+fixed init value, stiffen the prior) cut the divergence **~400×**. The pose said *"everything
+is huge"*; the state said *"gravity, specifically."* **Instrument the quantity, not the
+symptom** — and distrust even your sophisticated conclusions until the data confirms them. Full
+story: [7-tight-coupling.md §7.8c](7-tight-coupling.md).
+
+Verified primitives are necessary; they are not the system. This is why `run_local.sh` and the
+deterministic `tight_replay` exist, and why "all tests pass" is never the last step here.
 
 ## 8. The landmine under all of it
 
@@ -253,8 +263,13 @@ For any non-trivial piece of estimator maths:
 | Tight coupling: 0.12 s IMU window vs 0.10 s pose delta | **the real bag** | no — reads exactly like a gravity error |
 | Accel bias baked into the "gravity" constant | **the real bag** + arithmetic | no — Z falls quadratically, looks like a tuning problem |
 | "Fixing" it by loosening *only* the bias block | **the real bag** | no — it *converged*, and got **worse** |
+| Gravity prior anchored to its own estimate (no restoring force) | **state fingerprint in `tight_replay`** | no — `g` random-walks to \|25\|, pose free-falls ~500 km |
+| `lidar_sigma` = 0.05 m (LiDAR under-trusted vs its true ~2 cm noise) | **`‖v‖` fingerprint** | no — velocity ramps to ~40 m/s, tracks fine everywhere else |
 
-**Zero crashes. Nine bugs. Every one of them produced plausible output.**
+**Zero crashes. Eleven bugs. Every one of them produced plausible output** — and the last two
+hid behind a *correct-sounding* diagnosis until the **state**, not the pose, was logged. The
+gravity anchor and the LiDAR-trust calibration together took tight coupling from a 500 km
+free-fall to parity with loose — two one-line fixes, no new architecture.
 
 ## 11. The last one is the best one
 

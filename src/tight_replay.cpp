@@ -62,24 +62,40 @@ int main(int argc, char ** argv)
   const std::string imu_topic = argc > 2 ? argv[2] : "/asdt1_driver/imu";
   const std::string lidar_topic = argc > 3 ? argv[3] : "/asdt1_driver/point_cloud";
   const double imu_prior_weight = argc > 4 ? std::stod(argv[4]) : 1.0;
+  const double lidar_sigma = argc > 5 ? std::stod(argv[5]) : 0.05;   // LiDAR-vs-IMU trust knob
 
   rclcpp::init(argc, argv);
   auto logger = rclcpp::get_logger("tight_replay");
 
-  // Params: this ToF sensor (accel already in m/s^2) with the sparse-cloud tuning from
-  // config/asdt1.yaml, and the tight path selected by imu_prior_weight.
+  // Sensor selected by the topic name: the Livox Mid-360 (dense cloud, accel in g) vs the
+  // ASDT1 ToF (sparse 30-deg cloud, accel already in m/s^2). The ~1.5M m tight divergence in
+  // the docs is the LIVOX number, so the params must match or the diagnosis is meaningless.
+  const bool livox =
+    imu_topic.find("livox") != std::string::npos ||
+    lidar_topic.find("livox") != std::string::npos;
+
   EstimatorParams p;
-  p.voxel_leaf_size = 0.10;
-  p.map_voxel_size = 0.30;
-  p.map_min_points_for_plane = 4;
-  p.reg.min_correspondences = 20;
-  p.reg.max_correspondence_distance = 0.5;
-  p.accel_scale = 1.0;                       // m/s^2, not g
+  if (livox) {
+    p.voxel_leaf_size = 0.5;
+    p.map_voxel_size = 1.0;
+    p.map_min_points_for_plane = 5;
+    p.reg.min_correspondences = 50;
+    p.reg.max_correspondence_distance = 1.0;
+    p.accel_scale = kGravity;                // Livox reports g -> m/s^2
+  } else {
+    p.voxel_leaf_size = 0.10;                // config/asdt1.yaml
+    p.map_voxel_size = 0.30;
+    p.map_min_points_for_plane = 4;
+    p.reg.min_correspondences = 20;
+    p.reg.max_correspondence_distance = 0.5;
+    p.accel_scale = 1.0;                     // m/s^2, not g
+  }
   p.use_tight = imu_prior_weight > 0.0;
   p.tight.imu_prior_weight = imu_prior_weight;
+  p.tight.lidar_sigma = lidar_sigma;
 
   LioEstimator est(p, logger);
-  ImuInit init(200, 0.1, 0.5, 1.0);          // accel_scale 1.0 (m/s^2)
+  ImuInit init(200, 0.1, 0.5, p.accel_scale);   // same accel scale as the estimator
   MeasureSync sync(0.12);
 
   bool inited = false;
@@ -101,10 +117,19 @@ int main(int argc, char ** argv)
         const Eigen::Vector3d t = est.pose().translation();
         tmin = tmin.cwiseMin(t);
         tmax = tmax.cwiseMax(t);
+        // STATE FINGERPRINT. The divergence has a shape: |v| exploding = runaway; |ba|
+        // ramping = errors shovelled into the free bias; g drifting off [0 0 -9.81] = the
+        // gravity-tilt that leaks a constant acceleration (quadratic Z fall). Reading these
+        // per scan tells you WHICH block breaks, instead of just "the pose left the planet".
+        const Eigen::Vector3d v = est.navState().v;
+        const Eigen::Vector3d ba = est.navState().ba;
+        const Eigen::Vector3d g = est.gravity();
         std::printf(
-        "scan %4d | pose [%+7.2f %+7.2f %+7.2f] | rmse %.3f (%d corr)%s | map %zu vox\n",
-        scan_idx++, t.x(), t.y(), t.z(), r.rmse, r.correspondences,
-        r.pose_trusted ? "" : " COAST", est.map().num_voxels());
+        "scan %4d | pos [%+9.2f %+9.2f %+9.2f] | |v|%7.2f |ba|%6.3f | "
+        "g[%+.2f %+.2f %+.2f] | rmse %.3f (%d)%s\n",
+        scan_idx++, t.x(), t.y(), t.z(), v.norm(), ba.norm(),
+        g.x(), g.y(), g.z(), r.rmse, r.correspondences,
+        r.pose_trusted ? "" : " COAST");
       }
     };
 

@@ -44,7 +44,7 @@ struct TightParams
   /// accurate to ONE METRE, while the IMU's covariance says millimetres. The IMU then
   /// wins every disagreement, including the ones it should lose, and thousands of
   /// point-to-plane constraints are silently worth less than a single 9-vector.
-  double lidar_sigma = 0.05;
+  double lidar_sigma = 0.02;
 
   /// How much to trust the IMU factor. Scales the preintegration information matrix.
   ///
@@ -115,6 +115,7 @@ TightResult alignTightlyCoupled(
   const NavState & xi,
   const ImuPreintegration & pre,
   const Eigen::Vector3d & gravity,
+  const Eigen::Vector3d & gravity_prior,
   const NavState & guess,
   const Eigen::Matrix<double, 6, 6> & bias_information,
   const Eigen::Matrix3d & gravity_information,

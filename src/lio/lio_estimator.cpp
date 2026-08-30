@@ -37,6 +37,7 @@ void LioEstimator::initialize(
   // observable from a static window. Velocity is measured later by the loose warm-up; the
   // accel bias starts UNCERTAIN (resetBiasCovariance) and is discovered from the data.
   gravity_ = gravity;
+  gravity_init_ = gravity;   // the FIXED anchor the gravity prior pulls toward, held for life
   state_ = NavState();
   state_.R = Sophus::SO3d(Eigen::Quaterniond(pose.linear()).normalized());
   state_.p = pose.translation();
@@ -314,7 +315,7 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
     Eigen::Matrix3d::Identity() / (p_.gravity_sigma * p_.gravity_sigma);
 
   const TightResult r = alignTightlyCoupled(
-    *scan, *map_, state_, pre, gravity_, guess, bias_cov_.inverse(),
+    *scan, *map_, state_, pre, gravity_, gravity_init_, guess, bias_cov_.inverse(),
     gravity_information, nav_cov_, p_.tight);
   last_rmse_ = r.rmse;
   last_corr_ = r.correspondences;
