@@ -1,12 +1,21 @@
 # [7] Tight coupling — the IMU as a residual, not a hint
 
-**Status: implemented, math verified, and OFF by default (`imu_prior_weight: 0`).**
-It works on synthetic data and **diverges catastrophically on the real bag** — and, the
-sharpest lesson here, it *still* diverges after two of the three structural fixes below were
-built (gravity promoted to a state; `x_i`'s uncertainty carried into the IMU factor). The
-fixes were necessary and correct; they were **not sufficient**. §7.8 explains why, now with
-a deterministic offline driver ([`tight_replay`](../src/tight_replay.cpp)) that pins the
-divergence as a hard, reproducible number instead of a threaded, run-to-run impression.
+**Status: implemented, math verified, working, and OFF by default (`imu_prior_weight: 0`).**
+It **now tracks the real Livox bag at parity with the trusted loose path** (429 m vs 434 m
+trajectory), and on a synthetic corridor it recovers the axis the LiDAR cannot see
+(0.40 → 0.00 m). Getting there was the instructive part: it *first* diverged catastrophically
+(~500 km), the documented "it needs a sliding window" diagnosis turned out to be a
+plausible-but-wrong story, and the real causes were **two miscalibrated numbers** — a gravity
+prior anchored to its own estimate, and an under-trusted LiDAR — both caught by instrumenting
+the **state** in the deterministic driver ([`tight_replay`](../src/tight_replay.cpp)), not the
+pose. The full arc is [§7.8](#78--why-it-is-off-on-the-real-bag) → [§7.8c](#78c-update--the-divergence-was-a-miswired-gravity-prior).
+
+> **Why still OFF by default, if it works?** Because it *matches* loose here, it hasn't been
+> shown to *beat* it — this bag has good geometry, so the IMU rarely has to rescue anything, and
+> there is no ground truth to break the tie. A default is a safety decision: loose is the path
+> that never surprises you. Tight is now a **usable opt-in** (`imu_prior_weight: 1.0` with
+> `lidar_sigma: 0.02`), earning the default only once it demonstrably beats loose on genuinely
+> degenerate real data. Turn it on where the geometry is the problem.
 
 Code: [`preintegration.hpp`](../glass_core/include/glass_core/preintegration.hpp),
 [`nav_state.hpp`](../glass_core/include/glass_core/nav_state.hpp),

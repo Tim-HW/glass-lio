@@ -45,9 +45,10 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 - [gauss-newton.md](gauss-newton.md) — the generic manifold solver stage 5 calls. The
   optimization core, deliberately split out so it knows nothing about LiDAR.
 - [7-tight-coupling.md](7-tight-coupling.md) — folding the IMU into stage 5's *own* normal
-  equations, instead of letting it only propose a guess. **Implemented, math verified, and
-  currently OFF by default** (`imu_prior_weight: 0`) because it diverges on the real bag
-  for a structural reason worth reading about.
+  equations, instead of letting it only propose a guess. **Implemented, verified, working, and
+  OFF by default** (`imu_prior_weight: 0`): it tracks the real bag at parity with loose after
+  two calibration fixes, and stays off pending proof it *beats* loose. The divergence — and the
+  wrong diagnosis of it — is the part worth reading.
 
 > **Why IMU init is [1] and not somewhere later.** It is not a "setup step" you can
 > reorder — it is a hard gate. Scans arriving before it completes are *dropped*, not

@@ -74,7 +74,10 @@
       #
       # 1.0 means "trust the IMU exactly as far as its own propagated covariance says".
       #
-      # *** DEFAULT 0 (LOOSE). The tight path is NOT production-ready yet. ***
+      # *** DEFAULT 0 (LOOSE), but the tight path now WORKS. It tracks this bag at parity with
+      #     loose (429 m vs 434 m) and rescues degenerate geometry on synthetic data. It stays
+      #     off by default because it MATCHES loose here rather than provably BEATING it -- turn
+      #     it on (1.0, with lidar_sigma 0.02 below) where the geometry is the problem. ***
       #
       # Its MATH is verified -- test_preintegration, test_nav_residual and test_tight all
       # pass, every Jacobian is pinned against finite differences, and on a synthetic

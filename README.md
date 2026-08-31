@@ -68,8 +68,9 @@ which is both the reason it works and its central hazard.
 
 - **Every stage has a write-up, in execution order** — six stage docs plus the solver, each
   one explaining the trap that stage sets, not just the code it runs ([docs](#documentation)).
-- **The bugs are documented, not hidden** — including the ones still standing: tight coupling
-  is built, unit-verified, and **diverges on the real bag**, and the *why* is written down.
+- **The bugs are documented, not hidden** — including a tight-coupling divergence whose
+  *documented diagnosis was itself wrong*: traced to two miscalibrated numbers, fixed to
+  **parity with loose**, and the whole arc — misdiagnosis included — written down.
 - **No Ceres, no GTSAM, no g2o** — the manifold least-squares solver is under 200 lines of
   Eigen and you are meant to read it ([`gauss_newton.hpp`](glass_core/include/glass_core/gauss_newton.hpp)).
 - **The tests are oracles, not smoke tests** — finite differences pin every Jacobian; mutation
