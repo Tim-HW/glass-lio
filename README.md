@@ -80,6 +80,18 @@ which is both the reason it works and its central hazard.
 
 ## Quickstart
 
+The estimation engine ([`glass_core/`](glass_core/)) is a separate repo, pulled in as a
+git submodule — clone with `--recurse-submodules`, or run
+`git submodule update --init` after a plain clone. Every path below (`docker/`,
+`glass_core/`, `colcon build`) assumes that has already been done; an uninitialized
+submodule shows up as an empty `glass_core/` directory and CMake will fail with
+"`glass_core` does not contain a CMakeLists.txt" — that error means this step, not a
+broken build.
+
+```bash
+git clone --recurse-submodules https://github.com/Tim-HW/glass-lio.git
+```
+
 ### Try it in Docker (no ROS install)
 
 One command builds the image, fetches the bag, builds glasslio, and launches the node + bag
@@ -157,7 +169,9 @@ Output: `/glasslio_node/odom` (`nav_msgs/Odometry`) plus a TF `odom → livox_fr
 
 If you are here for the **Lie algebra and the solver**, not the LiDAR, skip all of the above.
 The engine lives in [`glass_core/`](glass_core/) — **pure CMake, no ROS, no PCL, no bag** — and
-its self-checks *are* the worked examples (finite-difference oracles for every Jacobian):
+its self-checks *are* the worked examples (finite-difference oracles for every Jacobian). It's
+also its own repo ([Tim-HW/glass-core](https://github.com/Tim-HW/glass-core), pulled in here as
+a submodule), so you can clone just that if the LiDAR pipeline isn't what you're after:
 
 ```bash
 cmake -S glass_core -B build/glass_core && cmake --build build/glass_core
