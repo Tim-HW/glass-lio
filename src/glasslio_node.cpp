@@ -144,6 +144,8 @@ public:
     ep.reg.huber_delta = declare_parameter<double>("registration.huber_delta", 0.2);
     ep.reg.min_correspondences = declare_parameter<int>(
       "registration.min_correspondences", 50);
+    ep.reg.min_translation_eigenvalue_ratio = declare_parameter<double>(
+      "registration.min_translation_eigenvalue_ratio", 0.05);
     ep.max_rmse = declare_parameter<double>("registration.max_rmse", 0.5);
 
     // Constant-velocity translation prior. Without it the guess carries NO translation, so

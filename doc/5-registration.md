@@ -174,6 +174,7 @@ doing so retires this parameter entirely. See [pipeline.md](pipeline.md#not-impl
 ```
 if (!valid || rmse > max_rmse)  →  keep the prediction, flag DIVERGED, do NOT insert
    where valid = (correspondences ≥ min_correspondences) && the solve was finite
+                 && the translation eigenvalue ratio ≥ min_translation_eigenvalue_ratio
 ```
 
 **Note what is *not* in that condition: `converged`.**
@@ -195,6 +196,61 @@ So when in doubt, refuse. Under-constrained (`correspondences < min_corresponden
 is refused for the same reason: the 6-DoF problem genuinely has no answer, and
 inventing one is worse than admitting it.
 
+### 3.6.1 Degenerate geometry — a healthy RMSE can still be a lie
+
+`min_correspondences` and `max_rmse` both look at the SOLVE'S OUTPUT. Neither looks at
+whether the geometry that produced it could support a unique answer in every
+direction. A scene whose plane normals cluster into one or two directions — an open
+outdoor stretch: mostly ground plus a wall — leaves one translation direction with
+almost no normal support. Nothing in the data resists sliding along it, so
+Gauss-Newton solves for whatever noise happens to be there, and the pose it hands back
+can still report a plausible correspondence count and a low RMSE at the *wrong*
+position, because locally the (now-shifted) fit still looks fine.
+
+First caught on [M3DGR](https://github.com/sjtuyinjie/M3DGR)'s `Outdoor01` sequence
+(RTK ground truth — glasslio's first run against real absolute GT, not just its own
+registration residual): the estimate's path length came out to **38,657 m against a
+true 346 m** — not drift, an oscillation. Per-scan pose jumps of 2–4 m sustained for
+hundreds of scans, `rmse` sitting at its normal 0.10–0.16 the whole time, correspondence
+counts never dropping below 300. `pose_trusted` never flagged a single one of them.
+
+**The fix**: after the solve converges, re-run `associate()` once more at the
+converged pose (§3.2's lambda, no extra Gauss-Newton iterations — see
+`alignPointToPlane`) to get `H_t = sum(w_i · normal_i · normal_i^T)`, the translation
+block of `H`. Its smallest eigenvalue divided by its trace is a scene-scale-invariant
+measure of how well the weakest direction is constrained — the RAW eigenvalue is
+useless here, since it scales with correspondence count and cannot tell
+"under-constrained" from "just fewer points."
+
+Calibrated empirically, not guessed: the indoor test bag's ratio never drops below
+0.117 at the 5th percentile across ~180 scans; `Outdoor01`'s divergence window never
+rises above 0.034 across ~110 scans. The two do not overlap — `min_translation_eigenvalue_ratio`
+sits at 0.05, in the gap.
+
+**This alone was not enough.** Gating out degenerate scans stops them being trusted,
+but `registerScanLoose` coasts on `use_constant_velocity` (§3.5) when it refuses —
+and `Outdoor01`'s degeneracy is not a brief patch, it is sustained. A rejected scan
+means a stale map; a stale map means the next scan degenerates too; the cascade
+free-integrates on the IMU alone with nothing ever correcting it, and the pose ran
+away to hundreds of metres — the *exact* runaway §3.5 already documents, just
+triggered by sustained degeneracy instead of a dropped-scan gap. **Tight coupling
+(`imu_prior_weight: 1.0`) is what actually rescues `Outdoor01`**: the IMU becomes a
+prior in the *same* solve rather than a fallback behind a rejection cliff, so it
+takes over smoothly, scan by scan, exactly where the LiDAR term is weak. RPE went
+from 22.6 m rmse (max 96.9 m) to **0.29 m rmse (max 1.9 m)**; path length from 111x
+truth to 1.1x. Loose plus this gate alone is not the fix — tight coupling is what
+the gate was clearing the way for.
+
+A large APE (~36 m) remains even under tight coupling, alongside a rotational
+discrepancy against GT that sits at 148–180° from t=0 and never grows — bounded, not
+drift. `M3DGR`'s own `calibration.md` publishes the Mid-360-to-its-own-IMU extrinsic
+(confirmed to match this file's `lidar_to_imu` exactly) but **no ground-truth-to-sensor
+extrinsic at all** — RTK/mocap orientation is in an unpublished frame with no known
+rotation to the Mid-360's own. That gap, not a tracking bug, is the leading
+explanation: a real heading bug would show as growing drift, and neither a pure
+rotation nor a single-axis mirror of the estimate collapsed it in testing. RPE and
+path length don't depend on this open question; APE and rotational error do.
+
 ## 3.7 Parameters that bite
 
 | Param | Why |
@@ -203,5 +259,6 @@ inventing one is worse than admitting it.
 | `max_rmse` | The coast threshold (§3.6). |
 | `huber_delta` | Robust threshold — see [gauss_newton.md](gauss-newton.md#robust-weighting). |
 | `min_correspondences` | Below this the problem is under-constrained; refuse. |
+| `min_translation_eigenvalue_ratio` | The degeneracy gate (§3.6.1). Below this, some translation direction has essentially no normal support; refuse regardless of RMSE. |
 | `max_iterations` | Cost ceiling. Hitting it is not failure. |
 | `use_constant_velocity` | §3.5. |

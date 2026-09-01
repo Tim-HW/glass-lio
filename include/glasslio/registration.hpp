@@ -22,6 +22,18 @@ struct RegistrationParams
   double huber_delta = 0.2;
   /// Below this many correspondences the problem is under-constrained; refuse.
   int min_correspondences = 50;
+  /// DEGENERACY GATE. H_t = sum(w_i * normal_i * normal_i^T), the translation block of
+  /// H, built purely from correspondence normals. Its smallest eigenvalue divided by
+  /// its trace is the RATIO checked here -- NOT the raw eigenvalue, which scales with
+  /// correspondence count and so cannot tell "under-constrained" from "just fewer
+  /// points". The ratio is count-invariant: a healthy scene's normals span all three
+  /// directions roughly evenly (ratio ~0.1-0.35 either way); a scene dominated by
+  /// near-parallel planes (an open outdoor stretch: mostly ground plus one or two
+  /// walls) leaves one direction with near-zero normal support relative to the others.
+  /// Calibrated empirically -- see doc/5-registration.md -- against the indoor test
+  /// bag (ratio never below 0.117 at the 5th percentile) and the Outdoor01 divergence
+  /// (ratio never above 0.034): the two do not overlap.
+  double min_translation_eigenvalue_ratio = 0.05;
 };
 
 struct RegistrationResult
@@ -40,6 +52,10 @@ struct RegistrationResult
   int iterations = 0;
   int correspondences = 0;
   double rmse = 0.0;     ///< RMS point-to-plane residual (m) at the solution
+  /// Smallest-eigenvalue/trace ratio of the translation block of H at the solution --
+  /// see RegistrationParams::min_translation_eigenvalue_ratio. 0 if never computed
+  /// (e.g. the solve was already rejected on correspondence count).
+  double translation_eigenvalue_ratio = 0.0;
 };
 
 /// The point-to-plane residual: signed distance from the transformed source point

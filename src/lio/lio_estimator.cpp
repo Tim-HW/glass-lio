@@ -194,16 +194,20 @@ bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
   last_rmse_ = r.rmse;
   last_corr_ = r.correspondences;
 
-  // Trust `valid` (enough correspondences + finite solve) and the residual --
-  // NOT `converged`. Hitting max_iterations is not failure: ICP routinely
-  // plateaus above eps while sitting on a perfectly good fit, and rejecting
+  // Trust `valid` (enough correspondences + finite solve + a well-conditioned
+  // translation direction -- see RegistrationParams::min_translation_eigenvalue_ratio)
+  // and the residual -- NOT `converged`. Hitting max_iterations is not failure: ICP
+  // routinely plateaus above eps while sitting on a perfectly good fit, and rejecting
   // those threw away good poses and froze the estimator.
   if (!r.valid || r.rmse > p_.max_rmse) {
+    const char * reason = r.rmse > p_.max_rmse ? "residual too large" :
+      r.translation_eigenvalue_ratio > 0.0 &&
+      r.translation_eigenvalue_ratio < p_.reg.min_translation_eigenvalue_ratio ?
+      "degenerate geometry" : "under-constrained";
     RCLCPP_WARN(
       logger_,
-      "ICP rejected (%s, rmse %.3f, %d corr) -- coasting, scan NOT added to map",
-      r.valid ? "residual too large" : "under-constrained",
-      r.rmse, r.correspondences);
+      "ICP rejected (%s, rmse %.3f, %d corr, eig ratio %.3f) -- coasting, scan NOT added to map",
+      reason, r.rmse, r.correspondences, r.translation_eigenvalue_ratio);
     // Coast on the prediction. The pose is now a guess, so the scan must NOT
     // go into the map -- see insertIntoMap().
     updatePose(guess, dt);
