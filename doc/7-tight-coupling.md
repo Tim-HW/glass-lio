@@ -1,7 +1,7 @@
 # [7] Tight coupling — the IMU as a residual, not a hint
 
-**Status: implemented, math verified, working, and OFF by default (`imu_prior_weight: 0`).**
-It **now tracks the real Livox bag at parity with the trusted loose path** (429 m vs 434 m
+**Status: implemented, math verified, working, and ON by default (`imu_prior_weight: 1.0`).**
+It **tracks the real Livox bag at parity with the trusted loose path** (429 m vs 434 m
 trajectory), and on a synthetic corridor it recovers the axis the LiDAR cannot see
 (0.40 → 0.00 m). Getting there was the instructive part: it *first* diverged catastrophically
 (~500 km), the documented "it needs a sliding window" diagnosis turned out to be a
@@ -10,12 +10,11 @@ prior anchored to its own estimate, and an under-trusted LiDAR — both caught b
 the **state** in the deterministic driver ([`tight_replay`](../src/tight_replay.cpp)), not the
 pose. The full arc is [§7.8](#78--why-it-is-off-on-the-real-bag) → [§7.8c](#78c-update--the-divergence-was-a-miswired-gravity-prior).
 
-> **Why still OFF by default, if it works?** Because it *matches* loose here, it hasn't been
-> shown to *beat* it — this bag has good geometry, so the IMU rarely has to rescue anything, and
-> there is no ground truth to break the tie. A default is a safety decision: loose is the path
-> that never surprises you. Tight is now a **usable opt-in** (`imu_prior_weight: 1.0` with
-> `lidar_sigma: 0.02`), earning the default only once it demonstrably beats loose on genuinely
-> degenerate real data. Turn it on where the geometry is the problem.
+> **Why on by default.** On sustained translational degeneracy — a long open stretch
+> where the LiDAR's own eigenvalue gate ([5-registration.md §3.6.1](5-registration.md))
+> can flag a bad scan but has nothing better to fall back on — tight coupling measurably
+> beats loose: RPE 22.6 m rmse → 0.29 m, path length 111x truth → 1.1x. §7.8d covers a
+> related fix, keeping deskew's own gyro bias in sync with the one this solve refines.
 
 Code: [`preintegration.hpp`](../glass_core/include/glass_core/preintegration.hpp),
 [`nav_state.hpp`](../glass_core/include/glass_core/nav_state.hpp),
@@ -529,8 +528,8 @@ set too loose.)
   geometry is good, better where it is degenerate.*
 - It **matches** loose here; it has not been shown to **beat** it. This bag has good geometry, so
   the IMU rarely has to rescue anything, and there is no ground truth to say which trajectory is
-  more accurate. It stays **OFF by default** until it demonstrably beats loose on a dataset where
-  geometry is genuinely degenerate.
+  more accurate. *(A dataset with genuinely degenerate geometry does show tight beating loose —
+  see [5-registration.md §3.6.1](5-registration.md).)*
 - The **scale gate is the wrong yardstick** for a driving bag: a large trajectory is *correct*,
   which is why even trusted loose "fails" at 2.76×. The gate was built for a bounded room; here
   "2.72×" means "tracks like loose," not "diverges."
@@ -546,13 +545,50 @@ set too loose.)
 > thesis of this repository, and this time it caught the author twice: once in the code, once
 > in the write-up.
 
+## 7.8d Keeping deskew's bias in sync with the tight solve
+
+`state_.bg` (§7.3) is a live optimizer variable, re-estimated every scan with a real
+posterior covariance (§7.8b). [Deskew](3-deskew.md)'s own intra-scan motion
+compensation uses a gyro bias too, and it is kept in sync with `state_.bg`: after
+each tight solve, `LioEstimator::registerScanTight()` calls
+`deskew_->set_gyro_bias(state_.bg)`, so the next scan's deskew runs on the current
+estimate rather than the one measured once at init.
+
+This resync is conditional, not automatic:
+
+```
+if (rotation_eigenvalue_ratio >= min_rotation_eigenvalue_ratio)
+    deskew_->set_gyro_bias(state_.bg)
+```
+
+`rotation_eigenvalue_ratio` is the smallest-eigenvalue/trace ratio of the LiDAR-only
+rotation block of `H`, computed the same way as [5-registration.md
+§3.6.1](5-registration.md)'s translation-degeneracy check but on rotation, and
+snapshotted before the IMU/bias/gravity terms are added to the solve. It answers "how
+well does the LiDAR alone constrain rotation this scan?", independent of how much the
+IMU factor is contributing.
+
+The reason the gate exists: when the LiDAR barely constrains rotation, the bias value
+the solve settles on is driven mostly by the IMU factor rather than anything the
+geometry confirmed. The **pose estimate** is fine either way — §7.2's information-
+matrix arbitration handles that. But feeding an IMU-only bias value into deskew
+changes the geometry every *following* scan is built from, so an ungated resync during
+a sustained rotationally-degenerate stretch (a long corridor, for instance) can
+compound: each scan's slightly-off bias distorts the next scan's points, which
+distorts its own bias estimate, and so on. The gate keeps the resync to scans where
+the LiDAR itself backs up the bias update.
+
+`min_rotation_eigenvalue_ratio` defaults to `0.05`, the same starting value as
+§3.6.1's translation gate. See [§7.9](#79-parameters) for the parameter.
+
 ## 7.9 Parameters
 
 | Param | Meaning |
 |---|---|
-| `registration.imu_prior_weight` | **0 = loose** (6-DoF SE(3), the healthy default). `> 0` = tight (18-DoF joint solve — `[R,p,v,b_g,b_a,g]`). |
+| `registration.imu_prior_weight` | `0` = loose (6-DoF SE(3)). **`1.0` = tight (18-DoF joint solve — `[R,p,v,b_g,b_a,g]`), the default** since M3DGR's `Outdoor01` proved it beats loose on genuinely degenerate geometry (§7.8d). |
 | `registration.lidar_sigma` | Point-to-plane noise (m). **Decides which sensor wins.** §7.6. |
 | `registration.tight_warmup_scans` | Loose scans before engaging the IMU, to measure the velocity init cannot observe. |
+| `registration.min_rotation_eigenvalue_ratio` | §7.8d. Gates whether a scan's refined gyro bias is trusted enough to resync into deskew — **not** a scan-rejection threshold; the pose solve is unaffected either way. Default `0.05`, mirrors [5-registration.md](5-registration.md)'s translation gate. |
 | `gravity_sigma` | Prior std (m/s²) on gravity, a solved state anchored to the **fixed init value** (§7.8c). Default `0.05` (was `0.5`). Larger lets gravity wander from init — and a wandering gravity was the catastrophic-divergence bug, so keep it small. |
 | `imu.gyro_noise`, `imu.accel_noise` | Noise densities. Physics, from the datasheet — not knobs. |
 | `imu.bias_rw_gyro`, `imu.bias_rw_accel` | How fast a bias may physically drift. Stops the biases absorbing real motion when they are unobservable. |

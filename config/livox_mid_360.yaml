@@ -123,6 +123,19 @@
       # BEATS loose there rather than merely matching it. Defaulting to tight.
       imu_prior_weight: 1.0
 
+      # Deskew's gyro bias is resynced every scan from state_.bg (see doc/3-deskew.md),
+      # so it tracks the tight solve's own continuously-refined estimate instead of
+      # staying fixed at the value measured once at init. This gate decides whether a
+      # given scan's update is trusted enough to resync -- not a scan-rejection
+      # threshold, the pose estimate itself is unaffected either way.
+      #
+      # Ratio construction matches min_translation_eigenvalue_ratio above (smallest
+      # eigenvalue / trace of the LiDAR-only rotation block of H, before IMU/bias/gravity
+      # terms are added), so it reads as "how well does the LiDAR alone constrain rotation
+      # this scan". Same starting value as that gate; not yet swept. See
+      # doc/7-tight-coupling.md sec 7.8d.
+      min_rotation_eigenvalue_ratio: 0.05
+
       # Scans to run LOOSE before engaging the IMU.
       #
       # Tight coupling needs a VELOCITY to start from, and IMU init cannot supply one: a

@@ -4,7 +4,7 @@
 [![ROS 2: Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white)](#dependencies)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)](#layout)
 [![Sensor: Livox MID-360](https://img.shields.io/badge/sensor-Livox%20MID--360-brightgreen)](config/livox_mid_360.yaml)
-[![Docs: 10 write-ups](https://img.shields.io/badge/docs-10%20write--ups-8A2BE2)](#documentation)
+[![Docs: 11 write-ups](https://img.shields.io/badge/docs-11%20write--ups-8A2BE2)](#documentation)
 
 **A transparent LiDAR-inertial odometry for Livox — written to be read.**
 
@@ -252,7 +252,9 @@ follow the stages in execution order.
   we run with neither damping nor line search.
 - **[7-tight-coupling.md](doc/7-tight-coupling.md)** — the IMU as a **residual in the same
   normal equations**, not merely a hint: on-manifold preintegration, the 15-DoF state,
-  `J_r⁻¹`, and why it is currently **off by default**.
+  `J_r⁻¹`, and why it's **on by default**.
+- **[benchmark.md](doc/benchmark.md)** — glasslio vs FAST-LIO2 vs KISS-ICP on M3DGR, with
+  real ground truth.
 - **[testing.md](doc/testing.md)** — **how the bugs were actually found.** Finite-difference
   oracles, mutation testing, and why "all tests pass" is never the last step.
 
@@ -291,7 +293,7 @@ select between them.
 | IMU init, sync, deskew, downsample | ✅ Working, self-checked |
 | Register (point-to-plane ICP on SE(3)) | ✅ Working, holds real time |
 | Local map (voxel hash + cached planes) | ✅ Working, self-checked |
-| **Tight coupling (18-DoF, preintegration)** | ⚠️ **Matches loose on the real bag, rescues degenerate geometry — OFF by default** |
+| **Tight coupling (18-DoF, preintegration)** | ✅ **Matches loose on the original bag, beats it on genuinely degenerate geometry — ON by default** |
 
 Tight coupling passes every unit test — preintegration matches brute-force integration to
 1e-14, every Jacobian is pinned against finite differences, and on a synthetic corridor it
@@ -314,18 +316,42 @@ is ~2 cm, and the point-to-plane residual has no velocity columns, so position i
 that disciplines velocity). Calibrating `lidar_sigma` to 0.02 collapsed it to **429 m — matching
 the trusted loose path (434 m)**, with sane 7 m/s velocities and gravity stable. Tight went
 *broken → drifting → at parity with loose* in two one-line fixes and **zero new architecture** —
-the opposite of the "it needs a whole sliding window" diagnosis. It **matches** loose here (good
-geometry, so the IMU rarely has to rescue anything) rather than provably beating it, so it stays
-**OFF** until validated on genuinely degenerate data. Full accounting — the miswired prior, the
-state fingerprint that caught it, and why the structural diagnosis was itself the trap — in
-[7-tight-coupling.md §7.8c](doc/7-tight-coupling.md).
+the opposite of the "it needs a whole sliding window" diagnosis.
 
-Full write-up — including the two bugs that **were** fixed along the way —
-[7-tight-coupling.md](doc/7-tight-coupling.md). The failure taught more than the success
+**`imu_prior_weight: 1.0` is the default.** On sustained translational degeneracy — an
+open stretch where the LiDAR's degeneracy gate can flag a bad scan but has nothing better
+to fall back on — tight coupling recovers it directly (RPE 22.6 m → 0.29 m rmse, path
+length 111x truth → 1.1x truth on M3DGR's `Outdoor01`). Deskew's gyro bias is kept in
+sync with the one the tight solve refines every scan, gated by how well the LiDAR itself
+constrains rotation that scan — see [7-tight-coupling.md §7.8d](doc/7-tight-coupling.md).
+
+Full write-up — including every bug that was fixed along the way —
+[7-tight-coupling.md](doc/7-tight-coupling.md). The failures taught more than a clean run
 would have.
 
 **Not implemented:** loop closure (this is odometry, not SLAM — the map deliberately
-forgets), and translational deskew (it needs a velocity we do not yet trust).
+forgets), and translational deskew (tight coupling produces a trusted velocity now, but
+nothing reads it back into deskew yet — see [3-deskew.md §7](doc/3-deskew.md)).
+
+## Benchmark
+
+glasslio measured against **FAST-LIO2** and **KISS-ICP** on
+[M3DGR](https://github.com/sjtuyinjie/M3DGR)'s `Outdoor01` sequence (RTK ground
+truth, 345.85 m path). Full write-up, second sequence, and methodology:
+[doc/benchmark.md](doc/benchmark.md).
+
+| System | APE rmse | RPE rmse | Path length | Ratio vs GT |
+|---|---|---|---|---|
+| glasslio | 6.00 m | 0.394 m | 362.2 m | 1.05x |
+| **FAST-LIO2** | **0.216 m** | **0.247 m** | **347.3 m** | **1.004x** |
+| KISS-ICP | 3.147 m | 0.392 m | 388.7 m | 1.12x |
+
+![APE over time — glasslio, FAST-LIO2, KISS-ICP](images/outdoor01_ape_over_time.png)
+
+FAST-LIO2 tracks Outdoor01 the most accurately of the three. glasslio and KISS-ICP
+keep good local consistency (RPE) but drift more over the full run — and both do it
+by *oscillating* rather than drifting steadily, consistent with intermittent
+geometric degeneracy along the route rather than a constant bias.
 
 ## Three landmines in this sensor set
 

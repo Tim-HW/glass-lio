@@ -27,8 +27,9 @@ the current status. Read it first; it links to everything else.
   the **retraction**, and why we run with neither damping nor line search.
 - **[7-tight-coupling.md](7-tight-coupling.md)** — the IMU as a **residual in the same
   normal equations**, not merely a hint: preintegration on the manifold, the 15-DoF state,
-  `J_r⁻¹`, and why the whole thing is currently **off by default**. The densest Lie-algebra
-  content in the repo.
+  `J_r⁻¹`, and why it's **on by default**. The densest Lie-algebra content in the repo.
+- **[benchmark.md](benchmark.md)** — glasslio vs FAST-LIO2 vs KISS-ICP on M3DGR's
+  `Outdoor01` and `Corridor02`, with real ground truth (RTK / ArUco).
 - **[testing.md](testing.md)** — **how the bugs were actually found.** Every serious defect
   in this project produced *plausible output* and none of them crashed. Finite-difference
   oracles, mutation testing, and why "all tests pass" is never the last step. Arguably the
@@ -51,20 +52,16 @@ Registration is hand-rolled **point-to-plane ICP** over the voxel map's cached p
 solved by Gauss-Newton on SE(3). It replaced PCL's GICP, which was ~35× too slow because
 it recomputed covariances over the whole map every scan.
 
-The IMU is fused **loosely** by default — it predicts, then ICP solves and the IMU gets no
-further vote.
+The IMU is fused **tightly** by default (`imu_prior_weight: 1.0`) — one joint 18-DoF solve,
+LiDAR and IMU in the same normal equations.
 
-**Tight coupling is built** (18-DoF joint solve — gravity is a state — with on-manifold IMU
-preintegration and every Jacobian verified against finite differences) and **switched off**.
-It rescues an unobservable axis on synthetic data, and on the real bag it *first* diverged
-catastrophically (~500 km). The documented diagnosis — "a factor, not a filter; it needs a
-sliding window" — was itself the *plausible-but-wrong* story: instrumenting the **state**
-showed the runaway was a **miswired gravity prior** (anchored to its own moving estimate), and
-fixing that anchor cut divergence **~400×**; calibrating `lidar_sigma` to the Livox's true noise
-then closed the last drift, bringing tight to **parity with loose** (429 m vs 434 m) — two
-one-line fixes, no new architecture. It matches loose rather than provably beating it, so it
-stays off. The failure — and the wrong diagnosis of the failure — is more instructive than the
-success: [7-tight-coupling.md §7.8c](7-tight-coupling.md).
+**Tight coupling** is an 18-DoF joint solve (gravity is a state) with on-manifold IMU
+preintegration, every Jacobian verified against finite differences. It rescues an
+unobservable axis on synthetic data, matches loose on the original test bag (429 m vs
+434 m), and beats loose on real sustained degeneracy (M3DGR's `Outdoor01`: RPE 22.6 m →
+0.29 m rmse). Deskew's own gyro bias is kept in sync with the one the solve refines every
+scan, gated by how well the LiDAR constrains rotation that scan — see
+[7-tight-coupling.md](7-tight-coupling.md), the densest material in the repo.
 
 ## Three landmines this sensor set, all of which cost real time
 

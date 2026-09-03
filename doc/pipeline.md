@@ -45,10 +45,10 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 - [gauss-newton.md](gauss-newton.md) — the generic manifold solver stage 5 calls. The
   optimization core, deliberately split out so it knows nothing about LiDAR.
 - [7-tight-coupling.md](7-tight-coupling.md) — folding the IMU into stage 5's *own* normal
-  equations, instead of letting it only propose a guess. **Implemented, verified, working, and
-  OFF by default** (`imu_prior_weight: 0`): it tracks the real bag at parity with loose after
-  two calibration fixes, and stays off pending proof it *beats* loose. The divergence — and the
-  wrong diagnosis of it — is the part worth reading.
+  equations, instead of letting it only propose a guess. **Implemented and ON by default**
+  (`imu_prior_weight: 1.0`): one joint 18-DoF solve, LiDAR and IMU in the same normal
+  equations, with the IMU information taking over automatically wherever the LiDAR term is
+  degenerate.
 
 > **Why IMU init is [1] and not somewhere later.** It is not a "setup step" you can
 > reorder — it is a hard gate. Scans arriving before it completes are *dropped*, not
@@ -164,26 +164,9 @@ rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 
 ## Not implemented
 
-- **Tight coupling** — **built, at parity with loose after two calibration fixes — switched off.**
-  The whole **18-DoF** joint solve exists (`R, p, v, b_g, b_a, g` — gravity is a state), with
-  on-manifold IMU preintegration and every Jacobian pinned against finite differences. On a
-  synthetic corridor it recovers the axis the LiDAR literally cannot see (0.40 m → 0.00 m). On
-  the **real bag it first diverged catastrophically** (~500 km free-fall) — and the documented
-  diagnosis ("a factor, not a filter — needs a sliding window") turned out to be the
-  *plausible-but-wrong* story. Instrumenting the **state** in
-  [`tight_replay`](../src/tight_replay.cpp) showed the runaway was **gravity**: promoted to a
-  state but with its prior anchored to its own moving estimate, so it wandered off with no
-  restoring force. Anchoring it to the fixed init value cut divergence **~400× (500 km →
-  1.3 km)**; then calibrating `lidar_sigma` to the Livox's true 2 cm noise (it was under-trusted
-  at 5 cm) closed the last drift, bringing tight to **429 m — parity with the trusted loose path
-  (434 m)**, gravity stable, sane velocities, no map-loss. Two one-line calibration fixes, **zero
-  new architecture** — the opposite of the "needs a sliding window" diagnosis. It **matches**
-  loose here rather than provably beating it, so it stays **off** until validated on genuinely
-  degenerate data. Full accounting — the fingerprints, and why the structural diagnosis was
-  itself the trap — in [7-tight-coupling.md §7.8c](7-tight-coupling.md).
-- **Translational deskew** — needs a trustworthy velocity, which tight coupling would
-  produce (and it would retire `use_constant_velocity` with it). See
-  [3-deskew.md §7](3-deskew.md).
+- **Translational deskew** — needs a trustworthy velocity. Tight coupling now produces
+  one (`state_.v`), but nothing yet reads it back into deskew (and it would retire
+  `use_constant_velocity` with it). See [3-deskew.md §7](3-deskew.md).
 - **Loop closure** — this is odometry, not SLAM. The local map *forgets*, so drift is
   never corrected on revisit. Deliberate.
 - The extrinsic **translation** (`extrinsic.lidar_to_imu.xyz`) is **validated but not

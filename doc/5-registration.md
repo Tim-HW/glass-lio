@@ -241,15 +241,14 @@ from 22.6 m rmse (max 96.9 m) to **0.29 m rmse (max 1.9 m)**; path length from 1
 truth to 1.1x. Loose plus this gate alone is not the fix — tight coupling is what
 the gate was clearing the way for.
 
-A large APE (~36 m) remains even under tight coupling, alongside a rotational
-discrepancy against GT that sits at 148–180° from t=0 and never grows — bounded, not
-drift. `M3DGR`'s own `calibration.md` publishes the Mid-360-to-its-own-IMU extrinsic
-(confirmed to match this file's `lidar_to_imu` exactly) but **no ground-truth-to-sensor
-extrinsic at all** — RTK/mocap orientation is in an unpublished frame with no known
-rotation to the Mid-360's own. That gap, not a tracking bug, is the leading
-explanation: a real heading bug would show as growing drift, and neither a pure
-rotation nor a single-axis mirror of the estimate collapsed it in testing. RPE and
-path length don't depend on this open question; APE and rotational error do.
+A moderate APE remains even under tight coupling despite RPE being small — the
+estimate is locally consistent scan-to-scan but accumulates global error over the
+whole run. This is a separate mechanism from the translation degeneracy above:
+[deskew](3-deskew.md) keeps its gyro bias in sync with the tight solver's own
+continuously-refined estimate (`state_.bg`), rather than freezing it at the
+init-window value, and that resync is itself gated by the LiDAR's rotational
+conditioning — see [7-tight-coupling.md §7.9](7-tight-coupling.md) for how the two
+interact.
 
 ## 3.7 Parameters that bite
 
@@ -259,6 +258,7 @@ path length don't depend on this open question; APE and rotational error do.
 | `max_rmse` | The coast threshold (§3.6). |
 | `huber_delta` | Robust threshold — see [gauss_newton.md](gauss-newton.md#robust-weighting). |
 | `min_correspondences` | Below this the problem is under-constrained; refuse. |
-| `min_translation_eigenvalue_ratio` | The degeneracy gate (§3.6.1). Below this, some translation direction has essentially no normal support; refuse regardless of RMSE. |
+| `min_translation_eigenvalue_ratio` | The degeneracy gate (§3.6.1). Below this, some translation direction has essentially no normal support; refuse regardless of RMSE. **Loose path only.** |
+| `registration.min_rotation_eigenvalue_ratio` | Tight path's rotational counterpart — see [7-tight-coupling.md §7.9](7-tight-coupling.md). Gates deskew's bias resync, not the pose solve. |
 | `max_iterations` | Cost ceiling. Hitting it is not failure. |
 | `use_constant_velocity` | §3.5. |

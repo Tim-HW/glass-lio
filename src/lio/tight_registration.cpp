@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include <Eigen/Eigenvalues>
+
 #include "glass_core/gauss_newton.hpp"
 #include "glass_core/nav_residual.hpp"
 
@@ -49,6 +51,11 @@ TightResult alignTightlyCoupled(
   NavState x = guess;
   Eigen::Vector3d g = gravity;   // the gravity iterate; `gravity` is now the prior anchor
 
+  // DIAGNOSTIC snapshot of the LiDAR-only rotation block, refreshed each iteration below
+  // (see TightResult::rotation_eigenvalue_ratio) -- holds the last iteration's value once
+  // the loop exits, same pattern as `result.H` a few lines down.
+  Eigen::Matrix3d lidar_rotation_H = Eigen::Matrix3d::Zero();
+
   for (int iter = 0; iter < params.max_iterations; ++iter) {
     NavEquations eq;
 
@@ -92,6 +99,10 @@ TightResult alignTightlyCoupled(
       result.valid = false;   // under-constrained: refuse rather than invent a pose
       return result;
     }
+
+    // Snapshot the LiDAR-only rotation block for the degeneracy diagnostic, BEFORE the
+    // IMU/bias/gravity blocks are added below -- see TightResult::rotation_eigenvalue_ratio.
+    lidar_rotation_H = eq.H().block<3, 3>(kIdxPhi, kIdxPhi);
 
     // --- 2. The IMU factor: one 9-vector. It is the ONLY thing that couples gravity to the
     //        rest of the state (through the dv/dp residuals), so its gravity columns come
@@ -160,6 +171,14 @@ TightResult alignTightlyCoupled(
 
   result.state = x;
   result.gravity = g;
+
+  // DIAGNOSTIC (see TightResult::rotation_eigenvalue_ratio) -- not a gate.
+  {
+    const double trace = lidar_rotation_H.trace();
+    const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(lidar_rotation_H);
+    result.rotation_eigenvalue_ratio = trace > 0.0 ? es.eigenvalues().minCoeff() / trace : 0.0;
+  }
+
   return result;
 }
 

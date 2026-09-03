@@ -59,6 +59,18 @@ struct TightParams
   /// those states are unobservable, so we do not pretend to estimate them.
   double imu_prior_weight = 1.0;
 
+  /// DEGENERACY GATE for the deskew bias resync (see LioEstimator::registerScanTight).
+  /// Not a scan-rejection threshold -- the pose solve itself is unaffected, since the
+  /// IMU information already arbitrates degenerate directions there (see the class
+  /// comment above). This ONLY decides whether THIS scan's refined bias is trusted
+  /// enough to feed back into deskew's intra-scan motion compensation. Below this
+  /// ratio, `TightResult::rotation_eigenvalue_ratio` says the LiDAR alone barely
+  /// constrains rotation, so the bias correction the joint solve just produced is
+  /// mostly an IMU-side dead-reckoning guess, not a LiDAR-verified refinement --
+  /// feeding it into deskew would let a single degenerate scan corrupt every
+  /// subsequent scan's geometry, compounding rather than correcting. Same calibrated
+  /// starting value as the loose path's analogous translation gate (registration.hpp).
+  double min_rotation_eigenvalue_ratio = 0.05;
 };
 
 struct TightResult
@@ -84,6 +96,17 @@ struct TightResult
   int correspondences = 0;
   double rmse = 0.0;    ///< RMS point-to-plane residual (m), LiDAR only -- comparable
                         ///< with the loose path's rmse.
+
+  /// DIAGNOSTIC (not a gate -- nothing rejects or reweights on this yet). Smallest-
+  /// eigenvalue/trace ratio of the LiDAR-ONLY rotation block (kIdxPhi, 3x3) of H,
+  /// captured before the IMU/bias/gravity blocks are added each iteration -- i.e. what
+  /// the LiDAR ALONE can see about rotation, independent of how much the IMU factor is
+  /// backfilling. The loose path has an analogous check on its TRANSLATION block (see
+  /// RegistrationParams::min_translation_eigenvalue_ratio) that actually gates; this is
+  /// the rotational counterpart, logged only, to find out whether the tight path's
+  /// oscillating-APE symptom on open outdoor stretches lines up with yaw becoming
+  /// LiDAR-degenerate there. 0 if never computed (e.g. rejected on correspondence count).
+  double rotation_eigenvalue_ratio = 0.0;
 };
 
 /// Tightly-coupled scan registration: ONE Gauss-Newton solve over the 15-DoF nav state,
