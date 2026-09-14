@@ -6,7 +6,7 @@ Code: [`gauss_newton.hpp`](../glass_core/include/glass_core/gauss_newton.hpp).
 
 It is split out from [5-registration.md](5-registration.md) on purpose, and the split is
 the lesson: **swap the residual and the same solver becomes a different estimator.** It is
-also the seam the IMU prior plugs into ([7-tight-coupling.md](7-tight-coupling.md)).
+also the seam the IMU prior plugs into ([5-registration.md §3.7](5-registration.md#37-tight-coupling--the-imu-inside-the-solve)).
 
 > **Notation.** Formulas render as LaTeX on GitHub and in VS Code's preview. Fenced code
 > blocks are reserved for *algorithms* — those stay copy-pasteable and legible in a plain
@@ -162,7 +162,7 @@ that DoF, and the solver is right to be unable to determine it.
 
 This is precisely the hole a tightly-coupled IMU prior fills: add $\boldsymbol{\Sigma}^{-1}$
 to $\mathbf{H}$ and the null space is **spanned by the IMU** rather than collapsing.
-See [7-tight-coupling.md](7-tight-coupling.md).
+See [5-registration.md §3.7](5-registration.md#37-tight-coupling--the-imu-inside-the-solve).
 
 ## 6. The retraction — the actual Lie-algebra content
 
@@ -202,7 +202,7 @@ $\boldsymbol{\xi} = [\boldsymbol{\rho};\, \boldsymbol{\phi}]$ (translation; rota
 |---|---|---|
 | `optimizeSE3` (this file) | the **world** frame | the **left** |
 | `GyrInt` ([3-deskew.md](3-deskew.md)) | the **body** frame (it is a gyro) | the **right** |
-| `NavState` ([7-tight-coupling.md](7-tight-coupling.md)) | the **body** frame | the **right** |
+| `NavState` ([5-registration.md §3.8](5-registration.md#38-the-state--18-dof-one-curved-block)) | the **body** frame | the **right** |
 
 Same manifold, same $\mathrm{Exp}$, opposite side. Get it backwards and the estimator
 **still runs, still converges, and is wrong** — no exception, no NaN, just a quietly

@@ -87,6 +87,13 @@ t_0 = \min_i \, \text{timestamp}_i \quad \text{(scan start)}, \qquad
 t_1 = \max_i \, \text{timestamp}_i \quad \text{(scan end)}
 $$
 
+**Snapshot sensors carry no per-point time.** A ToF camera exposes every point at one instant,
+and its driver ships XYZ-only clouds — no `timestamp` field at all, so PCL zero-fills it and
+`t₀ = t₁ = 0`. Deskew is then correctly a no-op: there is no intra-scan motion to undo. But the
+scan-*end* time also feeds the tightly-coupled preintegration window, so for a snapshot (a
+per-point span under a microsecond) `deskew.cpp` takes the message **header stamp** as the
+acquisition instant instead ([5-registration.md §3.9](5-registration.md#39-preintegration--why-it-exists)).
+
 ## 4. Integrating the gyro → R(t)
 
 `GyrInt` (in [`gyr_int.cpp`](../src/lio/gyr_int.cpp)) turns discrete gyro samples

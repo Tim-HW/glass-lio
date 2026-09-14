@@ -72,9 +72,16 @@ as part of "gravity", permanently tilting the world frame.
 Measured on the bag: static windows peak at `‖ω‖ ≈ 0.04` rad/s; a turn hits 0.4. The
 0.1 threshold sits in the gap.
 
-If **either** check fails, the window is **discarded entirely** and we wait for a
-quiet one (`rejected_windows()` counts these). We do not initialize from a partial
-or marginal window.
+If **either** check fails, the window **slides forward one sample** and re-checks —
+it does *not* clear the whole buffer. That distinction is load-bearing. Clearing on
+failure only ever tests **non-overlapping, aligned** blocks — `[0,N)`, `[N,2N)`, … — so a
+genuine 1-second rest that straddles a block boundary gets split across two windows and
+rejected by both, *even though the rest is right there*. A sliding window finds it wherever
+it falls. (Measured: of three handheld apartment bags on a rigid 3-ToF rig, all three
+contained a valid rest window, but the old clear-on-fail logic found only one — the other
+two never initialised until the window was made to slide.) `rejected_windows()` counts the
+slid samples. We still never initialize from a partial or marginal window — only from a full
+window that passes **both** checks.
 
 > A bad init is **worse than no init**. No init blocks the pipeline loudly — you see
 > "waiting for IMU initialization" and you go fix it. A bad init produces a running
@@ -147,10 +154,30 @@ windows rejected for motion: 0
 The **7.33° tilt is real**, not an error — the sensor is genuinely not mounted level,
 and `R_wi` is exactly what removes it.
 
-`|g|` = 9.781 vs 9.80665 is a 0.26% discrepancy: accelerometer scale-factor error,
-well within spec for a MEMS part, and a reminder that `accel_in_g` is a *unit*
-conversion, not a calibration. A tightly-coupled estimator would estimate the accel
-bias online rather than trusting this number forever.
+`|g|` = 9.781 vs 9.80665 is a 0.26% discrepancy: accelerometer scale-factor and bias
+error, well within spec for a MEMS part, and a reminder that `accel_in_g` is a *unit*
+conversion, not a calibration.
+
+### Gravity is not what the accelerometer reads
+
+At rest an accelerometer does not measure $\mathbf{g}$ — it measures $\mathbf{g} + \mathbf{b}_a$,
+gravity's specific force plus its own bias. A static window sees only the sum, and the two
+cannot be separated until the platform **rotates**, because they live in different frames:
+
+| | Fixed in which frame? | When the platform turns |
+|---|---|---|
+| **gravity** | the **world** | nothing — it still points down |
+| **accel bias** | the **body** | it rotates with the platform |
+
+So init takes only the measured **direction** (to level the world frame, §4) and gives world
+gravity the **standard** magnitude, 9.80665 m/s² — not the measured 9.781. Fold the measured
+sum into a "gravity" constant instead and the two agree at init by construction, then
+**diverge the moment you turn**, injecting a spurious acceleration of order
+$\lVert\mathbf{b}_a\rVert$ in an arbitrary direction. It happened here: a quadratic Z fall worth
+~0.21 m/s², about 2% of $g$ — exactly a cheap MEMS bias
+([testing.md §12](testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag)). The
+tightly-coupled path then estimates $\mathbf{b}_a$ online, as the body-frame state it is
+([5-registration.md §3.8](5-registration.md#38-the-state--18-dof-one-curved-block)).
 
 ---
 

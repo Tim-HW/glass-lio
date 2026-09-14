@@ -17,7 +17,7 @@ the current status. Read it first; it links to everything else.
 | **2** | [2-sync.md](2-sync.md) | Bracketing a scan with the IMU that spans it, `scan_guard_sec`, and why consumed IMU is **not** eagerly dropped. |
 | **3** | [3-deskew.md](3-deskew.md) | The deep dive: SO(3) gyro integration, SLERP between knots, the extrinsic **conjugation**, and the per-point timestamp traps. |
 | **4** | [4-downsample.md](4-downsample.md) | The leaf-size trade, and why the **map** is fed the dense cloud while ICP is fed the sparse one. |
-| **5** | [5-registration.md](5-registration.md) | Predict → associate → solve → accept. Point-to-plane, the Jacobian, and the constant-velocity runaway. |
+| **5** | [5-registration.md](5-registration.md) | Predict → associate → solve → accept. Point-to-plane, the Jacobian, and the constant-velocity runaway — then the **tight** path ([§3.7–3.14](5-registration.md#37-tight-coupling--the-imu-inside-the-solve)): the IMU as a residual in the same normal equations, on-manifold preintegration, the 18-DoF state, `J_r⁻¹`. The densest Lie-algebra content in the repo. |
 | **6** | [6-local-map.md](6-local-map.md) | The voxel hash, cached planes, `floor` vs `int`, and the acceptance test that tells you the pose is right. |
 
 **Companions** (not pipeline stages):
@@ -25,13 +25,11 @@ the current status. Read it first; it links to everything else.
 - **[gauss-newton.md](gauss-newton.md)** — the generic manifold solver stage 5 calls. The
   normal equations *derived*, what the Gauss-Newton approximation throws away, LDLT, Huber,
   the **retraction**, and why we run with neither damping nor line search.
-- **[7-tight-coupling.md](7-tight-coupling.md)** — the IMU as a **residual in the same
-  normal equations**, not merely a hint: preintegration on the manifold, the 15-DoF state,
-  `J_r⁻¹`, and why the whole thing is currently **off by default**. The densest Lie-algebra
-  content in the repo.
 - **[testing.md](testing.md)** — **how the bugs were actually found.** Every serious defect
   in this project produced *plausible output* and none of them crashed. Finite-difference
-  oracles, mutation testing, and why "all tests pass" is never the last step. Arguably the
+  oracles, mutation testing, and why "all tests pass" is never the last step — ending with the
+  full case study of making tight coupling work on the real bag
+  ([§12](testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag)). Arguably the
   most transferable thing here.
 
 ## The one-paragraph version
@@ -64,7 +62,8 @@ fixing that anchor cut divergence **~400×**; calibrating `lidar_sigma` to the L
 then closed the last drift, bringing tight to **parity with loose** (429 m vs 434 m) — two
 one-line fixes, no new architecture. It matches loose rather than provably beating it, so it
 stays off. The failure — and the wrong diagnosis of the failure — is more instructive than the
-success: [7-tight-coupling.md §7.8c](7-tight-coupling.md).
+success. How it works: [5-registration.md §3.7](5-registration.md#37-tight-coupling--the-imu-inside-the-solve).
+How it was made to work: [testing.md §12](testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag).
 
 ## Three landmines this sensor set, all of which cost real time
 

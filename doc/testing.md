@@ -196,7 +196,7 @@ the estimator meets *reality*:
 
 Later, two *more* correct primitives were built to close that divergence — gravity promoted
 to a state, and `x_i`'s uncertainty carried into the IMU factor
-([7-tight-coupling.md §7.8b](7-tight-coupling.md)). Both cleared the same bar: gravity's
+(§12.3). Both cleared the same bar: gravity's
 Jacobian to `4.6e-10`, a Schur-marginalisation kernel exact to `2.1e-17`, every suite green.
 The narrative was airtight — *the docs blamed exactly these two causes.*
 
@@ -214,7 +214,7 @@ prior was anchored to its own moving estimate — no restoring force. Two lines 
 fixed init value, stiffen the prior) cut the divergence **~400×**. The pose said *"everything
 is huge"*; the state said *"gravity, specifically."* **Instrument the quantity, not the
 symptom** — and distrust even your sophisticated conclusions until the data confirms them. Full
-story: [7-tight-coupling.md §7.8c](7-tight-coupling.md).
+story: [§12](#12-case-study--making-tight-coupling-work-on-the-real-bag).
 
 Verified primitives are necessary; they are not the system. This is why `run_local.sh` and the
 deterministic `tight_replay` exist, and why "all tests pass" is never the last step here.
@@ -265,11 +265,12 @@ For any non-trivial piece of estimator maths:
 | "Fixing" it by loosening *only* the bias block | **the real bag** | no — it *converged*, and got **worse** |
 | Gravity prior anchored to its own estimate (no restoring force) | **state fingerprint in `tight_replay`** | no — `g` random-walks to \|25\|, pose free-falls ~500 km |
 | `lidar_sigma` = 0.05 m (LiDAR under-trusted vs its true ~2 cm noise) | **`‖v‖` fingerprint** | no — velocity ramps to ~40 m/s, tracks fine everywhere else |
+| Tight on a ToF: preintegration window built from per-point time a snapshot sensor does not have | **a new sensor** (3-ToF rig) | no — every scan silently coasts; the pose freezes |
 
-**Zero crashes. Eleven bugs. Every one of them produced plausible output** — and the last two
-hid behind a *correct-sounding* diagnosis until the **state**, not the pose, was logged. The
-gravity anchor and the LiDAR-trust calibration together took tight coupling from a 500 km
-free-fall to parity with loose — two one-line fixes, no new architecture.
+**Zero crashes. Twelve bugs. Every one of them produced plausible output** — and two of them
+(the gravity anchor, the LiDAR-trust calibration) hid behind a *correct-sounding* diagnosis
+until the **state**, not the pose, was logged. Together they took tight coupling from a 500 km
+free-fall to parity with loose — two one-line fixes, no new architecture. The whole arc is §12.
 
 ## 11. The last one is the best one
 
@@ -288,3 +289,139 @@ system. **You cannot fix a filter by loosening one block of a factor.**
 > the purest form of the hazard this whole document is about. It is also the reason the last
 > word belongs to the **real bag** and not the test suite: no unit test was ever going to
 > tell you that a *more principled* bias model made things worse. Only running it did.
+
+## 12. Case study — making tight coupling work on the real bag
+
+Every principle above, in one feature, in the order it actually happened. The tight path
+([5-registration.md §3.7](5-registration.md#37-tight-coupling--the-imu-inside-the-solve))
+passed every unit test from its first day. Getting it to track the real bag took **seven
+silent bugs and one confidently wrong diagnosis.** None of them crashed.
+
+### 12.1 It diverges — and three real bugs
+
+On the Livox bag the first tight run drifted off: Z falling quadratically, **532/691 scans
+rejected**, the pose at +6 km.
+
+**Initial velocity was zero.** IMU init cannot tell **rest** from **constant velocity**
+([1-imu-init.md §3](1-imu-init.md)), and this robot is *already cruising* at ~1.5 m/s when
+recording starts. Init duly reports "static" and seeds `v = 0`. Loose coupling shrugs that off —
+velocity is only a prior there, and it self-corrects. Tight coupling cannot, because it holds
+`x_i` at its estimate: a wrong `v_i` is treated as **certain**, and the IMU factor spends every
+scan insisting the robot is stationary while the LiDAR insists it is not. **Fix:** run loose for
+`tight_warmup_scans`, let ICP *measure* the velocity, then hand a correct state to the tight
+solver. It recovers **1.73 m/s in +Y**, matching the 1.48–1.6 m/s derived from raw geometry.
+
+**The preintegration window was wrong.** `meas.imu` spans ~0.12 s (a bracket sample plus guard
+coverage — [2-sync.md](2-sync.md)), but consecutive poses are 0.10 s apart. Integrating the whole
+group over-integrates ~20% every scan, compounding, and it reads exactly like a gravity error.
+**Fix:** clip to `(prev_scan_end, scan_end]`. Rejections fell **266 → 3**.
+
+**The accelerometer bias was baked into "gravity".** Init set the world gravity vector to the
+*measured* magnitude — which is not $\mathbf{g}$ but $\mathbf{g} + \mathbf{b}_a$, two quantities
+that live in different frames ([1-imu-init.md](1-imu-init.md#gravity-is-not-what-the-accelerometer-reads)).
+The observed Z fall was ~380 m over a minute:
+
+$$
+a = \frac{2 \times 380}{60^2} \approx 0.21\ \text{m/s}^2
+$$
+
+— about 2% of $g$, far too large for gyro bias or numerics, and exactly the size of a cheap MEMS
+accelerometer bias. **Fix:** the **standard** gravity magnitude in the world frame, and
+$\mathbf{b}_a$ *estimated* as the body-frame state it actually is.
+
+### 12.2 A principled fix that made it worse
+
+The accel bias was also **frozen**: its prior information was
+$1/(\sigma_{rw}^2\,\Delta t) \approx 10^7$ against the IMU factor's $\approx 2\times 10^5$ —
+pinned ~50× harder than the data that would move it. So it was given a carried covariance,
+starting loose. **Rejections went from 266 to 579.** The bias was made free while `x_i` stayed
+infinitely certain, so every error that belonged to `x_i` got shovelled into the only slack in
+the system. *You cannot fix a filter by loosening one block of a factor* — the whole of §11.
+
+### 12.3 The structural diagnosis — careful, and wrong
+
+The failures pointed at the formulation: `x_i` held fixed and infinitely certain, gravity not a
+state — **"a factor, not a filter"**. So the pieces that argument called for were built, each
+pinned against finite differences:
+
+- **gravity as a state** — 18-DoF, `imuGravityJacobian` verified to `4.6e-10`;
+- **`x_i`'s uncertainty carried into the IMU factor** — `Σ_eff = Σ_pre + J_i P_i J_iᵀ`, plus a
+  Schur-marginalization kernel exact to `2.1e-17`;
+- **the state-transition Jacobian `F`** — verified to `5.9e-09`.
+
+Every suite was green. The narrative was airtight: *the docs blamed exactly these causes.*
+
+| Variant | max ‖pose‖ | rejected |
+|---|---|---|
+| gravity-state, no `x_i` inflation | **1.9 M m** | 2575 |
+| gravity-state **+** `x_i` inflation | **1.5 M m** | 2323 |
+
+The runaway was **exponential** — `9.5 k → 367 k → 1.36 M m` — so the final number is set by how
+long it runs, not by how wrong the code is (the earlier "+6 km" was a shorter run of the same
+disease). The conclusion written at the time: the fixes were *necessary but not sufficient*;
+the real fix is a fixed-lag window. **That conclusion was wrong.**
+
+### 12.4 Log the state, not the pose
+
+The break came from making `tight_replay` log the **state** — `‖v‖`, `‖b_a‖` and the gravity
+vector — every scan, instead of only the pose. The fingerprint was unambiguous:
+
+| scan | `g` (should be `[0,0,−9.8]`) | `‖v‖` | `‖b_a‖` |
+|---|---|---|---|
+| 0–7 | `[0, 0, −9.8]` ✅ | 0 | 0.00 |
+| 199 | `[+15.8, −0.7, −4.5]` 💥 | 3.2 | 0.05 |
+| 599 | `[−25.5, −3.9, −13.0]` 💥 | 5.4 | 0.05 |
+| 799+ | garbage → pose free-falls | 344 → 5000 | 0.05 (fine!) |
+
+**Gravity was the runaway** — not `x_i`, not the bias. `b_a` sat at a sensible `0.05` the whole
+time; `‖v‖` exploding was a symptom. The root cause was **one line**: the gravity prior anchored
+`g` to the *carried estimate* (`gravity_ = r.gravity` each scan) — a random walk with no
+restoring force. Gravity is nearly unobservable over one 0.1 s scan, so the solver explained
+every small pose error by tilting `g`, the anchor chased it, and it compounded. It is §12.2's
+failure exactly, with gravity as the free variable instead of the bias.
+
+**Fix:** anchor the prior to the **fixed** init gravity, and stiffen it (`gravity_sigma`
+`0.5 → 0.05`). Trajectory: **527 000 m → 1 339 m**, gravity pinned, the map never lost.
+
+### 12.5 The last drift — an under-trusted LiDAR
+
+With gravity pinned, one drift remained: `‖v‖` ramped *smoothly* to ~40 m/s on a fast, bland
+stretch and dragged the pose ~700 m off. The point-to-plane residual has **zero velocity
+columns**, so the LiDAR constrains velocity only through position — and `lidar_sigma = 0.05`
+declared a ~2 cm sensor to be a 5 cm one, so position was pinned too weakly for that indirect
+channel to hold. **Fix:** calibrate `lidar_sigma` to `0.02`.
+
+| | trajectory | scale-gate ratio | max `‖v‖` |
+|---|---|---|---|
+| Tight — original | 527 000 m | 3342× | 5000 |
+| Tight — + gravity anchored to init | 1 339 m | 8.49× | 42 m/s |
+| Tight — + `lidar_sigma` 0.05 → 0.02 | **429 m** | 2.72× | 7 m/s |
+| Loose (the trusted baseline) | 434 m | 2.76× | — |
+
+**Parity with loose.** Two one-line calibration fixes, **zero new architecture** — the opposite
+of what §12.3's careful diagnosis prescribed.
+
+### 12.6 A new sensor, a new silent freeze
+
+On the 3-ToF rig ([`config/3lidars.yaml`](../config/3lidars.yaml)) tight did not diverge — it
+**froze**: 0.3 m of trajectory, every scan coasting, not one warning. A ToF is a snapshot with no
+per-point time, so the preintegration window, derived from per-point timestamps, collapsed to
+`[0, 0]`; and because the scan-end time was only recorded *after* the empty-window guard, the
+first coast left every later window stuck at zero. **Fix:** the header stamp as a snapshot's
+acquisition instant, and the scan end recorded before the guard
+([5-registration.md §3.9](5-registration.md#39-preintegration--why-it-exists)). Tight then ran —
+and on that rig converged toward loose without beating it, because three fused fields of view
+had already removed the degeneracy the IMU exists to rescue.
+
+### 12.7 What it adds up to
+
+> **The meta-lesson.** §12.3's diagnosis was not lazy — it was a careful, primitive-by-primitive
+> argument, and it was *still* a plausible-but-wrong story. The dominant bug was not a missing
+> filter; it was a prior anchored to the wrong thing. It was invisible in the pose (which just
+> says "everything is huge") and obvious in the *state* (which says "gravity, specifically").
+> **Instrument the quantity, not the symptom** — and distrust even your sophisticated
+> conclusions until the data confirms them. This time the thesis caught the author twice: once
+> in the code, once in the write-up.
+
+The "factor, not a filter" limit is real, and it is still there — written down as a limit, not
+a bug, in [5-registration.md §3.14](5-registration.md#314-the-limit--a-factor-not-a-filter).
