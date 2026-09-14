@@ -179,6 +179,7 @@ path does: velocity becomes a state driven by the accelerometer, and after its w
 ```
 if (!valid || rmse > max_rmse)  →  keep the prediction, flag DIVERGED, do NOT insert
    where valid = (correspondences ≥ min_correspondences) && the solve was finite
+                 && the translation eigenvalue ratio ≥ min_translation_eigenvalue_ratio
 ```
 
 **Note what is *not* in that condition: `converged`.**
@@ -200,13 +201,67 @@ So when in doubt, refuse. Under-constrained (`correspondences < min_corresponden
 is refused for the same reason: the 6-DoF problem genuinely has no answer, and
 inventing one is worse than admitting it.
 
+### 3.6.1 Degenerate geometry — a healthy RMSE can still be a lie
+
+`min_correspondences` and `max_rmse` both look at the SOLVE'S OUTPUT. Neither looks at
+whether the geometry that produced it could support a unique answer in every
+direction. A scene whose plane normals cluster into one or two directions — an open
+outdoor stretch: mostly ground plus a wall — leaves one translation direction with
+almost no normal support. Nothing in the data resists sliding along it, so
+Gauss-Newton solves for whatever noise happens to be there, and the pose it hands back
+can still report a plausible correspondence count and a low RMSE at the *wrong*
+position, because locally the (now-shifted) fit still looks fine.
+
+First caught on [M3DGR](https://github.com/sjtuyinjie/M3DGR)'s `Outdoor01` sequence
+(RTK ground truth — glasslio's first run against real absolute GT, not just its own
+registration residual): the estimate's path length came out to **38,657 m against a
+true 346 m** — not drift, an oscillation. Per-scan pose jumps of 2–4 m sustained for
+hundreds of scans, `rmse` sitting at its normal 0.10–0.16 the whole time, correspondence
+counts never dropping below 300. `pose_trusted` never flagged a single one of them.
+
+**The fix**: after the solve converges, re-run `associate()` once more at the
+converged pose (§3.2's lambda, no extra Gauss-Newton iterations — see
+`alignPointToPlane`) to get `H_t = sum(w_i · normal_i · normal_i^T)`, the translation
+block of `H`. Its smallest eigenvalue divided by its trace is a scene-scale-invariant
+measure of how well the weakest direction is constrained — the RAW eigenvalue is
+useless here, since it scales with correspondence count and cannot tell
+"under-constrained" from "just fewer points."
+
+Calibrated empirically, not guessed: the indoor test bag's ratio never drops below
+0.117 at the 5th percentile across ~180 scans; `Outdoor01`'s divergence window never
+rises above 0.034 across ~110 scans. The two do not overlap — `min_translation_eigenvalue_ratio`
+sits at 0.05, in the gap.
+
+**This alone was not enough.** Gating out degenerate scans stops them being trusted,
+but `registerScanLoose` coasts on `use_constant_velocity` (§3.5) when it refuses —
+and `Outdoor01`'s degeneracy is not a brief patch, it is sustained. A rejected scan
+means a stale map; a stale map means the next scan degenerates too; the cascade
+free-integrates on the IMU alone with nothing ever correcting it, and the pose ran
+away to hundreds of metres — the *exact* runaway §3.5 already documents, just
+triggered by sustained degeneracy instead of a dropped-scan gap. **Tight coupling
+(`imu_prior_weight: 1.0`) is what actually rescues `Outdoor01`**: the IMU becomes a
+prior in the *same* solve rather than a fallback behind a rejection cliff, so it
+takes over smoothly, scan by scan, exactly where the LiDAR term is weak. RPE went
+from 22.6 m rmse (max 96.9 m) to **0.29 m rmse (max 1.9 m)**; path length from 111x
+truth to 1.1x. Loose plus this gate alone is not the fix — tight coupling is what
+the gate was clearing the way for.
+
+A moderate APE remains even under tight coupling despite RPE being small — the
+estimate is locally consistent scan-to-scan but accumulates global error over the
+whole run. This is a separate mechanism from the translation degeneracy above:
+[deskew](3-deskew.md) keeps its gyro bias in sync with the tight solver's own
+continuously-refined estimate (`state_.bg`), rather than freezing it at the
+init-window value, and that resync is itself gated by the LiDAR's rotational
+conditioning — see [§3.13](#keeping-deskews-gyro-bias-in-sync-with-the-solve) for how the two
+interact.
+
 ---
 
 ## 3.7 Tight coupling — the IMU inside the solve
 
-Everything above is the **loose** path, and it is the default (`imu_prior_weight: 0`): the IMU
-proposes the guess (§3.1), then ICP solves alone and the IMU gets no further vote. Sections
-3.7–3.14 are the **tight** path, selected by `imu_prior_weight > 0`. Same stage, same map, same
+Everything above is the **loose** path (`imu_prior_weight: 0`): the IMU proposes the guess
+(§3.1), then ICP solves alone and the IMU gets no further vote. Sections 3.7–3.14 are the
+**tight** path, selected by `imu_prior_weight > 0` — **the default** (`1.0`). Same stage, same map, same
 point-to-plane residual — but the IMU becomes a **residual in the same normal equations**
 instead of a hint.
 
@@ -219,11 +274,12 @@ Self-checks: [`test_tight.cpp`](../test/test_tight.cpp),
 [`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp),
 [`test_preintegration.cpp`](../glass_core/test/test_preintegration.cpp).
 
-> **Status: working, and OFF by default.** Tight tracks the Livox test bag at **parity with
-> loose** (429 m vs 434 m of trajectory) and recovers the axis a corridor hides from the LiDAR
-> (0.40 → 0.00 m). It stays off because it *matches* loose on this bag rather than provably
-> *beating* it (§3.13) — a default is a safety decision. Getting it to work took a string of
-> silent bugs and one confidently wrong diagnosis; that story is
+> **Status: working, and ON by default.** Tight tracks the Livox test bag at **parity with
+> loose** (429 m vs 434 m of trajectory), recovers the axis a corridor hides from the LiDAR
+> (0.40 → 0.00 m), and on real sustained degeneracy — M3DGR's `Outdoor01`, RTK ground truth —
+> it **beats** loose outright (RPE 22.6 m → 0.29 m rmse, §3.6.1). That result is what earned
+> it the default (§3.13). Getting it to work took a string of silent bugs and one
+> confidently wrong diagnosis; that story is
 > [testing.md §12](testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag).
 
 ### What loose coupling actually costs
@@ -575,9 +631,43 @@ Livox bag:
   geometry observable; the IMU helps where geometry is *degenerate*, and that rig removes the
   degeneracy.
 
-So it stays **OFF by default**. A default is a safety decision, and loose is the path that
-never surprises you. Turn tight on (`imu_prior_weight: 1.0`) where the geometry is the problem;
-it earns the default only by demonstrably beating loose on genuinely degenerate real data.
+- **On genuinely degenerate real data it wins.** M3DGR's `Outdoor01` (RTK ground truth) is a
+  long open stretch whose normals leave one translation axis unconstrained (§3.6.1). Loose
+  oscillates there even with the degeneracy gate — coasting has no floor under *sustained*
+  degeneracy — while tight takes over smoothly, scan by scan: RPE **22.6 m → 0.29 m rmse**,
+  path length **111× → 1.1×** truth. Full comparison: [benchmark.md](benchmark.md).
+
+That is the bar the old OFF default was waiting for, so tight is now **ON by default**
+(`imu_prior_weight: 1.0`). Set it to `0` for loose — which, per the 3-ToF result above, is
+still the right call where fused geometry has already removed the degeneracy.
+
+### Keeping deskew's gyro bias in sync with the solve
+
+`state_.bg` is a live optimizer variable, re-estimated every scan. [Deskew](3-deskew.md)'s
+intra-scan compensation uses a gyro bias too, and it is kept in sync: after each tight solve,
+`LioEstimator::registerScanTight()` calls `deskew_->set_gyro_bias(state_.bg)`, so the next
+scan is deskewed with the current estimate rather than the one measured once at init.
+
+The resync is gated:
+
+```
+if (rotation_eigenvalue_ratio >= min_rotation_eigenvalue_ratio)
+    deskew_->set_gyro_bias(state_.bg)
+```
+
+`rotation_eigenvalue_ratio` is the smallest-eigenvalue/trace ratio of the LiDAR-only rotation
+block of `H` — §3.6.1's translation check applied to rotation, snapshotted before the
+IMU/bias/gravity terms enter the solve. It answers *"how well does the LiDAR alone constrain
+rotation this scan?"*
+
+When it barely does, the bias the solve settles on is mostly IMU dead-reckoning. The **pose**
+is fine either way — §3.12's information arbitration handles that — but feeding an unverified
+bias into deskew changes the geometry every *following* scan is built from, and over a
+sustained rotationally-degenerate stretch that compounds: each scan's slightly-off bias
+distorts the next scan's points, which distorts its bias estimate. On M3DGR's `Corridor02`
+an ungated resync cascaded into total divergence. The gate keeps the resync to scans the LiDAR
+itself backs up. `min_rotation_eigenvalue_ratio` defaults to `0.05`, the translation gate's
+starting value, and has not been swept.
 
 ## 3.14 The limit — a factor, not a filter
 
@@ -617,9 +707,11 @@ loose, and the window is future work on primitives that already exist and are te
 | `max_rmse` | The coast threshold (§3.6). |
 | `huber_delta` | Robust threshold — see [gauss_newton.md](gauss-newton.md#7-robust-weighting). |
 | `min_correspondences` | Below this the problem is under-constrained; refuse. |
+| `min_translation_eigenvalue_ratio` | The degeneracy gate (§3.6.1). Below this, some translation direction has essentially no normal support; refuse regardless of RMSE. **Loose path only.** |
+| `registration.min_rotation_eigenvalue_ratio` | Tight path's rotational counterpart — see [§3.13](#keeping-deskews-gyro-bias-in-sync-with-the-solve). Gates deskew's bias resync, not the pose solve. |
 | `max_iterations` | Cost ceiling. Hitting it is not failure. |
 | `use_constant_velocity` | §3.5. Consulted by the loose path and the tight warm-up only. |
-| `imu_prior_weight` | **0 = loose** (6-DoF SE(3), the default). `> 0` = tight (18-DoF `[R,p,v,b_g,b_a,g]`); `1.0` trusts the IMU exactly as far as its own covariance says. |
+| `imu_prior_weight` | `0` = loose (6-DoF SE(3)). `> 0` = tight (18-DoF `[R,p,v,b_g,b_a,g]`); **`1.0`, the default**, trusts the IMU exactly as far as its own covariance says. |
 | `lidar_sigma` | Point-to-plane noise (m). **Decides which sensor wins** (§3.12). Calibrate it to the sensor — `0.02` for a Livox. |
 | `tight_warmup_scans` | Loose scans before engaging the IMU, to measure the velocity init cannot observe (§3.11). |
 | `gravity_sigma` | Stiffness of the gravity prior, anchored to the fixed init value (§3.11). Default `0.05` — an estimator default, not exposed as a ROS parameter. Loosen it and gravity wanders — the catastrophic-divergence bug. |

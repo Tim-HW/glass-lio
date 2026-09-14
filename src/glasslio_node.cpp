@@ -144,6 +144,8 @@ public:
     ep.reg.huber_delta = declare_parameter<double>("registration.huber_delta", 0.2);
     ep.reg.min_correspondences = declare_parameter<int>(
       "registration.min_correspondences", 50);
+    ep.reg.min_translation_eigenvalue_ratio = declare_parameter<double>(
+      "registration.min_translation_eigenvalue_ratio", 0.05);
     ep.max_rmse = declare_parameter<double>("registration.max_rmse", 0.5);
 
     // Constant-velocity translation prior. Without it the guess carries NO translation, so
@@ -174,6 +176,8 @@ public:
     // out of H xi = b); the moment the IMU enters the SAME normal equations it decides
     // which sensor is believed.
     ep.tight.lidar_sigma = declare_parameter<double>("registration.lidar_sigma", 0.05);
+    ep.tight.min_rotation_eigenvalue_ratio = declare_parameter<double>(
+      "registration.min_rotation_eigenvalue_ratio", 0.05);
     ep.tight_warmup_scans = declare_parameter<int>("registration.tight_warmup_scans", 10);
 
     ep.gyro_noise = declare_parameter<double>("imu.gyro_noise", 1.7e-3);
@@ -491,10 +495,12 @@ private:
     const Eigen::Vector3d & t = estimator_->pose().translation();
     RCLCPP_INFO(
       get_logger(),
-      "scan %zu->%zu | pose [%+.2f %+.2f %+.2f] | rmse %.3f (%d corr)%s | map %zu vox | q %zu",
+      "scan %zu->%zu | pose [%+.2f %+.2f %+.2f] | rmse %.3f (%d corr)%s | rot_eig %.4f "
+      "| map %zu vox | q %zu",
       r.deskewed->size(), r.downsampled->size(),
       t.x(), t.y(), t.z(), r.rmse, r.correspondences,
       r.pose_trusted ? "" : " (DIVERGED)",
+      r.rotation_eigenvalue_ratio,
       estimator_->map().num_voxels(), queueSize());
   }
 

@@ -84,6 +84,9 @@ struct ScanResult
 
   double rmse = 0.0;
   int correspondences = 0;
+  /// DIAGNOSTIC, tight path only (0.0 while loose/warming-up/bootstrapping) -- see
+  /// TightResult::rotation_eigenvalue_ratio.
+  double rotation_eigenvalue_ratio = 0.0;
 
   /// Kept so the node can publish them for RViz. Nothing else reads these.
   CloudXYZI::Ptr deskewed;
@@ -168,6 +171,10 @@ private:
 
   double last_rmse_ = 0.0;
   int last_corr_ = 0;
+  /// DIAGNOSTIC -- see ScanResult::rotation_eigenvalue_ratio. Reset to 0 whenever the
+  /// tight path doesn't run (loose/warm-up/bootstrap) so a stale value from an earlier
+  /// tight scan can't be mistaken for this scan's.
+  double last_rot_eig_ratio_ = 0.0;
 
   // --- tight coupling
   NavState state_;

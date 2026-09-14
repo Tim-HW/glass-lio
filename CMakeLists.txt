@@ -36,10 +36,16 @@ include_directories(
 )
 
 # The sensor-agnostic estimation engine (SE(3) Gauss-Newton, IMU preintegration, the
-# nav state + IMU factor, SO(3) Jacobians, IMU init). Pure CMake, no ROS -- pulled in
-# from a subdirectory rather than find_package'd, so this monorepo builds in one shot
-# and glassvio will share the exact same engine by including the same dir. It provides
-# glass_core::glass_core and, transitively, the vendored Sophus headers.
+# nav state + IMU factor, SO(3) Jacobians, IMU init). Pure CMake, no ROS -- lives in its
+# own repo (github.com/Tim-HW/glass-core) and is pulled in here as a git submodule, so
+# glasslio and glassvio share the exact same engine at an explicit pinned commit rather
+# than two copies that can silently drift. Provides glass_core::glass_core and,
+# transitively, the vendored Sophus headers.
+if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/glass_core/CMakeLists.txt)
+  message(FATAL_ERROR
+    "glass_core/ is empty -- it is a git submodule, not a vendored directory. Run:\n"
+    "  git submodule update --init")
+endif()
 add_subdirectory(glass_core)
 
 # The pipeline stages, ROS-free apart from the message types they parse. Built

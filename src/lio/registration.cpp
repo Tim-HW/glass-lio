@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include <Eigen/Eigenvalues>
+
 #include "glass_core/gauss_newton.hpp"
 #include "sophus/se3.hpp"
 
@@ -66,6 +68,24 @@ RegistrationResult alignPointToPlane(
   result.iterations = gn.iterations;
   result.correspondences = gn.residuals;
   result.rmse = gn.rmse;
+
+  // DEGENERACY GATE (see RegistrationParams::min_translation_eigenvalue_ratio).
+  // associate() only ever hands optimizeSE3 an eq built at each iteration's OWN pose
+  // -- none of those survive the loop -- so re-run it once more at the converged pose
+  // to get the H this solution actually rests on. One extra association pass, no
+  // extra Gauss-Newton iterations.
+  if (result.valid) {
+    NormalEquations final_eq;
+    associate(T, final_eq);
+    const Eigen::Matrix3d Ht = final_eq.H().topLeftCorner<3, 3>();
+    const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(Ht);
+    const double trace = Ht.trace();
+    result.translation_eigenvalue_ratio =
+      trace > 0.0 ? es.eigenvalues().minCoeff() / trace : 0.0;
+    if (result.translation_eigenvalue_ratio < params.min_translation_eigenvalue_ratio) {
+      result.valid = false;
+    }
+  }
 
   result.pose.linear() = T.rotationMatrix();
   result.pose.translation() = T.translation();

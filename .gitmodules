@@ -1,0 +1,3 @@
+[submodule "glass_core"]
+	path = glass_core
+	url = https://github.com/Tim-HW/glass-core.git

@@ -37,7 +37,7 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 | **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | [`sync.cpp`](../src/lio/sync.cpp) |
 | **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`deskew.cpp`](../src/lio/deskew.cpp), [`gyr_int.cpp`](../src/lio/gyr_int.cpp) |
 | **4** | **Downsample** — voxel grid, 0.5 m leaf | [4-downsample.md](4-downsample.md) | `LioEstimator::downsample()` |
-| **5** | **Register** — point-to-plane ICP → **the pose**. Loose by default; *tight* folds the IMU into the same solve | [5-registration.md](5-registration.md) | [`registration.cpp`](../src/lio/registration.cpp), [`tight_registration.cpp`](../src/lio/tight_registration.cpp) |
+| **5** | **Register** — point-to-plane ICP → **the pose**. Tight by default: the IMU is folded into the same solve (`imu_prior_weight: 0` for loose) | [5-registration.md](5-registration.md) | [`registration.cpp`](../src/lio/registration.cpp), [`tight_registration.cpp`](../src/lio/tight_registration.cpp) |
 | **6** | **Local map** — insert the aligned scan; it is the next scan's target | [6-local-map.md](6-local-map.md) | [`local_map.cpp`](../src/lio/local_map.cpp) |
 
 **Companions** (not pipeline stages):
@@ -133,8 +133,8 @@ for the same reason.
 | [2] Sync | ✅ Working. |
 | [3] Deskew | ✅ Working. 2.8° intra-scan rotation corrected. |
 | [4] Downsample | ✅ Working. ~25% kept. |
-| [5] Register — loose (default) | ✅ **Point-to-plane ICP.** Holds real time (10 Hz). |
-| [5] Register — tight (opt-in) | ✅ **Working, off by default.** At parity with loose on the test bag (429 m vs 434 m). [5-registration.md §3.13](5-registration.md#313-what-it-buys-and-where-it-stands) |
+| [5] Register — loose | ✅ **Point-to-plane ICP.** Holds real time (10 Hz). |
+| [5] Register — tight (default) | ✅ **Working, on by default.** At parity with loose on the test bag (429 m vs 434 m); beats it on real degenerate geometry (M3DGR `Outdoor01`). [5-registration.md §3.13](5-registration.md#313-what-it-buys-and-where-it-stands) |
 | [6] Local map | ✅ Working. Self-checked. |
 
 Measured on the test bag at `--rate 1`: **zero scans dropped, zero diverged**, `rmse`
@@ -166,9 +166,9 @@ rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 - **A fixed-lag window.** The tight solve is a *factor, not a filter*: the previous state is
   committed and never re-estimated. Every primitive a window needs already exists and is
   tested — [5-registration.md §3.14](5-registration.md#314-the-limit--a-factor-not-a-filter).
-- **Translational deskew** — needs a trustworthy velocity. The tight path now *estimates* one,
-  but tight is off by default until it beats loose, so nothing relies on it yet. See
-  [3-deskew.md §7](3-deskew.md).
+- **Translational deskew** — needs a trustworthy velocity. Tight coupling now produces
+  one (`state_.v`), but nothing yet reads it back into deskew (and it would retire
+  `use_constant_velocity` with it). See [3-deskew.md §7](3-deskew.md).
 - **Loop closure** — this is odometry, not SLAM. The local map *forgets*, so drift is
   never corrected on revisit. Deliberate.
 - The extrinsic **translation** (`extrinsic.lidar_to_imu.xyz`) is **validated but not

@@ -133,6 +133,24 @@ The bias `b_g` (~0.003 rad/s here) is negligible over one 0.1 s scan — about 0
 — but it is subtracted anyway, because the same integrator feeds the cross-scan
 rotation prior that registration depends on, where it would accumulate.
 
+### Where `b_g` comes from
+
+`Deskew::set_gyro_bias()` is called twice: once at IMU init (the static-window
+estimate), and again after every [tight-coupling](5-registration.md#37-tight-coupling--the-imu-inside-the-solve) scan whose
+result the LiDAR geometry actually supports. Under tight coupling `state_.bg` is a
+live optimizer variable, re-estimated every scan — deskew is kept in sync with it
+rather than running on the init-window value for the life of the run, since a small
+per-scan bias error left uncorrected compounds over a long sequence even though it's
+invisible in any single scan.
+
+The resync is gated on `rotation_eigenvalue_ratio ≥
+min_rotation_eigenvalue_ratio` ([5-registration.md §3.13](5-registration.md#keeping-deskews-gyro-bias-in-sync-with-the-solve)): if
+the LiDAR alone barely constrains rotation this scan, the bias update it just
+produced is mostly IMU dead-reckoning, and feeding an unverified number back into the
+geometry the *next* scan's ICP runs on would corrupt it rather than correct it. The
+pose estimate itself does not depend on this gate — only what deskew uses going
+forward.
+
 with `R(t0) = I` by construction. This produces a set of **knots** — timestamped
 orientations, one per IMU sample:
 

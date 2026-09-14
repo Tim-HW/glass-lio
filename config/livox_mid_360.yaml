@@ -46,6 +46,19 @@
       huber_delta: 0.2
       # Fewer correspondences than this and the problem is under-constrained.
       min_correspondences: 50
+      # DEGENERACY GATE. Smallest eigenvalue of sum(w_i * normal_i * normal_i^T) --
+      # the translation block of H, built purely from correspondence normals -- divided
+      # by that matrix's trace. The RATIO, not the raw eigenvalue: the raw number
+      # scales with correspondence count, so it cannot tell "under-constrained" from
+      # "just fewer points". RMSE and correspondence count both look fine when a
+      # scene's normals cluster into only one or two directions (an open stretch:
+      # mostly ground plus a wall) -- nothing then resists sliding along the missing
+      # direction, so the solve reports a confident, wrong jump.
+      #
+      # Calibrated empirically against two real runs (doc/5-registration.md): the
+      # indoor test bag's ratio never drops below 0.117 at the 5th percentile: the
+      # Outdoor01 sequence's divergence window never rises above 0.034. No overlap.
+      min_translation_eigenvalue_ratio: 0.05
       # Constant-velocity translation prior. Needed: without it the guess has NO
       # translation, so if the worker drops scans (see max_queue_size) the robot
       # has moved metres by the next processed scan and ICP starts hopelessly far
@@ -74,10 +87,14 @@
       #
       # 1.0 means "trust the IMU exactly as far as its own propagated covariance says".
       #
-      # *** DEFAULT 0 (LOOSE), but the tight path now WORKS. It tracks this bag at parity with
-      #     loose (429 m vs 434 m) and rescues degenerate geometry on synthetic data. It stays
-      #     off by default because it MATCHES loose here rather than provably BEATING it -- turn
-      #     it on (1.0, with lidar_sigma 0.02 below) where the geometry is the problem. ***
+      # *** DEFAULT 1.0 (TIGHT). It tracks this bag at parity with loose (429 m vs 434 m) and
+      #     rescues degenerate geometry on synthetic data -- and, since, on genuinely degenerate
+      #     REAL data too: see doc/5-registration.md sec 3.6.1 (M3DGR's Outdoor01 sequence,
+      #     RTK ground truth). Loose there oscillates catastrophically (path length 111x truth)
+      #     even with the degeneracy gate (sec 3.6.1) added, because coasting on
+      #     use_constant_velocity has no floor under sustained degeneracy. Tight rescues it (RPE
+      #     22.6 m rmse -> 0.29 m, path length 111x truth -> 1.1x) because the IMU is a prior in
+      #     the SAME solve, not a fallback behind a rejection cliff. Set to 0 to run loose. ***
       #
       # Its MATH is verified -- test_preintegration, test_nav_residual and test_tight all
       # pass, every Jacobian is pinned against finite differences, and on a synthetic
@@ -100,11 +117,24 @@
       # with the fingerprints: doc/7-tight-coupling.md sec 7.8c.
       #
       # A second calibration fix (lidar_sigma 0.05 -> 0.02, below) then brought tight to PARITY
-      # with loose (429 m vs 434 m trajectory, sane velocities). It MATCHES loose here rather
-      # than provably beating it -- this bag has good geometry, so the IMU rarely has to rescue
-      # anything -- so it stays 0 until validated on genuinely degenerate data. The loose path
-      # (zero drops, zero diverged) runs meanwhile.
-      imu_prior_weight: 0.0
+      # with loose (429 m vs 434 m trajectory, sane velocities) on THIS bag, whose geometry is
+      # good enough that the IMU rarely has to rescue anything. It stayed 0 until validated on
+      # genuinely degenerate data -- Outdoor01 (above) is that validation, and it now provably
+      # BEATS loose there rather than merely matching it. Defaulting to tight.
+      imu_prior_weight: 1.0
+
+      # Deskew's gyro bias is resynced every scan from state_.bg (see doc/3-deskew.md),
+      # so it tracks the tight solve's own continuously-refined estimate instead of
+      # staying fixed at the value measured once at init. This gate decides whether a
+      # given scan's update is trusted enough to resync -- not a scan-rejection
+      # threshold, the pose estimate itself is unaffected either way.
+      #
+      # Ratio construction matches min_translation_eigenvalue_ratio above (smallest
+      # eigenvalue / trace of the LiDAR-only rotation block of H, before IMU/bias/gravity
+      # terms are added), so it reads as "how well does the LiDAR alone constrain rotation
+      # this scan". Same starting value as that gate; not yet swept. See
+      # doc/7-tight-coupling.md sec 7.8d.
+      min_rotation_eigenvalue_ratio: 0.05
 
       # Scans to run LOOSE before engaging the IMU.
       #

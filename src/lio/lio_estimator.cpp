@@ -77,6 +77,7 @@ ScanResult LioEstimator::processScan(const MeasureGroup & meas)
   r.ok = true;
   r.rmse = last_rmse_;
   r.correspondences = last_corr_;
+  r.rotation_eigenvalue_ratio = last_rot_eig_ratio_;
   return r;
 }
 
@@ -171,6 +172,10 @@ bool LioEstimator::registerScan(const CloudXYZI::Ptr & scan, const MeasureGroup 
 /// case we keep the IMU prediction and the scan is NOT inserted into the map.
 bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
 {
+  // The rotation-eigenvalue diagnostic is tight-path only; a loose scan carrying a
+  // stale value from an earlier tight scan would be misleading.
+  last_rot_eig_ratio_ = 0.0;
+
   // Bootstrap: nothing to align against. The first scan DEFINES the origin --
   // pose_ keeps the gravity-aligned orientation from init, translation zero.
   if (map_->empty()) {
@@ -194,16 +199,20 @@ bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
   last_rmse_ = r.rmse;
   last_corr_ = r.correspondences;
 
-  // Trust `valid` (enough correspondences + finite solve) and the residual --
-  // NOT `converged`. Hitting max_iterations is not failure: ICP routinely
-  // plateaus above eps while sitting on a perfectly good fit, and rejecting
+  // Trust `valid` (enough correspondences + finite solve + a well-conditioned
+  // translation direction -- see RegistrationParams::min_translation_eigenvalue_ratio)
+  // and the residual -- NOT `converged`. Hitting max_iterations is not failure: ICP
+  // routinely plateaus above eps while sitting on a perfectly good fit, and rejecting
   // those threw away good poses and froze the estimator.
   if (!r.valid || r.rmse > p_.max_rmse) {
+    const char * reason = r.rmse > p_.max_rmse ? "residual too large" :
+      r.translation_eigenvalue_ratio > 0.0 &&
+      r.translation_eigenvalue_ratio < p_.reg.min_translation_eigenvalue_ratio ?
+      "degenerate geometry" : "under-constrained";
     RCLCPP_WARN(
       logger_,
-      "ICP rejected (%s, rmse %.3f, %d corr) -- coasting, scan NOT added to map",
-      r.valid ? "residual too large" : "under-constrained",
-      r.rmse, r.correspondences);
+      "ICP rejected (%s, rmse %.3f, %d corr, eig ratio %.3f) -- coasting, scan NOT added to map",
+      reason, r.rmse, r.correspondences, r.translation_eigenvalue_ratio);
     // Coast on the prediction. The pose is now a guess, so the scan must NOT
     // go into the map -- see insertIntoMap().
     updatePose(guess, dt);
@@ -274,6 +283,10 @@ ImuPreintegration LioEstimator::buildPreintegration(
 /// Updates `state_` (and `pose_`/`velocity_`, which are just views of it).
 bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureGroup & meas)
 {
+  // Default until (if) alignTightlyCoupled actually computes one below -- see
+  // ScanResult::rotation_eigenvalue_ratio.
+  last_rot_eig_ratio_ = 0.0;
+
   // The pose refers to the scan-END instant (deskew compensates there), so the IMU
   // factor must span previous-scan-end -> this-scan-end. Nothing else is coherent.
   const double t_end = deskew_->last_scan_end();
@@ -319,6 +332,7 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
     gravity_information, nav_cov_, p_.tight);
   last_rmse_ = r.rmse;
   last_corr_ = r.correspondences;
+  last_rot_eig_ratio_ = r.rotation_eigenvalue_ratio;
 
   if (!r.valid || r.rmse > p_.max_rmse) {
     RCLCPP_WARN(
@@ -361,6 +375,27 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
   }
 
   commitState(r.state);
+
+  // Resync deskew's gyro bias with what the tight solve just refined. Without this,
+  // deskew's intra-scan motion compensation runs on the gyro bias from the ~1s static
+  // IMU-init window FOREVER, even though state_.bg is being actively re-estimated every
+  // scan a few lines above -- the two consumers of "gyro bias" silently drift apart over
+  // a long run. Cheap and safe: deskew only reads this at the top of its next process()
+  // call (see gyr_int.hpp), so setting it here cannot affect the scan just committed.
+  //
+  // GATED on rotation_eigenvalue_ratio (see TightParams::min_rotation_eigenvalue_ratio).
+  // Measured directly on M3DGR's Corridor02 (a sustained rotationally-degenerate stretch,
+  // ratio pinned near 0.02-0.05 for 10+ seconds): resyncing UNCONDITIONALLY there fed a
+  // bias correction the LiDAR could not actually verify -- mostly IMU dead-reckoning --
+  // back into deskew, which corrupted every subsequent scan's geometry and cascaded into
+  // total divergence (ArUco translation error into the tens of thousands of metres, up
+  // from ~1.6 m without any resync at all). Below the gate, keep coasting on whatever
+  // bias deskew already had; the pose estimate itself is untouched either way -- this
+  // only decides what feeds back into geometry.
+  if (r.rotation_eigenvalue_ratio >= p_.tight.min_rotation_eigenvalue_ratio) {
+    deskew_->set_gyro_bias(state_.bg);
+  }
+
   return true;
 }
 

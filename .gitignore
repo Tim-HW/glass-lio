@@ -5,3 +5,8 @@ build/
 install/
 log/
 compile_commands.json
+
+# One-off M3DGR benchmark tooling -- specific to evaluating this one dataset, not
+# project infrastructure. Kept locally, not versioned.
+scripts/eval/
+.venv-eval/
