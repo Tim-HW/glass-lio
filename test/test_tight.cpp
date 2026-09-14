@@ -214,7 +214,10 @@ static void testCorridorIsRescuedByImu()
   loose_guess.translation() = bad.p;
   RegistrationParams rp;
   const RegistrationResult loose = alignPointToPlane(scan, map, loose_guess, rp);
-  assert(loose.valid);
+  // A corridor is exactly what the translation-eigenvalue gate exists to catch: loose ICP
+  // must REFUSE this scan -- and for degeneracy, not for want of correspondences.
+  assert(!loose.valid && "degeneracy gate should reject a corridor");
+  assert(loose.correspondences >= rp.min_correspondences);
 
   const double err_tight = std::abs(tight.state.p.x() - true_dx);
   const double err_loose = std::abs(loose.pose.translation().x() - true_dx);
