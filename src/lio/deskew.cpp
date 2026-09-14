@@ -57,8 +57,18 @@ CloudXYZI::Ptr Deskew::process(const MeasureGroup & meas)
   // the previous pose -- the prediction registration will start from.
   const SO3d R_end = lidar_rot_at(t1);
   last_delta_rot_ = R_end;
-  last_dt_ = t1 - t0;
-  last_t1_ = t1;
+
+  // SWEEP vs SNAPSHOT. A Livox spreads its points across ~100 ms, so the per-point time
+  // span (t1 - t0) is the real scan duration and t1 is the acquisition instant. A ToF is a
+  // global-shutter SNAPSHOT: every point shares one instant, and this driver ships no
+  // per-point time at all, so t0 == t1 == 0. Deskew is then correctly a no-op -- but the
+  // tightly-coupled preintegration window is derived from `last_scan_end()`, and a zero
+  // there collapses the IMU interval to [0,0] and freezes the tight solve. So for a
+  // snapshot, the acquisition time is the message HEADER stamp; consecutive headers give
+  // the true pose-to-pose interval the IMU factor needs.
+  const bool snapshot = (t1 - t0) < 1e-6;
+  last_dt_ = snapshot ? 0.0 : (t1 - t0);
+  last_t1_ = snapshot ? stamp_sec(meas.lidar) : t1;
 
   // Compensate every point into the scan-end frame:
   //   p_end = R_L(t1)^{-1} * R_L(t_i) * p_i

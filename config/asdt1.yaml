@@ -22,9 +22,10 @@
       accel_in_g: false
 
     registration:
-      # --- LOOSE coupling. THE make-or-break setting. The code default is 1.0 (tight on),
-      # and tight coupling diverges after the 10-scan warmup on real data (documented in
-      # doc/7-tight-coupling.md). Loose lets ICP measure velocity and self-correct. 0 = loose.
+      # --- LOOSE coupling. THE make-or-break setting: the node's built-in default is 1.0
+      # (tight on), so this must be set. On ToF the tight path has not been shown to beat
+      # loose (doc/5-registration.md sec 3.13); loose lets ICP measure velocity and
+      # self-correct. 0 = loose.
       imu_prior_weight: 0.0
 
       # --- Sparse-cloud tuning. This sensor delivers ~576 points per scan (a Livox gives

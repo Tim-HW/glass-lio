@@ -114,7 +114,7 @@
       # (500 km -> 1.3 km): gravity now holds -9.8, the map is never lost, the pose tracks the
       # whole bag -- BROKEN to merely drifting. A second calibration fix (lidar_sigma, below)
       # then closed that remaining drift too, bringing tight to parity with loose. Full write-up
-      # with the fingerprints: doc/7-tight-coupling.md sec 7.8c.
+      # with the fingerprints: doc/testing.md sec 12.
       #
       # A second calibration fix (lidar_sigma 0.05 -> 0.02, below) then brought tight to PARITY
       # with loose (429 m vs 434 m trajectory, sane velocities) on THIS bag, whose geometry is
@@ -133,7 +133,7 @@
       # eigenvalue / trace of the LiDAR-only rotation block of H, before IMU/bias/gravity
       # terms are added), so it reads as "how well does the LiDAR alone constrain rotation
       # this scan". Same starting value as that gate; not yet swept. See
-      # doc/7-tight-coupling.md sec 7.8d.
+      # doc/5-registration.md sec 3.13.
       min_rotation_eigenvalue_ratio: 0.05
 
       # Scans to run LOOSE before engaging the IMU.
@@ -161,7 +161,7 @@
       # plane residual has ZERO velocity columns, so position is the only channel that
       # disciplines velocity, and pinning it too weakly let |v| ramp to ~40 m/s. Calibrating
       # to 2 cm collapsed tight drift from 1339 m to 429 m (= the loose baseline). See
-      # doc/7-tight-coupling.md sec 7.8c.
+      # doc/5-registration.md sec 3.12.
       lidar_sigma: 0.02
 
     # Local map: the accumulated world geometry each scan is registered against.
@@ -240,7 +240,7 @@
       # The accel bias is NOT observable from a static window (a static window sees only
       # g + b_a, their sum), so we start genuinely ignorant of it and let the data reveal
       # it. Set this too tight and the bias is frozen at zero -- and every error it causes
-      # is permanent. See doc/7-tight-coupling.md.
+      # is permanent. See doc/5-registration.md sec 3.11.
       bias_sigma0_gyro: 0.01    # rad/s
       bias_sigma0_accel: 0.3    # m/s^2
 

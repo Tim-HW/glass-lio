@@ -4,7 +4,7 @@
 [![ROS 2: Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?logo=ros&logoColor=white)](#dependencies)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)](#layout)
 [![Sensor: Livox MID-360](https://img.shields.io/badge/sensor-Livox%20MID--360-brightgreen)](config/livox_mid_360.yaml)
-[![Docs: 11 write-ups](https://img.shields.io/badge/docs-11%20write--ups-8A2BE2)](#documentation)
+[![Docs: 10 write-ups](https://img.shields.io/badge/docs-10%20write--ups-8A2BE2)](#documentation)
 
 **A transparent LiDAR-inertial odometry for Livox — written to be read.**
 
@@ -242,7 +242,7 @@ follow the stages in execution order.
 | **2** | [Sync](doc/2-sync.md) | Bracketing a scan with the IMU that spans it, and why consumed IMU is *not* eagerly dropped |
 | **3** | [Deskew](doc/3-deskew.md) | SO(3) gyro integration, SLERP between knots, the extrinsic **conjugation**, and the per-point timestamp traps |
 | **4** | [Downsample](doc/4-downsample.md) | The leaf-size trade, and why the **map** is fed the dense cloud while ICP is fed the sparse one |
-| **5** | [Register](doc/5-registration.md) | Predict → associate → solve → accept. Point-to-plane, the Jacobian, and the constant-velocity runaway |
+| **5** | [Register](doc/5-registration.md) | Predict → associate → solve → accept. Point-to-plane, the Jacobian, and the constant-velocity runaway — then the **tight** path: the IMU as a residual in the same normal equations, on-manifold preintegration, the 18-DoF state, `J_r⁻¹` |
 | **6** | [Local map](doc/6-local-map.md) | Voxel hash, cached planes, `floor` vs `int`, and the acceptance test that tells you the pose is right |
 
 **Companions:**
@@ -250,13 +250,11 @@ follow the stages in execution order.
 - **[gauss-newton.md](doc/gauss-newton.md)** — the solver. The normal equations *derived*,
   what the Gauss-Newton approximation throws away, LDLT, Huber, the **retraction**, and why
   we run with neither damping nor line search.
-- **[7-tight-coupling.md](doc/7-tight-coupling.md)** — the IMU as a **residual in the same
-  normal equations**, not merely a hint: on-manifold preintegration, the 15-DoF state,
-  `J_r⁻¹`, and why it's **on by default**.
 - **[benchmark.md](doc/benchmark.md)** — glasslio vs FAST-LIO2 vs KISS-ICP on M3DGR, with
   real ground truth.
 - **[testing.md](doc/testing.md)** — **how the bugs were actually found.** Finite-difference
-  oracles, mutation testing, and why "all tests pass" is never the last step.
+  oracles, mutation testing, and why "all tests pass" is never the last step — ending with the
+  full case study of making tight coupling work on the real bag.
 
 ## The idea worth stealing
 
@@ -323,11 +321,12 @@ open stretch where the LiDAR's degeneracy gate can flag a bad scan but has nothi
 to fall back on — tight coupling recovers it directly (RPE 22.6 m → 0.29 m rmse, path
 length 111x truth → 1.1x truth on M3DGR's `Outdoor01`). Deskew's gyro bias is kept in
 sync with the one the tight solve refines every scan, gated by how well the LiDAR itself
-constrains rotation that scan — see [7-tight-coupling.md §7.8d](doc/7-tight-coupling.md).
+constrains rotation that scan — see [5-registration.md §3.13](doc/5-registration.md#keeping-deskews-gyro-bias-in-sync-with-the-solve).
 
-Full write-up — including every bug that was fixed along the way —
-[7-tight-coupling.md](doc/7-tight-coupling.md). The failures taught more than a clean run
-would have.
+How the tight solve works: [5-registration.md §3.7](doc/5-registration.md#37-tight-coupling--the-imu-inside-the-solve).
+How it was made to work — every bug, the wrong diagnosis, and the state fingerprints that
+caught them: [testing.md §12](doc/testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag).
+The failure taught more than the success would have.
 
 **Not implemented:** loop closure (this is odometry, not SLAM — the map deliberately
 forgets), and translational deskew (tight coupling produces a trusted velocity now, but

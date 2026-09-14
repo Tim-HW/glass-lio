@@ -26,7 +26,7 @@ namespace glasslio
 /// SCAN-END frame using the gyro orientation interpolated at its exact acquisition time.
 ///
 /// Translation is deliberately NOT compensated: that needs a trustworthy velocity, which
-/// only a tightly-coupled estimator produces (doc/7-tight-coupling.md).
+/// only a tightly-coupled estimator produces (doc/5-registration.md sec 3.7).
 class Deskew
 {
 public:

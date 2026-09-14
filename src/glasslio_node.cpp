@@ -160,7 +160,7 @@ public:
     //          IMU information, velocity and the biases are UNOBSERVABLE (the LiDAR
     //          Jacobian's columns for them are structurally zero), so we do not pretend to
     //          estimate them -- we run the 6-DoF SE(3) solve instead.
-    //   > 0 -> TIGHT: one joint 15-DoF solve. See doc/7-tight-coupling.md.
+    //   > 0 -> TIGHT: one joint 18-DoF solve (nav + gravity). See doc/5-registration.md sec 3.7.
     const double imu_prior_weight =
       declare_parameter<double>("registration.imu_prior_weight", 1.0);
     ep.use_tight = imu_prior_weight > 0.0;
@@ -175,7 +175,7 @@ public:
     // Point-to-plane measurement noise. Irrelevant with one sensor (a global scale cancels
     // out of H xi = b); the moment the IMU enters the SAME normal equations it decides
     // which sensor is believed.
-    ep.tight.lidar_sigma = declare_parameter<double>("registration.lidar_sigma", 0.05);
+    ep.tight.lidar_sigma = declare_parameter<double>("registration.lidar_sigma", 0.02);
     ep.tight.min_rotation_eigenvalue_ratio = declare_parameter<double>(
       "registration.min_rotation_eigenvalue_ratio", 0.05);
     ep.tight_warmup_scans = declare_parameter<int>("registration.tight_warmup_scans", 10);

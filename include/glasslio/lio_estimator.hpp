@@ -44,7 +44,7 @@ struct EstimatorParams
   double max_rmse = 0.5;
   bool use_constant_velocity = true;
 
-  /// TIGHT COUPLING (doc/7-tight-coupling.md). Not a pipeline stage -- it changes how [5]
+  /// TIGHT COUPLING (doc/5-registration.md sec 3.7). Not a pipeline stage -- it changes how [5]
   /// solves, by folding the IMU into the same normal equations. `use_tight` is
   /// `imu_prior_weight > 0`; zero selects the 6-DoF loose path.
   bool use_tight = false;

@@ -1,0 +1,61 @@
+# Parameters for glasslio_node on the 3-LiDAR ASDT1 rig (transfer-01a041b7 apartment bags).
+#
+# Three ASDT1 ToF sensors (center/left/right) are rigidly mounted and the driver publishes a
+# pre-fused /combined_point_cloud. We register that fused cloud and drive it with the CENTER
+# IMU. The whole point: three 30-deg FOVs stitched together see far more geometry than one, so
+# the in-plane translation a single narrow ToF cannot observe becomes observable. This roughly
+# HALVES drift vs a single sensor (single center: scale-gate 3.11x -> fused 1.46x on apartment),
+# doubles the observed scene and correspondence count, and almost never loses the map. The wide
+# fused FOV is the better lever here than the IMU (see registration below).
+#
+# The three bags rank apartment2 (1.18x) > apartment (1.46x) > apartment3 (3.06x) -- more
+# observed geometry, less drift. All three needed the sliding-window IMU-init fix to start at
+# all (they are handheld and never begin at rest; the rest window straddled init boundaries --
+# see doc/1-imu-init.md).
+#
+# Run:  ros2 run glasslio glasslio_node --ros-args --params-file config/3lidars.yaml
+# then: ros2 bag play data/transfer-01a041b7/3lidars-apartment2    (the best of the three)
+#
+# `/**` applies to the node whatever name it is launched under.
+/**:
+  ros__parameters:
+
+    # --- Topics. The FUSED cloud, driven by the CENTER sensor's IMU.
+    lidar_topic: "/combined_point_cloud"
+    imu_topic:   "/asdt1_center/asdt1_driver/imu"
+
+    # --- IMU units. Spec-compliant m/s^2 (|a| at rest ~= 9.8), like the other ASDT1 bags.
+    imu:
+      accel_in_g: false
+
+    # --- Extrinsic (lidar -> IMU). GENUINELY IDENTITY here, not a placeholder: tf_static gives
+    # camera_system_optical (the combined-cloud frame) -> asdt1_center_optical (the IMU frame)
+    # as identity, so the fused cloud and the center IMU already share an orientation. If you
+    # ever drive from a DIFFERENT sensor's IMU (left/right), set this to that sensor's transform.
+    extrinsic:
+      lidar_to_imu:
+        quat_xyzw: [0.0, 0.0, 0.0, 1.0]
+
+    registration:
+      # --- LOOSE, and here loose is not a fallback -- it is OPTIMAL. The fused FOV makes the
+      # geometry observable enough that the LiDAR alone tracks well, and the MEMS IMU
+      # integrated over 33 ms ToF snapshots only adds drift: tight coupling was measured to
+      # converge toward loose as its weight shrinks and never beat it (5.32x -> 2.01x -> 1.69x
+      # as lidar_sigma falls). Tight helps where geometry is DEGENERATE; this rig removes the
+      # degeneracy. See doc/5-registration.md sec 3.13. 0 = loose.
+      imu_prior_weight: 0.0
+
+      # Point-to-plane noise. Carried over from the tuned Livox value; only bites under tight.
+      lidar_sigma: 0.02
+
+      # --- Sparse-cloud tuning. The fused cloud is ~2x denser than one sensor but still far
+      # sparser than a Livox, so keep the ASDT1 overrides.
+      min_correspondences: 20            # default 50 -- too high for a sparse ToF cloud
+      max_correspondence_distance: 0.5   # indoor scale
+
+    # A 0.5 m leaf would collapse the sparse cloud; keep more points.
+    voxel_leaf_size: 0.10
+
+    map:
+      voxel_size: 0.30                    # >= voxel_leaf_size and >= corr distance
+      min_points_for_plane: 4             # fit planes from fewer sparse points

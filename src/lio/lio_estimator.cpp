@@ -294,11 +294,18 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
     prev_scan_end_ :
     t_end - deskew_->last_scan_duration();
 
+  // Record this scan's end time NOW, even if we coast below (t_begin already read the old
+  // value). The window is (prev-scan-end -> this-scan-end], and that boundary is t_end
+  // whether or not this scan's solve succeeds -- so the NEXT scan must start from here.
+  // Deferring this until after the dt guard froze the snapshot path: on a ToF the first
+  // tight scan has t_begin == t_end (no prior end, zero scan duration), so it coasts, and if
+  // prev_scan_end_ never got set every later window stayed [t_end, t_end] and coasted forever.
+  prev_scan_end_ = t_end;
+
   const ImuPreintegration pre = buildPreintegration(meas, t_begin, t_end);
   if (pre.dt() <= 0.0) {
-    return false;   // no usable IMU span; nothing to predict from
+    return false;   // no usable IMU span (e.g. the first snapshot scan); coast this one
   }
-  prev_scan_end_ = t_end;
 
   // RANDOM WALK: the bias may have drifted since the last scan, so we are now slightly
   // LESS certain of it than we were. Covariance grows with time.
