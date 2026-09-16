@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planes and degeneracy · Lesson 7</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+<script defer src="../assets/normal-scatter.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 7 · Inertial state estimation · about 15 minutes</p>
+  <h1>Planes and degeneracy</h1>
+  <p class="subtitle">One skill, used twice: reading the smallest eigenvalue of a 3×3 matrix.</p>
+</header>
+
+<article>
+
+<p class="lede">Lesson 6 took each plane's centroid \(\mathbf{c}\) and normal \(\mathbf{n}\) as given. This
+lesson is where they come from, and when the whole scan should be refused. Both answers are the same
+move: build a 3×3 scatter matrix and look at its smallest eigenvalue. Once for a voxel's points, to find
+a plane; once for the scan's normals, to find a direction no plane holds. The second one is the story
+behind glass-lio's Outdoor01 run: a healthy RMSE, and a trajectory 111 times too long.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>Lesson 6's build: the source of the second 3×3 matrix in this lesson.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the point-to-plane Jacobian \(\mathbf{J}\) and what one correspondence
+  adds to \(\mathbf{H}\).</p>
+  <textarea placeholder="J = [ ... , ... ]&#10;H += ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \mathbf{J} = \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix}, \qquad \mathbf{H} \leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J} $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{n}^{\top}\) first (translation), then \((\mathbf{q}\times\mathbf{n})^{\top}\)</li>
+      <li>\(\mathbf{J}^{\top}\mathbf{J}\): 6×6, rank 1</li>
+    </ul>
+    <p>Now look at the top-left 3×3 of \(w\,\mathbf{J}^{\top}\mathbf{J}\): it's \(w\,\mathbf{n}\mathbf{n}^{\top}\). Hold that for section 4.</p>
+  </div>
+</div>
+
+<h2>1 · From points to a plane</h2>
+
+<p>Each map voxel keeps up to 20 points. To fit a plane, take their centroid and covariance:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L100-L136"><code>local_map.cpp</code>,
+<code>fitPlane()</code>, lines 100–136</a>.</span></p>
+
+<div class="eq">$$ \mathbf{c} = \frac{1}{n}\sum_{k}\mathbf{p}_k, \qquad \mathbf{C} = \frac{1}{n}\sum_{k}(\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top} $$</div>
+
+<p>\(\mathbf{C}\) is symmetric, so it has three orthogonal eigenvectors. Each eigenvalue is the variance of
+the points along its eigenvector. Sort them \(\lambda_0 \le \lambda_1 \le \lambda_2\): for points on a
+surface, \(\lambda_1\) and \(\lambda_2\) measure the spread <em>along</em> it and \(\lambda_0\) its thickness.
+So the normal is the eigenvector of the smallest eigenvalue. This is Hoppe et al.'s classic recipe: the
+centroid of the neighbourhood, and a normal "determined using principal component analysis", taken as the
+eigenvector of the smallest eigenvalue of the covariance.<span class="sidenote">Hoppe, DeRose, Duchamp,
+McDonald &amp; Stuetzle, <a href="https://hhoppe.com/recon.pdf"><em>Surface Reconstruction from Unorganized
+Points</em></a>, SIGGRAPH 1992, §3.2. They number the eigenvalues largest first, so their normal is \(\hat{\mathbf{v}}_3\).</span></p>
+
+<pre><code>const Eigen::Vector3d ev = es.eigenvalues();
+if (ev[1] &lt; 1e-12 || ev[0] &gt; planarity_ratio_ * ev[1]) {
+  return;
+}
+
+v.plane.centroid = centroid;
+v.plane.normal = es.eigenvectors().col(0).normalized();</code></pre>
+
+<h2>2 · The planarity gate</h2>
+
+<p>PCA hands every voxel a "normal", plane or not. So glass-lio only accepts one if
+\(\lambda_0 \le 0.1\,\lambda_1\): the thickness must be small compared with the <em>middle</em> spread.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L186-L204"><code>livox_mid_360.yaml</code>,
+lines 186–204</a>: tighten it in vegetation, where blobs sneak through; loosen it in sparse indoor
+scenes, where too few planes form. The rejecting line in <code>fitPlane()</code> is commented "a blob or an edge, not a plane -- a normal here would be noise".</span> Read the three eigenvalues and each case falls out:</p>
+
+<ul>
+  <li><strong>A flat patch:</strong> \(\lambda_0 \ll \lambda_1 \le \lambda_2\). Accepted.</li>
+  <li><strong>A corner</strong> (wall meets floor): the points spread in all three directions, so \(\lambda_0\) isn't small. Rejected.</li>
+  <li><strong>A blob</strong> (foliage): all three similar. Rejected. Hoppe: when "the eigenvalues are similar… the eigenvectors do not reveal the surface's true tangent plane."</li>
+  <li><strong>A line</strong> (a pole's edge): \(\lambda_0 \approx \lambda_1 \ll \lambda_2\). Comparing with \(\lambda_1\), not \(\lambda_2\), is what catches it: a line has no single normal.</li>
+</ul>
+
+<p>The gate is only as good as the points it sees.<span class="sidenote">glass-lio's
+<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/6-local-map.md"><code>doc/6-local-map.md</code></a> §6.3: keeping only the
+<em>first</em> 20 points left thin slabs that passed the gate with wrong normals, "1.2e6 of spurious
+stiffness" in a corridor test. Reservoir sampling fixed it.</span></p>
+
+<h2>3 · Finding a plane for each point</h2>
+
+<p>For a world point \(\mathbf{q}\), glass-lio hashes \(\lfloor\mathbf{q}/\text{voxel size}\rfloor\), checks that
+voxel and its 26 neighbours, and keeps the plane whose <em>centroid</em> is nearest, within
+<code>max_correspondence_distance</code>. The 27 cells cover that radius only because the voxel size (1.0&nbsp;m)
+is at least the correspondence distance (1.0&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L138-L172"><code>local_map.cpp</code>,
+<code>closestPlane()</code>, lines 138–172</a>; <code>std::floor</code>, not a cast, in <code>keyOf()</code>
+(<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L23-L31">lines 23–31</a>). A published relative: VoxelMap keeps "one
+plane (or edge) feature" per voxel, "organized by a Hash table and octrees", inside an iterated EKF
+(<a href="https://arxiv.org/abs/2109.07082">Yuan et al., RA-L 2022</a>).</span> It's a hash lookup, not a
+nearest-neighbour tree search, which is why registration is cheap.</p>
+
+<h2>4 · The second eigen-test: degeneracy</h2>
+
+<p>From the warm-up: every correspondence adds \(w\,\mathbf{n}\mathbf{n}^{\top}\) to \(\mathbf{H}\)'s translation block, so</p>
+
+<div class="eq">$$ \mathbf{H}_t = \sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top} $$</div>
+
+<p>Same reading as before. Its smallest eigenvalue's eigenvector is the translation direction that the
+planes constrain least. If every normal is perpendicular to some direction, sliding along it changes no
+residual at all. Try it: a scan of floor plus one wall, then add a second wall.</p>
+
+<div class="scatter-explorer" data-gate="0.05" data-init="100,0,100"></div>
+
+<p>glass-lio divides by the trace, because the raw eigenvalue "scales with correspondence count and so
+cannot tell 'under-constrained' from 'just fewer points'". It calibrated the threshold from real data:
+the indoor bag never dropped below 0.117, and the diverging Outdoor01 stretch never rose above 0.034, so
+the gate sits at 0.05, in the gap.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/registration.hpp#L25-L36"><code>registration.hpp</code>,
+lines 25–36</a>; <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L49-L61"><code>livox_mid_360.yaml</code>,
+lines 49–61</a>.</span></p>
+
+<pre><code>const Eigen::Matrix3d Ht = final_eq.H().topLeftCorner&lt;3, 3&gt;();
+const Eigen::SelfAdjointEigenSolver&lt;Eigen::Matrix3d&gt; es(Ht);
+const double trace = Ht.trace();
+result.translation_eigenvalue_ratio =
+  trace &gt; 0.0 ? es.eigenvalues().minCoeff() / trace : 0.0;</code></pre>
+
+<p>Below the gate, the scan is marked invalid.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/registration.cpp#L72-L88"><code>registration.cpp</code>,
+lines 72–88</a>. It re-associates once at the converged pose, to test the \(\mathbf{H}\) the answer actually rests on.</span>
+Why was it needed? On M3DGR's Outdoor01, glass-lio's path came out at 38,657&nbsp;m against a true 346&nbsp;m,
+while the RMSE sat at its normal 0.10–0.16 and correspondences never fell below 300. A pose sliding along a
+free direction leaves every residual small. The gate stops those scans being trusted; tight coupling, with
+the IMU in the same solve, is what carries the pose through (RPE 22.6&nbsp;m → 0.29&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a>
+§3.6.1, "a healthy RMSE can still be a lie".</span></p>
+
+<p>Zhang, Kaess &amp; Singh read degeneracy the same way, from "eigenvalues and eigenvectors of the system"
+(\(\mathbf{A}^{\top}\mathbf{A}\), which is Gauss-Newton's \(\mathbf{H}\)), but choose a different remedy: they "only
+partially solve the problem in well-conditioned directions" instead of rejecting the scan.<span class="sidenote">Zhang,
+Kaess &amp; Singh, <a href="https://frc.ri.cmu.edu/~zhangji/publications/ICRA_2016.pdf"><em>On Degeneracy of
+Optimization-based State Estimation Problems</em></a>, ICRA 2016.</span> That contrast is worth having ready in
+an interview.</p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"Both LiDAR tests are the same move: build a 3×3 scatter matrix and read its smallest eigenvalue. For a voxel's
+  points, the covariance's smallest-eigenvalue eigenvector is the plane normal, and if that eigenvalue isn't much
+  smaller than the middle one, it's a blob, a corner or a line, so there's no plane. For the whole scan,
+  \(\mathbf{H}\)'s translation block is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\); its smallest-eigenvalue eigenvector is the
+  direction no plane constrains, and when that eigenvalue is a tiny fraction of the trace, like floor plus one wall,
+  the pose can slide along it with a perfectly healthy RMSE. glass-lio refuses those scans at a ratio of 0.05 and lets
+  the IMU carry that direction; Zhang et al. instead solve only the well-conditioned directions."</p>
+</div>
+
+<h2>5 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 6.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="small">
+  <p class="q">Which eigenvector of a voxel's point covariance is the plane normal?</p>
+  <ol class="options">
+    <li><button class="option" data-key="small">smallest eigenvalue's eigenvector</button></li>
+    <li><button class="option" data-key="large">largest eigenvalue's eigenvector</button></li>
+    <li><button class="option" data-key="mid">middle eigenvalue's eigenvector</button></li>
+    <li><button class="option" data-key="cent">the centroid's direction</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Each eigenvalue is the spread along its eigenvector. On a surface the spread is smallest <em>across</em> it,
+    so the smallest eigenvalue's eigenvector is the normal (Hoppe et al.; <code>eigenvectors().col(0)</code>).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="reject">
+  <p class="q">A voxel straddles the corner where a wall meets the floor. What does the planarity gate do?</p>
+  <ol class="options">
+    <li><button class="option" data-key="reject">Rejects it: not a plane</button></li>
+    <li><button class="option" data-key="floor">Accepts it, using the floor</button></li>
+    <li><button class="option" data-key="avg">Averages the two normals together</button></li>
+    <li><button class="option" data-key="split">Splits it into two planes</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Two surfaces spread the points in all three directions, so \(\lambda_0\) isn't much smaller than \(\lambda_1\), and
+    \(\lambda_0 &gt; 0.1\,\lambda_1\) rejects it. glass-lio never splits a voxel (VoxelMap's octrees are one way to).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="zero">
+  <p class="q">A scan's correspondences: 100 on the floor (normal \(z\)), 100 on one wall (normal \(x\)), nothing else.
+  What is \(\lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t)\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="zero">0.00</button></li>
+    <li><button class="option" data-key="third">0.33</button></li>
+    <li><button class="option" data-key="half">0.50</button></li>
+    <li><button class="option" data-key="one">1.00</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{H}_t = \mathrm{diag}(100, 0, 100)\), so \(\lambda_{\min} = 0\), along \(y\), and the trace is 200. Ratio 0: nothing
+    stops the pose sliding along the wall, and the 0.05 gate rejects the scan.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="count">
+  <p class="q">Why does the gate use \(\lambda_{\min}/\mathrm{tr}(\mathbf{H}_t)\) rather than the raw \(\lambda_{\min}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="count">The raw value scales with count</button></li>
+    <li><button class="option" data-key="cheap">The trace is cheaper to compute</button></li>
+    <li><button class="option" data-key="zero">The smallest eigenvalue is always zero</button></li>
+    <li><button class="option" data-key="units">Ratios survive a change of units</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Twice the correspondences doubles every eigenvalue. The raw value "cannot tell 'under-constrained' from 'just
+    fewer points'"; the ratio can.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="free">
+  <p class="q">On Outdoor01 the pose drifted hundreds of metres while the RMSE stayed at 0.10–0.16. Why didn't the RMSE catch it?</p>
+  <ol class="options">
+    <li><button class="option" data-key="free">Motion along it adds no residual</button></li>
+    <li><button class="option" data-key="few">RMSE is averaged over too few</button></li>
+    <li><button class="option" data-key="imu">The IMU hid the error completely</button></li>
+    <li><button class="option" data-key="normals">Outdoor planes have no valid normals</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Along a direction every normal is perpendicular to, \(\mathbf{n}^{\top}\boldsymbol{\rho} = 0\) for every correspondence:
+    the residuals don't change, so the fit still looks fine at the wrong position. Correspondence counts stayed above 300.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="n">
+  <p class="q"><em>From lesson 6.</em> Which block of \(\mathbf{J} = [\mathbf{n}^{\top},\ (\mathbf{q}\times\mathbf{n})^{\top}]\) builds
+  \(\mathbf{H}\)'s translation block?</p>
+  <ol class="options">
+    <li><button class="option" data-key="n">\(\mathbf{n}^{\top}\)</button></li>
+    <li><button class="option" data-key="qn">\((\mathbf{q}\times\mathbf{n})^{\top}\)</button></li>
+    <li><button class="option" data-key="r">\(r\)</button></li>
+    <li><button class="option" data-key="w">\(w\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{H} = \sum w\,\mathbf{J}^{\top}\mathbf{J}\), and its top-left 3×3 is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\): the translation
+    columns of \(\mathbf{J}\) are just \(\mathbf{n}^{\top}\).</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write how a voxel's plane is fitted (centroid, covariance, normal) and the
+  planarity test. Then write \(\mathbf{H}_t\) and the degeneracy test.</p>
+  <textarea placeholder="c = ...   C = ...   n = ...   plane if ...&#10;H_t = ...   degenerate if ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \begin{aligned}
+    \mathbf{c} &= \tfrac{1}{n}\textstyle\sum_k \mathbf{p}_k, \qquad \mathbf{C} = \tfrac{1}{n}\textstyle\sum_k (\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top}\\
+    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{plane iff } \lambda_0 \le 0.1\,\lambda_1\\
+    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{degenerate iff } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
+    \end{aligned} $$</div>
+    <ul class="checklist">
+      <li>The normal is the <em>smallest</em> eigenvalue's eigenvector</li>
+      <li>Planarity compares \(\lambda_0\) with the <em>middle</em> \(\lambda_1\)</li>
+      <li>\(\mathbf{H}_t\) is built from normals only</li>
+      <li>Degeneracy is a ratio to the trace, not the raw eigenvalue</li>
+      <li>The weak direction is \(\lambda_{\min}\)'s eigenvector</li>
+    </ul>
+    <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Zhang, Kaess &amp; Singh, <a href="https://frc.ri.cmu.edu/~zhangji/publications/ICRA_2016.pdf"><em>On Degeneracy of
+  Optimization-based State Estimation Problems</em></a>, ICRA 2016 (the authors' PDF). <strong>Read the abstract, §I, and
+  the definition of the degeneracy factor in §IV</strong>: the same smallest-eigenvalue reading as this lesson, with a
+  different remedy. For the plane fit, read the short §3.2 of Hoppe et al.,
+  <a href="https://hhoppe.com/recon.pdf"><em>Surface Reconstruction from Unorganized Points</em></a>.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. One to think about: glass-lio keeps the plane whose <em>centroid</em>
+  is nearest, not the one the point is closest to. When would those differ, and would you change it? Tell it how the
+  warm-up and the recall box went. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0006-the-point-to-plane-factor.html">← Lesson 6: The point-to-plane factor</a>
+  <a href="../reference/planes-and-degeneracy.html">Reference card: planes and degeneracy →</a>
+  <a href="0008-filter-window-or-factor.html">Next: lesson 8, filter, window, or factor →</a>
+</nav>
+
+</main>
+</body>
+</html>

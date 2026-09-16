@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMU motion integration · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0002-integrating-one-imu-step.html">Lesson 2</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 2</p>
+  <h1>IMU motion integration</h1>
+  <p class="subtitle">Where gravity comes back in, and the update-order trap.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">Warm-up, from memory</p>
+<div class="eq">$$ {}_{B}\tilde{\mathbf{a}} = \mathbf{R}_{WB}^{\top}\big({}_{W}\mathbf{a} - {}_{W}\mathbf{g}\big) + \mathbf{b}^{a} + \boldsymbol{\eta}^{a} $$</div>
+<p class="label">How the state moves</p>
+<div class="eq">$$ \dot{\mathbf{R}}_{WB} = \mathbf{R}_{WB}\;{}_{B}\boldsymbol{\omega}_{WB}^{\wedge}, \qquad {}_{W}\dot{\mathbf{v}} = {}_{W}\mathbf{a}, \qquad {}_{W}\dot{\mathbf{p}} = {}_{W}\mathbf{v} \tag{29} $$</div>
+<p class="label">Hold everything constant for one step</p>
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}(t+\Delta t) &= \mathbf{R}(t)\,\mathrm{Exp}\big(\boldsymbol{\omega}(t)\,\Delta t\big)\\
+\mathbf{v}(t+\Delta t) &= \mathbf{v}(t) + \mathbf{a}(t)\,\Delta t\\
+\mathbf{p}(t+\Delta t) &= \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\,\mathbf{a}(t)\,\Delta t^{2}
+\end{aligned} \tag{30} $$</div>
+<p class="label">Put the IMU in: gravity comes back</p>
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}^{\top}(\mathbf{a} - \mathbf{g}) &= \tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{a}\\
+\Longrightarrow\quad \mathbf{a} - \mathbf{g} &= \mathbf{R}\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{a})\\
+\Longrightarrow\quad \mathbf{a} &= \mathbf{R}\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{a}) + \mathbf{g}
+\end{aligned} $$</div>
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}(t+\Delta t) &= \mathbf{R}(t)\,\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}} - \mathbf{b}^{g} - \boldsymbol{\eta}^{gd})\,\Delta t\big)\\
+\mathbf{v}(t+\Delta t) &= \mathbf{v}(t) + \mathbf{g}\,\Delta t + \mathbf{R}(t)\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{ad})\,\Delta t\\
+\mathbf{p}(t+\Delta t) &= \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\,\mathbf{g}\,\Delta t^{2}\\
+&\quad + \tfrac{1}{2}\,\mathbf{R}(t)\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{ad})\,\Delta t^{2}
+\end{aligned} \tag{31} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ \begin{aligned}
+    \mathbf{R}(t+\Delta t) &= \mathbf{R}(t)\,\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}} - \mathbf{b}^{g})\,\Delta t\big)\\
+    \mathbf{v}(t+\Delta t) &= \mathbf{v}(t) + \mathbf{g}\,\Delta t + \mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t\\
+    \mathbf{p}(t+\Delta t) &= \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\mathbf{g}\,\Delta t^{2}\\
+    &\quad + \tfrac{1}{2}\mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t^{2}
+    \end{aligned} $$</div>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>"For one IMU step, orientation is right-multiplied by the Exp of the bias-corrected gyro
+  times \(\Delta t\), because the rate is in the body frame. For velocity and position, I rotate
+  the bias-corrected specific force into the world with the orientation at the start of the step,
+  then add gravity back unrotated, because gravity lives in the world frame. Everything on the
+  right-hand side is at the start of the step, so in code I update position, then velocity, and
+  rotation last."</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0002-integrating-one-imu-step.html">← Lesson 2: Integrating one IMU step</a>
+  <a href="imu-preintegration.html">Next card: IMU preintegration →</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMU measurement model · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0001-what-an-imu-actually-measures.html">Lesson 1</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 1</p>
+  <h1>IMU measurement model</h1>
+  <p class="subtitle">Two equations, one sign, and the bug it caused in glass-lio.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">The two equations</p>
+<div class="eq">$$ {}_{B}\tilde{\boldsymbol{\omega}}_{WB}(t) = {}_{B}\boldsymbol{\omega}_{WB}(t) + \mathbf{b}^{g}(t) + \boldsymbol{\eta}^{g}(t) \tag{27} $$</div>
+<div class="eq">$$ {}_{B}\tilde{\mathbf{a}}(t) = \mathbf{R}_{WB}^{\top}(t)\,\big({}_{W}\mathbf{a}(t) - {}_{W}\mathbf{g}\big) + \mathbf{b}^{a}(t) + \boldsymbol{\eta}^{a}(t) \tag{28} $$</div>
+<p class="label">The bug, explained</p>
+<div class="eq">$$ \tilde{\mathbf{a}} = -\mathbf{R}_{WB}^{\top}\,\mathbf{g} + \mathbf{b}^{a} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ {}_{B}\tilde{\boldsymbol{\omega}}_{WB} = {}_{B}\boldsymbol{\omega}_{WB} + \mathbf{b}^{g} + \boldsymbol{\eta}^{g} $$</div>
+<div class="eq">$$ {}_{B}\tilde{\mathbf{a}} = \mathbf{R}_{WB}^{\top}\big({}_{W}\mathbf{a} - {}_{W}\mathbf{g}\big) + \mathbf{b}^{a} + \boldsymbol{\eta}^{a} $$</div>
+
+<h2>Symbols</h2>
+<dl class="symbols">
+  <dt>\(\tilde{x}\)</dt><dd>A tilde means <em>measured</em>: what the sensor reports, not the truth.</dd>
+  <dt>\({}_{B}x,\ {}_{W}x\)</dt><dd>The frame a vector is expressed in: \(B\) is the body (IMU) frame, \(W\) the world frame.</dd>
+  <dt>\(\mathbf{R}_{WB}\)</dt><dd>Rotates body-frame vectors into the world, so \(\mathbf{R}_{WB}^{\top}\) takes world vectors into the body frame.</dd>
+  <dt>\({}_{W}\mathbf{a}\)</dt><dd>The sensor's true acceleration, in the world.</dd>
+  <dt>\({}_{W}\mathbf{g}\)</dt><dd>The gravity vector in the world. It points <em>down</em>: with \(z\) up, \(\mathbf{g} \approx [0,\,0,\,-9.81]^{\top}\,\mathrm{m/s^2}\).</dd>
+  <dt>\(\mathbf{b}\)</dt><dd>Bias: a slowly drifting offset, added in the <em>body</em> frame.</dd>
+  <dt>\(\boldsymbol{\eta}\)</dt><dd>White noise.</dd>
+</dl>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>“An accelerometer measures specific force, \(\mathbf{a} - \mathbf{g}\), in the body frame.
+  At rest you only ever see \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\) as one sum, so a
+  static initialisation can't separate gravity from the accelerometer bias. You fix gravity's
+  magnitude, and the bias becomes observable once the platform rotates.”</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0001-what-an-imu-actually-measures.html">← Lesson 1: What an IMU actually measures</a>
+  <a href="imu-motion-integration.html">Next card: IMU motion integration →</a>
+</nav>
+</main>
+</body>
+</html>

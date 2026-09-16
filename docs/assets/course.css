@@ -1,0 +1,304 @@
+/* glass-lio course: one stylesheet for the home page, lessons, reference cards and glossary. */
+
+:root {
+  --bg: #fbfaf7;
+  --fg: #1f2328;
+  --muted: #5b636d;
+  --rule: #e2ded6;
+  --panel: #f3f0e9;
+  --accent: #1f5fae;
+  --good: #1d7a45;
+  --good-bg: #e3f3e9;
+  --bad: #b3261e;
+  --bad-bg: #fbe6e4;
+  --code-bg: #efece5;
+  --measure: 40rem;
+  --side: 15rem;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a;
+    --fg: #e6e3dc;
+    --muted: #9aa1a9;
+    --rule: #2e3237;
+    --panel: #1d2024;
+    --accent: #7fb0f0;
+    --good: #6fcf97;
+    --good-bg: #173324;
+    --bad: #f28b82;
+    --bad-bg: #3a1d1b;
+    --code-bg: #22262b;
+    color-scheme: dark;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 1.0625rem/1.65 Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+}
+
+main {
+  max-width: calc(var(--measure) + var(--side) + 3rem);
+  margin: 0 auto;
+  padding: 2.5rem 1rem 4rem;
+}
+
+/* Text column; the right-hand gutter holds sidenotes on wide screens. */
+header.page, article, nav.course, .home-list, footer.site {
+  max-width: var(--measure);
+}
+
+a { color: var(--accent); text-underline-offset: 0.15em; }
+a:hover { text-decoration-thickness: 2px; }
+
+h1, h2, h3 {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: 2.1rem; margin: 0.2rem 0 0.4rem; }
+h2 { font-size: 1.35rem; margin: 2.6rem 0 0.6rem; }
+h3 { font-size: 1.1rem; margin: 1.8rem 0 0.5rem; }
+
+.kicker, .label {
+  font: 600 0.78rem/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.3rem;
+}
+.subtitle { color: var(--muted); font-size: 1.15rem; margin: 0; }
+header.page { border-bottom: 1px solid var(--rule); padding-bottom: 1.2rem; margin-bottom: 1.8rem; }
+.lede { font-size: 1.12rem; }
+
+.crumbs {
+  font: 0.85rem system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin: 0 0 1.5rem;
+  max-width: var(--measure);
+}
+.crumbs a { text-decoration: none; }
+
+code, pre, kbd {
+  font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 0.86em;
+}
+code { background: var(--code-bg); padding: 0.1em 0.3em; border-radius: 4px; }
+pre {
+  background: var(--code-bg);
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+pre code { background: none; padding: 0; font-size: 1em; }
+
+/* Display math: scroll sideways rather than overflow the page on phones. */
+.eq { overflow-x: auto; overflow-y: hidden; margin: 1rem 0; padding: 0.1rem 0; }
+.katex-display { margin: 0.6rem 0; }
+/* KaTeX pins an equation's \tag to the right edge; when the equation is wider than the
+   column that edge is inside the maths. Reserve room for the tag and scroll instead. */
+.katex-display .katex-html:has(> .tag) { min-width: max-content; padding-right: 3.5em; }
+
+table { border-collapse: collapse; margin: 1.2rem 0; font-size: 0.92rem; display: block; overflow-x: auto; }
+th, td { border-bottom: 1px solid var(--rule); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+th { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 0.85rem; }
+
+/* ---- Sidenotes: inline small print on narrow screens, margin notes on wide ones. */
+.sidenote {
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+  border-left: 2px solid var(--rule);
+  padding-left: 0.7rem;
+  margin: 0.5rem 0;
+}
+@media (min-width: 62rem) {
+  article p, article li { position: relative; }
+  .sidenote {
+    float: right;
+    clear: right;
+    width: var(--side);
+    margin-right: calc(-1 * var(--side) - 2.5rem);
+    margin-top: 0.2rem;
+    margin-bottom: 1rem;
+  }
+}
+
+/* ---- Callouts, symbols, source, ask. */
+.callout, aside.source, aside.ask {
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  margin: 1.6rem 0;
+}
+.callout > :last-child, aside > :last-child { margin-bottom: 0; }
+.callout.interview { border-left: 4px solid var(--accent); }
+
+dl.symbols { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 1.2rem 0; }
+dl.symbols dt { font-weight: 600; }
+dl.symbols dd { margin: 0; }
+@media (max-width: 30rem) {
+  dl.symbols { grid-template-columns: 1fr; }
+  dl.symbols dd { margin: 0 0 0.6rem; }
+}
+
+/* ---- Quizzes. */
+.score:empty { display: none; }
+.score {
+  font: 600 0.9rem system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--muted);
+}
+.quiz, .recall, .sequence-task, .scatter-explorer {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  margin: 1.6rem 0;
+}
+.quiz .q, .recall .q { margin-top: 0; }
+ol.options { list-style: none; padding: 0; margin: 0.6rem 0 0; display: grid; gap: 0.45rem; }
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+button.option {
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+}
+button.option:hover:not(:disabled) { border-color: var(--accent); }
+button.option:disabled { cursor: default; }
+button.option.correct { background: var(--good-bg); border-color: var(--good); }
+button.option.wrong { background: var(--bad-bg); border-color: var(--bad); }
+button.option.correct::after { content: "  ✓"; color: var(--good); font-weight: 700; }
+button.option.wrong::after { content: "  ✗"; color: var(--bad); font-weight: 700; }
+.explain { margin-top: 0.8rem; }
+.explain > :last-child { margin-bottom: 0; }
+
+button.action, .scatter-explorer button {
+  background: var(--accent);
+  color: var(--bg);
+  border: 0;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  font: 600 0.92rem system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin-top: 0.6rem;
+}
+button.action.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+.recall textarea {
+  width: 100%;
+  min-height: 6.5rem;
+  font: 0.95rem/1.5 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.6rem;
+  resize: vertical;
+}
+.answer { margin-top: 0.9rem; border-top: 1px solid var(--rule); padding-top: 0.6rem; }
+ul.checklist { list-style: none; padding: 0; }
+ul.checklist li { padding-left: 1.7rem; position: relative; cursor: pointer; margin: 0.3rem 0; }
+ul.checklist li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  width: 1rem;
+  height: 1rem;
+  border: 1.5px solid var(--muted);
+  border-radius: 3px;
+}
+ul.checklist li.done::before { background: var(--good); border-color: var(--good); }
+ul.checklist li.done::after { content: "✓"; position: absolute; left: 0.18rem; top: 0; color: var(--bg); font-size: 0.8rem; font-weight: 700; }
+
+/* ---- Sequence task: tap the steps in order. */
+.sequence-task ol.steps { list-style: none; padding: 0; display: grid; gap: 0.45rem; }
+.sequence-task ol.steps li button {
+  width: 100%;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem 0.5rem 2.6rem;
+  position: relative;
+}
+.sequence-task ol.steps li button[data-pick]::before {
+  content: attr(data-pick);
+  position: absolute;
+  left: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.sequence-task ol.steps li button.correct { background: var(--good-bg); border-color: var(--good); }
+.sequence-task ol.steps li button.wrong { background: var(--bad-bg); border-color: var(--bad); }
+.sequence-task .hint { font-size: 0.9rem; color: var(--muted); margin: 0; }
+
+/* ---- Scatter explorer (lesson 7). */
+.scatter-explorer .controls { display: grid; gap: 0.5rem; margin: 0.4rem 0 0.8rem; }
+.scatter-explorer label {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr 3rem;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.92rem;
+}
+.scatter-explorer input[type="range"] { width: 100%; accent-color: var(--accent); }
+.scatter-explorer output { text-align: right; font-variant-numeric: tabular-nums; }
+.scatter-explorer .bars { display: grid; gap: 0.35rem; margin: 0.6rem 0; }
+.scatter-explorer .bar { display: grid; grid-template-columns: 2.2rem 1fr 4.5rem; align-items: center; gap: 0.5rem; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.scatter-explorer .bar span.track { background: var(--panel); border-radius: 4px; height: 0.8rem; overflow: hidden; }
+.scatter-explorer .bar span.fill { display: block; height: 100%; background: var(--accent); }
+.scatter-explorer .verdict { font-weight: 600; margin: 0.4rem 0 0; }
+.scatter-explorer .verdict.ok { color: var(--good); }
+.scatter-explorer .verdict.bad { color: var(--bad); }
+@media (max-width: 30rem) {
+  .scatter-explorer label { grid-template-columns: 1fr 3rem; }
+  .scatter-explorer label span.name { grid-column: 1 / -1; }
+}
+
+/* ---- Course navigation and home page. */
+nav.course {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.6rem 1.5rem;
+  border-top: 1px solid var(--rule);
+  margin-top: 3rem;
+  padding-top: 1.2rem;
+  font: 0.95rem system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.home-list { list-style: none; padding: 0; margin: 1.5rem 0; display: grid; gap: 0.8rem; }
+.home-list li > a {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+}
+.home-list li > a:hover { border-color: var(--accent); }
+.home-list .title { display: block; font: 600 1.1rem/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--accent); }
+.home-list .sub { display: block; color: var(--muted); font-size: 0.97rem; margin-top: 0.15rem; }
+.home-list .extra { display: block; font: 0.83rem system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--muted); margin-top: 0.35rem; }
+
+footer.site { border-top: 1px solid var(--rule); margin-top: 3rem; padding-top: 1rem; font: 0.88rem system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--muted); }
+
+dl.glossary dt { font-weight: 700; margin-top: 1.3rem; scroll-margin-top: 1rem; }
+dl.glossary dd { margin: 0.2rem 0 0; }
+dl.glossary dt:target { color: var(--accent); }

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filter, window, or factor · Lesson 8</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 8 · Inertial state estimation · about 15 minutes</p>
+  <h1>Filter, window, or factor</h1>
+  <p class="subtitle">What each estimator keeps, what it re-linearises, and what marginalization buys.</p>
+</header>
+
+<article>
+
+<p class="lede">Every real-time estimator has to decide what to do with the past. Keep every old state
+and the cost grows forever; throw them away carelessly and you lose information or invent it. Your two
+repos answer this differently, and so do FAST-LIO2 and VINS-Mono. This lesson gives you one tool,
+<em>marginalization</em>, which you'll do by hand on a 2×2 system, and one table to compare them all. It's
+the third goal in your mission: defend a filter-vs-window choice at a whiteboard.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>From lesson 5. You'll see it again in section 3, applied to a whole state.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the preintegration covariance recursion and its starting value.</p>
+  <textarea placeholder="Sigma_{k+1} = ...   Sigma_ii = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \Sigma_{i,k+1} = \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}, \qquad \Sigma_{ii} = \mathbf{0} $$</div>
+    <ul class="checklist">
+      <li>Sandwiched: \(\mathbf{A}\Sigma\mathbf{A}^{\top}\)</li>
+      <li>Plus fresh noise, \(\mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\)</li>
+    </ul>
+    <p>A filter runs exactly this shape on its <em>whole</em> state: \(\mathbf{P} \leftarrow \mathbf{F}\mathbf{P}\mathbf{F}^{\top} + \mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\).</p>
+  </div>
+</div>
+
+<h2>1 · The question every estimator answers</h2>
+
+<p>Strasdat, Montiel &amp; Davison frame the choice in two sentences: "Filtering methods marginalise out past
+poses and summarise the information gained over time with a probability distribution. Keyframe methods retain
+the optimisation approach of global bundle adjustment, but computationally must select only a small number of
+past frames to process."<span class="sidenote">Strasdat, Montiel &amp; Davison,
+<a href="https://www.doc.ic.ac.uk/~ajd/Publications/strasdat_etal_ivc2012.pdf"><em>Visual SLAM: Why Filter?</em></a>,
+Image and Vision Computing, 2012 (authors' PDF), abstract.</span> Both are ways of forgetting. The difference is
+<em>how</em>, and that's where marginalization comes in.</p>
+
+<h2>2 · Marginalization, by hand</h2>
+
+<p>Write the normal equations in information form, split into a block \(m\) to remove and a block \(k\) to keep:</p>
+
+<div class="eq">$$ \begin{bmatrix}\mathbf{H}_{mm} & \mathbf{H}_{mk}\\ \mathbf{H}_{km} & \mathbf{H}_{kk}\end{bmatrix}
+\begin{bmatrix}\mathbf{x}_m\\ \mathbf{x}_k\end{bmatrix} = \begin{bmatrix}\mathbf{b}_m\\ \mathbf{b}_k\end{bmatrix} $$</div>
+
+<p>Solve the top row for \(\mathbf{x}_m\) and substitute it into the bottom row. That's the Schur complement:</p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{H}' &= \mathbf{H}_{kk} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{H}_{mk}\\
+\mathbf{b}' &= \mathbf{b}_{k} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{b}_{m}
+\end{aligned} $$</div>
+
+<p>Solving \(\mathbf{H}'\mathbf{x}_k = \mathbf{b}'\) gives <em>exactly</em> the same \(\mathbf{x}_k\) as the full system.
+\(\mathbf{H}'\) is the prior the survivors carry: glass-core calls it "the EXACT summary of every factor that touched the
+marginalized variable".<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/marginalization.hpp#L9-L57"><code>marginalization.hpp</code>,
+lines 9–57</a>, which solves against \(\mathbf{H}_{mm}\) with LDLT rather than inverting it.</span> Try it on the smallest case,
+one scalar each:</p>
+
+<div class="eq">$$ \mathbf{H} = \begin{bmatrix}4 & 2\\ 2 & 3\end{bmatrix}, \qquad \mathbf{b} = \begin{bmatrix}2\\ 1\end{bmatrix} $$</div>
+
+<ul>
+  <li><strong>Full solve:</strong> \(\mathbf{x} = \mathbf{H}^{-1}\mathbf{b} = \tfrac{1}{8}\begin{bmatrix}3 & -2\\ -2 & 4\end{bmatrix}\begin{bmatrix}2\\ 1\end{bmatrix} = \begin{bmatrix}0.5\\ 0\end{bmatrix}\), so \(x_k = 0\).</li>
+  <li><strong>Marginalize \(m\):</strong> \(H' = 3 - 2\cdot\tfrac{1}{4}\cdot 2 = 2\) and \(b' = 1 - 2\cdot\tfrac{1}{4}\cdot 2 = 0\), so \(x_k = 0\). Exact.</li>
+  <li><strong>Hold \(m\) fixed and ignore the coupling:</strong> \(3x_k = 1\), so \(x_k = \tfrac{1}{3}\). Wrong, and with information 3 instead of 2: <em>overconfident</em>.</li>
+</ul>
+
+<p>glass-core's test checks exactly these two claims on a 12-variable system: the Schur solve must match the full solve,
+and "hold-fixed (the freeze)" must not.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/test/test_marginalization.cpp#L43-L67"><code>test_marginalization.cpp</code>,
+lines 43–67</a>: match to 1e-9, and the naive solve must be off by more than 1e-2, "or the information the dropped block carried
+forward was zero".</span> One cost to know: \(\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\) couples everything the removed variable
+touched, so the prior is dense.</p>
+
+<pre><code>H_marg = Hkk - Hmk.transpose() * Hmm_inv_Hmk;
+b_marg = bk - Hmk.transpose() * Hmm_inv_bm;</code></pre>
+
+<h2>3 · Four answers to the question</h2>
+
+<table class="compact">
+  <tr><th>Design</th><th>Keeps</th><th>Re-linearises</th><th>The past</th></tr>
+  <tr><td><strong>Filter</strong> (EKF, iterated EKF: FAST-LIO2)</td><td>current state + its covariance</td><td>the current state only</td><td>marginalized every step</td></tr>
+  <tr><td><strong>Window, marginalize</strong> (VINS-Mono)</td><td>last \(N\) states</td><td>all \(N\), every solve</td><td>oldest turned into a prior</td></tr>
+  <tr><td><strong>Window, drop</strong> (glass-vio, ORB-SLAM3)</td><td>last \(N\) keyframes</td><td>all \(N\), every solve</td><td>oldest dropped; an anchor held fixed</td></tr>
+  <tr><td><strong>Factor</strong> (glass-lio)</td><td>the new state \(\mathbf{x}_j\)</td><td>\(\mathbf{x}_j\) only</td><td>\(\mathbf{x}_i\) held fixed; its covariance carried</td></tr>
+</table>
+
+<p><strong>The filter.</strong> Propagate \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\) across the
+IMU interval, the warm-up's shape, then fold in the measurement. The past is marginalized as you go, which is why a filter
+is cheap. It can never go back and re-linearise an old state. FAST-LIO2 is "a highly efficient tightly-coupled iterated Kalman
+filter", which re-linearises only the current state, a few times per update.<span class="sidenote">Xu et al.,
+<a href="https://arxiv.org/abs/2107.06829"><em>FAST-LIO2</em></a>, abstract.</span></p>
+
+<p><strong>The window.</strong> VINS-Mono keeps a "window of recent states by marginalizing out past states", turning the
+measurements of each removed state "into a prior".<span class="sidenote">Qin, Li &amp; Shen,
+<a href="https://arxiv.org/abs/1708.03852"><em>VINS-Mono</em></a>, IEEE T-RO 2018: the introduction, and the Marginalization
+subsection with its Fig.&nbsp;7.</span> glass-vio's window takes ORB-SLAM3's cheaper route and simply pops the oldest keyframe,
+keeping the anchor fixed.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/src/vio/keyframe_window.cpp#L92-L98"><code>keyframe_window.cpp</code>,
+lines 92–98</a>; the design comparison is in glass-vio's <a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/doc/08-sliding-window.md"><code>doc/08-sliding-window.md</code></a>,
+§6, whose "Stage B" is marginalization, with the warning "a wrong marginalization injects spurious information… Do
+<strong>not</strong> start here."</span></p>
+
+<pre><code>kfs_.push_back(std::move(kf));
+while (static_cast&lt;int&gt;(kfs_.size()) &gt; p_.max_keyframes + 1) {
+  kfs_.pop_front();
+}</code></pre>
+
+<p><strong>The factor.</strong> glass-lio solves only for \(\mathbf{x}_j\), with \(\mathbf{x}_i\) held at its estimate. That's the
+"hold fixed" row of the toy example, softened: it carries \(\mathbf{x}_i\)'s covariance forward to inflate the IMU factor
+(lesson 5's <code>sigma_eff</code>), and the bias posterior \(\mathbf{P} \leftarrow (\mathbf{P}^{-1} + \mathbf{H})^{-1}\). Its comment on
+that last line: "THIS is the difference between a filter and a one-shot factor."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L355-L382"><code>lio_estimator.cpp</code>,
+lines 355–382</a>.</span> Its own doc names the limit, "a factor, not a filter": \(\mathbf{x}_i\) "is committed after each scan and
+never revisited", and "This is why FAST-LIO is an iterated EKF."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a>
+§3.14 lists the three pieces a filter needs, and notes they already exist in glass-core: the transition \(\mathbf{F}\)
+(<a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L169-L189"><code>imuStateTransition</code></a>), a whole-state prior, and the
+posterior.</span></p>
+
+<pre><code>const Eigen::Matrix&lt;double, 6, 6&gt; posterior_info =
+  bias_cov_.inverse() + r.H.block&lt;6, 6&gt;(kIdxBg, kIdxBg);</code></pre>
+
+<h2>4 · So which?</h2>
+
+<p>For visual SLAM, Strasdat et al. conclude that "keyframe bundle adjustment outperforms filtering, since it gives the
+most accuracy per unit of computing time", because "it is usually more profitable to increase the number of features
+than the number of frames."<span class="sidenote">Strasdat et al., abstract and §8, Conclusion.</span> But FAST-LIO2 is a
+filter, and it's the system glass-lio benchmarks itself against. The honest interview answer names the trade: a filter
+is cheap and never revisits; a window re-linearises recent history at a bounded cost; and whichever you pick, the
+states you remove must be <em>marginalized</em>, not held fixed, or the estimator becomes overconfident about them.</p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"Every real-time estimator has to decide what to do with the past. A filter keeps only the current state and its
+  covariance: it propagates \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\), updates, and has
+  marginalized everything older, so it's cheap but can never re-linearise an old state. A sliding window keeps the last
+  \(N\) states and re-linearises all of them each solve. To stay bounded it removes the oldest, properly by Schur
+  complement, which leaves the exact prior \(\mathbf{H}_{kk}-\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\), or cheaply by dropping it
+  and fixing an anchor. Holding an old state fixed instead of marginalizing it makes the estimator overconfident about
+  it. glass-lio is a one-shot factor that holds \(\mathbf{x}_i\) fixed but carries its covariance; FAST-LIO2 is an iterated EKF;
+  VINS-Mono is a marginalizing window."</p>
+</div>
+
+<h2>5 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 3.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="dist">
+  <p class="q">What does a filter keep about the past?</p>
+  <ol class="options">
+    <li><button class="option" data-key="dist">A distribution over the current state</button></li>
+    <li><button class="option" data-key="all">Every past state, re-linearised each step</button></li>
+    <li><button class="option" data-key="n">The last N states and landmarks</button></li>
+    <li><button class="option" data-key="none">Nothing: each step starts from zero</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>"Filtering methods marginalise out past poses and summarise the information gained over time with a probability
+    distribution." The past survives only as the current state's covariance.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="two">
+  <p class="q">Marginalize the first variable out of \(\mathbf{H} = \begin{bmatrix}4 & 2\\ 2 & 3\end{bmatrix}\). What is \(H'\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="two">2.0</button></li>
+    <li><button class="option" data-key="three">3.0</button></li>
+    <li><button class="option" data-key="one">1.0</button></li>
+    <li><button class="option" data-key="five">5.0</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(H' = H_{kk} - H_{km}H_{mm}^{-1}H_{mk} = 3 - 2\cdot\tfrac{1}{4}\cdot 2 = 2\). The 3 is what you'd get by ignoring the coupling.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="zero">
+  <p class="q">Same system, \(\mathbf{b} = [2;\ 1]\). Holding the first variable fixed gives \(x_k = 1/3\). What does the full solve give for \(x_k\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="zero">0.00</button></li>
+    <li><button class="option" data-key="third">0.33</button></li>
+    <li><button class="option" data-key="half">0.50</button></li>
+    <li><button class="option" data-key="one">1.00</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{x} = [0.5;\ 0]\), so \(x_k = 0\). Marginalization agrees: \(H' = 2\), \(b' = 1 - 2\cdot\tfrac{1}{4}\cdot 2 = 0\). Exact; the
+    hold-fixed answer isn't.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="certain">
+  <p class="q">Why is holding an old state fixed worse than marginalizing it?</p>
+  <ol class="options">
+    <li><button class="option" data-key="certain">It treats an estimate as certain</button></li>
+    <li><button class="option" data-key="mem">It needs more memory than marginalizing</button></li>
+    <li><button class="option" data-key="sym">It makes H no longer symmetric</button></li>
+    <li><button class="option" data-key="imu">It removes the IMU factor entirely</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Fixing ignores the old state's uncertainty and its coupling to the survivors, so the answer is biased and overconfident:
+    information 3 instead of 2 in the toy example. glass-core's test calls it "the freeze".</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="drop">
+  <p class="q">What does glass-vio's keyframe window do with its oldest keyframe today?</p>
+  <ol class="options">
+    <li><button class="option" data-key="marg">Marginalizes it into a Schur prior</button></li>
+    <li><button class="option" data-key="drop">Drops it and fixes an anchor</button></li>
+    <li><button class="option" data-key="keep">Keeps it forever in the window</button></li>
+    <li><button class="option" data-key="graph">Converts it into a pose graph</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p><code>pop_front()</code>, as ORB-SLAM3 does. Marginalizing it into a prior is glass-vio's planned "Stage B", with the kernel
+    already in glass-core.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="rk">
+  <p class="q"><em>From lesson 3.</em> Why does naive IMU integration have to be redone whenever the solver moves \(\mathbf{R}_i\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="rk">Every sample's world rotation needs it</button></li>
+    <li><button class="option" data-key="grav">Gravity changes on every solver iteration</button></li>
+    <li><button class="option" data-key="bias">The biases reset on every iteration</button></li>
+    <li><button class="option" data-key="noise">The noise is resampled each time</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Each sample is rotated into the world by \(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\). That's the same "re-linearise the past"
+    cost this lesson is about, and preintegration is how a window avoids paying it per sample.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the Schur-complement marginalization of \(m\) from \([m;\ k]\), both \(\mathbf{H}'\) and
+  \(\mathbf{b}'\). Then say in one line each what a filter, a sliding window and glass-lio do with the past.</p>
+  <textarea placeholder="H' = ...   b' = ...&#10;filter: ...   window: ...   glass-lio: ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \begin{aligned}
+    \mathbf{H}' &= \mathbf{H}_{kk} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{H}_{mk}\\
+    \mathbf{b}' &= \mathbf{b}_{k} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{b}_{m}
+    \end{aligned} $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{H}_{mm}^{-1}\) sandwiched between the coupling blocks</li>
+      <li>The same correction applied to \(\mathbf{b}\)</li>
+      <li>Filter: marginalizes every step, keeps the current state and \(\mathbf{P}\)</li>
+      <li>Window: keeps \(N\) states; marginalizes (VINS-Mono) or drops (glass-vio) the oldest</li>
+      <li>glass-lio: holds \(\mathbf{x}_i\) fixed, carries its covariance forward</li>
+    </ul>
+    <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Strasdat, Montiel &amp; Davison, <a href="https://www.doc.ic.ac.uk/~ajd/Publications/strasdat_etal_ivc2012.pdf"><em>Visual SLAM:
+  Why Filter?</em></a>, Image and Vision Computing, 2012 (authors' PDF). <strong>Read the abstract, the introduction, and §8,
+  the Conclusion</strong>; skim the experiments for how they measure accuracy per unit of compute. Then read VINS-Mono's
+  Marginalization subsection (<a href="https://arxiv.org/abs/1708.03852">arXiv:1708.03852</a>) to see a marginalizing window built
+  for real.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Questions like "why is marginalizing the same as solving the top row and
+  substituting?", "what would glass-lio need to become a filter?" or "why does a wrong marginalization inject information?"
+  are exactly what it's for. Tell it how the warm-up and the recall box went. Terms follow the
+  <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0007-planes-and-degeneracy.html">← Lesson 7: Planes and degeneracy</a>
+  <a href="../reference/filter-window-or-factor.html">Reference card: filter, window, or factor →</a>
+  <a href="0009-the-tight-solve-end-to-end.html">Next: lesson 9, the tight solve end to end →</a>
+</nav>
+
+</main>
+</body>
+</html>

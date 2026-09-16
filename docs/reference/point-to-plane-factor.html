@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Point-to-plane factor · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0006-the-point-to-plane-factor.html">Lesson 6</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 6</p>
+  <h1>Point-to-plane factor</h1>
+  <p class="subtitle">One residual per laser return, its Jacobian, and how thousands of them build one linear system.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">Warm-up, from memory</p>
+<div class="eq">$$ \mathbf{R}(t+\Delta t) = \mathbf{R}(t)\,\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}} - \mathbf{b}^{g})\,\Delta t\big) $$</div>
+<p class="label">The residual</p>
+<div class="eq">$$ r(\mathbf{T}) = \mathbf{n}^{\top}(\mathbf{T}\mathbf{p} - \mathbf{c}) = \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c}) $$</div>
+<p class="label">Derive the Jacobian</p>
+<div class="eq">$$ \begin{aligned}
+r(\boldsymbol{\xi}) &\approx \mathbf{n}^{\top}(\mathbf{q} + \boldsymbol{\rho} + \boldsymbol{\phi}\times\mathbf{q} - \mathbf{c})\\
+&= r + \mathbf{n}^{\top}\boldsymbol{\rho} + \mathbf{n}^{\top}(\boldsymbol{\phi}\times\mathbf{q})\\
+&= r + \mathbf{n}^{\top}\boldsymbol{\rho} + (\mathbf{q}\times\mathbf{n})^{\top}\boldsymbol{\phi}
+\end{aligned} $$</div>
+<div class="eq">$$ \mathbf{J} = \frac{\partial r}{\partial\boldsymbol{\xi}} = \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix} $$</div>
+<p class="label">The build</p>
+<div class="eq">$$ \begin{aligned}
+\mathbf{H} &\leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J}\\
+\mathbf{b} &\leftarrow \mathbf{b} - w\,\mathbf{J}^{\top} r
+\end{aligned} $$</div>
+<p class="label">Same residual, different derivative</p>
+<div class="eq">$$ \begin{aligned}
+\partial r/\partial\delta\boldsymbol{\phi} &= -\mathbf{n}^{\top}\mathbf{R}\,\mathbf{p}^{\wedge}\\
+\partial r/\partial\delta\mathbf{p} &= \mathbf{n}^{\top}\\
+\partial r/\partial(\mathbf{v}, \mathbf{b}^{g}, \mathbf{b}^{a}) &= \mathbf{0}
+\end{aligned} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ \begin{aligned}
+    r &= \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c}), \quad \mathbf{q} = \mathbf{T}\mathbf{p}\\
+    \mathbf{J} &= \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix}\\
+    \mathbf{H} &\leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J}, \qquad \mathbf{b} \leftarrow \mathbf{b} - w\,\mathbf{J}^{\top}r
+    \end{aligned} $$</div>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>"Each LiDAR point, moved into the world by the current pose, \(\mathbf{q} = \mathbf{T}\mathbf{p}\), gives one
+  scalar residual: its signed distance to the matched plane, \(r = \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c})\).
+  Point-to-plane lets points slide along the surface, which is right, because a LiDAR never re-hits the same
+  points. With a left perturbation \(\mathbf{T}\leftarrow\mathrm{Exp}(\boldsymbol{\xi})\mathbf{T}\), first order
+  gives \(r + \mathbf{n}^{\top}\boldsymbol{\rho} + (\mathbf{q}\times\mathbf{n})^{\top}\boldsymbol{\phi}\), so
+  \(\mathbf{J} = [\mathbf{n}^{\top},\ (\mathbf{q}\times\mathbf{n})^{\top}]\). Each correspondence adds
+  \(w\mathbf{J}^{\top}\mathbf{J}\) to \(\mathbf{H}\) and \(-w\mathbf{J}^{\top}r\) to \(\mathbf{b}\); solve, retract with
+  \(\mathrm{Exp}\) on the left, re-associate, repeat. The tight solve differentiates the same residual for a
+  right perturbation, whitens it by the LiDAR's noise, and its velocity and bias columns are zero."</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0006-the-point-to-plane-factor.html">← Lesson 6: The point-to-plane factor</a>
+  <a href="planes-and-degeneracy.html">Next card: Planes and degeneracy →</a>
+</nav>
+</main>
+</body>
+</html>

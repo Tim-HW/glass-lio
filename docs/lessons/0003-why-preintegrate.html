@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why preintegrate · Lesson 3</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 3 · Inertial state estimation · about 15 minutes</p>
+  <h1>Why preintegrate</h1>
+  <p class="subtitle">From eq. (31) iterated, to three deltas that never need re-integrating.</p>
+</header>
+
+<article>
+
+<p class="lede">You already know <em>what</em> preintegration is for. This lesson is the derivation
+behind that sentence: one substitution and one multiplication turn Forster's eq.&nbsp;(32) into
+eq.&nbsp;(33), the preintegrated deltas \(\Delta\mathbf{R}_{ij}\), \(\Delta\mathbf{v}_{ij}\),
+\(\Delta\mathbf{p}_{ij}\). It's the core of the mission's first goal: deriving them from
+memory.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>One retrieval from lesson 2, the line this lesson iterates. If you're doing this in the same
+sitting as lesson 2, do this box again tomorrow too: it only tests memory after a gap.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the velocity line of eq.&nbsp;(31), with noise dropped.</p>
+  <textarea placeholder="v(t+dt) = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \mathbf{v}(t+\Delta t) = \mathbf{v}(t) + \mathbf{g}\,\Delta t + \mathbf{R}(t)\,(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{g}\,\Delta t\), unrotated</li>
+      <li>\(\mathbf{R}(t)\), from the step's start</li>
+      <li>\((\tilde{\mathbf{a}} - \mathbf{b}^{a})\), the bias-corrected <a href="../glossary.html#specific-force">specific force</a></li>
+    </ul>
+  </div>
+</div>
+
+<h2>1 · Iterate one step, many times</h2>
+
+<p>Between two keyframes \(i\) and \(j\) there are many IMU samples \(k\). Apply eq.&nbsp;(31) to
+each in turn and the steps stack up:<span class="sidenote">Forster et al.,
+<a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration…</em></a>, §VI,
+eq.&nbsp;(32), plus a matching sum for position. Noise is dropped here, and the bias is taken as
+constant between keyframes, as Forster assumes in eq.&nbsp;(34).</span></p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}_j &= \mathbf{R}_i \prod_{k=i}^{j-1} \mathrm{Exp}\big((\tilde{\boldsymbol{\omega}}_k - \mathbf{b}^{g})\,\Delta t\big)\\
+\mathbf{v}_j &= \mathbf{v}_i + \mathbf{g}\,\Delta t_{ij} + \sum_{k=i}^{j-1} \mathbf{R}_k\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t
+\end{aligned} \tag{32} $$</div>
+
+<p>Here \(\Delta t_{ij}\) is the total time from \(i\) to \(j\). Gravity sums to a single
+\(\mathbf{g}\,\Delta t_{ij}\), because it's the same constant at every step.</p>
+
+<h2>2 · The problem</h2>
+
+<p>Look at \(\mathbf{R}_k\) inside the sum. That's the <em>world</em> orientation at sample \(k\),
+and it's built on top of \(\mathbf{R}_i\). So every term in eq.&nbsp;(32) depends on the state at
+keyframe \(i\). Forster says it directly: "a change in the rotation \(\mathbf{R}_i\) implies a
+change in all future rotations \(\mathbf{R}_k\)", so the whole integration has to be redone
+whenever the linearization point at \(t_i\) moves.<span class="sidenote">Forster §VI, the
+paragraph after eq.&nbsp;(32).</span></p>
+
+<p>Inside an optimizer, the estimate of \(\mathbf{R}_i\) moves every iteration. glass-core's own
+header puts the cost bluntly: "every one of those hundreds of samples must be re-integrated.
+Inside an iterative solve that is ruinous."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/preintegration.hpp#L13-L18"><code>preintegration.hpp</code>,
+lines 13–18</a>.</span></p>
+
+<h2>3 · The move</h2>
+
+<p>Split each world orientation into "keyframe \(i\)" times "the rotation since \(i\)":
+\(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\). The rotation since \(i\),
+\(\Delta\mathbf{R}_{ik}\), is just the product of gyro steps, so it depends only on measurements.
+Now pull \(\mathbf{R}_i\) out of the sum and multiply both sides by \(\mathbf{R}_i^{\top}\):</p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij} &= \mathbf{R}_i \sum_{k=i}^{j-1} \Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\\
+\mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) &= \sum_{k=i}^{j-1} \Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t
+\end{aligned} $$</div>
+
+<p>Now look at what sits on each side:</p>
+<ul>
+  <li><strong>Left:</strong> only states (\(\mathbf{R}_i, \mathbf{v}_i, \mathbf{v}_j\)) and gravity. It's cheap to re-evaluate every iteration.</li>
+  <li><strong>Right:</strong> only IMU measurements and the bias. No \(\mathbf{R}_i\) anywhere, so moving \(\mathbf{R}_i\) can't change it. Integrate it <em>once</em> per interval.</li>
+</ul>
+<p>That right-hand side is what gets called \(\Delta\mathbf{v}_{ij}\). The same move gives
+\(\Delta\mathbf{R}_{ij}\) and \(\Delta\mathbf{p}_{ij}\).</p>
+
+<h2>4 · The three deltas</h2>
+
+<div class="eq">$$ \begin{aligned}
+\Delta\mathbf{R}_{ij} &\doteq \mathbf{R}_i^{\top}\mathbf{R}_j = \prod_{k=i}^{j-1} \mathrm{Exp}\big((\tilde{\boldsymbol{\omega}}_k - \mathbf{b}^{g})\,\Delta t\big)\\
+\Delta\mathbf{v}_{ij} &\doteq \mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij})\\
+&= \sum_{k=i}^{j-1} \Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\\
+\Delta\mathbf{p}_{ij} &\doteq \mathbf{R}_i^{\top}\big(\mathbf{p}_j - \mathbf{p}_i - \mathbf{v}_i\,\Delta t_{ij} - \tfrac{1}{2}\mathbf{g}\,\Delta t_{ij}^{2}\big)\\
+&= \sum_{k=i}^{j-1} \Big[\Delta\mathbf{v}_{ik}\,\Delta t + \tfrac{1}{2}\,\Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t^{2}\Big]
+\end{aligned} \tag{33} $$</div>
+
+<p>Each line reads as "state side \(\doteq\) measurement side".<span class="sidenote">Forster §VI,
+eq.&nbsp;(33). He also warns that, unlike \(\Delta\mathbf{R}_{ij}\), "neither \(\Delta\mathbf{v}_{ij}\)
+nor \(\Delta\mathbf{p}_{ij}\) correspond to the true physical change in velocity and position".
+They're defined to make the right-hand side independent of the state at \(i\) and of gravity.</span>
+Gravity always ends up on the state side, where \(\mathbf{R}_i\) is already in hand. Inside the
+sums it would have to be expressed in frame \(i\), which would bring \(\mathbf{R}_i\) straight
+back.</p>
+
+<h2>5 · Where this lives in glass-core</h2>
+
+<p>The preintegration header states exactly these three sums:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/preintegration.hpp#L25-L31"><code>preintegration.hpp</code>,
+lines 25–31</a>, which go on: "Gravity is deliberately NOT integrated here… Folding it in would
+re-introduce the dependence on R_i we just worked to remove."</span></p>
+
+<pre><code>///     dR_ij = prod Exp( (w_k - b_g) dt )
+///     dv_ij = sum  dR_ik (a_k - b_a) dt
+///     dp_ij = sum  [ dv_ik dt + 1/2 dR_ik (a_k - b_a) dt^2 ]</code></pre>
+
+<p>The loop you saw in <a href="0002-integrating-one-imu-step.html">lesson 2</a> is these sums,
+accumulated one sample at a time. The residual then compares the two sides of eq.&nbsp;(33):<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L27-L43"><code>nav_residual.hpp</code>,
+lines 27–43</a>: "Read each as 'what the STATE says happened' minus 'what the IMU says happened'.
+Zero when they agree."</span></p>
+
+<pre><code>///     r_dR = Log( dR_hat^T * R_i^T R_j )
+///     r_dv = R_i^T (v_j - v_i - g dt)                 - dv_hat
+///     r_dp = R_i^T (p_j - p_i - v_i dt - 1/2 g dt^2)  - dp_hat</code></pre>
+
+<p>Notice the <code>_hat</code>. The deltas still depend on the bias, and the bias is a state the
+solver moves too. How glass-core avoids re-integrating when <em>that</em> changes is lesson 4.</p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"Iterating the IMU from \(i\) to \(j\) puts \(\mathbf{R}_i\) inside every term, so each time the
+  optimizer moves \(\mathbf{R}_i\) you'd re-integrate hundreds of samples. Preintegration writes
+  \(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\), pulls \(\mathbf{R}_i\) out of the sums, and
+  moves the states and gravity to the other side. What's left, \(\Delta\mathbf{R}_{ij}\),
+  \(\Delta\mathbf{v}_{ij}\) and \(\Delta\mathbf{p}_{ij}\), depends only on the IMU measurements and the
+  bias. So it's integrated once, and the residual just compares it with the states."</p>
+</div>
+
+<h2>6 · Practice</h2>
+
+<p>From memory, no scrolling. The last two questions come from lessons 2 and 1.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="rk">
+  <p class="q">Why does eq.&nbsp;(32) have to be re-integrated whenever the optimizer changes \(\mathbf{R}_i\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="rk">Every sample's world rotation needs it</button></li>
+    <li><button class="option" data-key="grav">Gravity changes on every solver iteration</button></li>
+    <li><button class="option" data-key="bias">The biases reset on every iteration</button></li>
+    <li><button class="option" data-key="noise">The noise is resampled each time</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Each acceleration sample is rotated into the world by \(\mathbf{R}_k\), and
+    \(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\). Move \(\mathbf{R}_i\) and every term in (32) changes.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="sum">
+  <p class="q">In \(\mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) = \sum_k \Delta\mathbf{R}_{ik}(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\),
+  which side is computed once from the IMU and reused while the solver iterates?</p>
+  <ol class="options">
+    <li><button class="option" data-key="sum">the sum over IMU samples</button></li>
+    <li><button class="option" data-key="states">the difference of the states</button></li>
+    <li><button class="option" data-key="both">both sides, at every iteration</button></li>
+    <li><button class="option" data-key="neither">neither side; both get recomputed</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The sum uses only measurements and the bias, so it's integrated once. The state side is a
+    handful of terms, cheap to re-evaluate every iteration. That split <em>is</em> preintegration.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="orient">
+  <p class="q">Why does gravity sit on the state side of eq.&nbsp;(33), rather than inside the sums?</p>
+  <ol class="options">
+    <li><button class="option" data-key="orient">It would bring back the orientation</button></li>
+    <li><button class="option" data-key="small">It is negligible over short intervals</button></li>
+    <li><button class="option" data-key="accel">The accelerometer has already removed it</button></li>
+    <li><button class="option" data-key="sign">Its sign flips inside the sum</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Inside the sums, gravity would have to be expressed in frame \(i\), multiplied by
+    \(\mathbf{R}_i^{\top}\): the start orientation, straight back in. On the state side it costs
+    nothing, because \(\mathbf{R}_i\) is already there. glass-core's header says the same.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="grav">
+  <p class="q"><em>From lesson 2.</em> In the velocity line of eq.&nbsp;(31), which of these is added
+  <em>without</em> being rotated?</p>
+  <ol class="options">
+    <li><button class="option" data-key="grav">the gravity vector</button></li>
+    <li><button class="option" data-key="sf">the specific force</button></li>
+    <li><button class="option" data-key="bias">the accelerometer bias</button></li>
+    <li><button class="option" data-key="noise">the accelerometer noise</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Only \(\mathbf{g}\) is added unrotated. Bias and noise sit inside the bracket
+    \(\mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{ad})\), so they're
+    rotated along with the specific force.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="y">
+  <p class="q"><em>From lesson 1.</em> An IMU at rest is rolled so that its body \(y\) axis points
+  straight up. Ignoring bias and noise, what does its accelerometer read, as \((x, y, z)\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="y">[0, +9.81, 0]</button></li>
+    <li><button class="option" data-key="z">[0, 0, +9.81]</button></li>
+    <li><button class="option" data-key="ny">[0, −9.81, 0]</button></li>
+    <li><button class="option" data-key="nz">[0, 0, −9.81]</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>At rest it reads \(-\mathbf{R}^{\top}\mathbf{g}\): +9.81 along whichever
+    <a href="../glossary.html#body-frame">body-frame</a> axis points up, here \(y\).</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write \(\Delta\mathbf{v}_{ij}\) both ways, state side
+  \(=\) measurement side, with noise dropped. Then say in one sentence why the right-hand side never
+  needs recomputing when \(\mathbf{R}_i\) moves. <em>Stretch:</em> do the same for \(\Delta\mathbf{R}_{ij}\).</p>
+  <textarea placeholder="dv_ij = R_i^T ( ... ) = sum ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \Delta\mathbf{v}_{ij} = \mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) = \sum_{k=i}^{j-1} \Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t $$</div>
+    <div class="eq">$$ \Delta\mathbf{R}_{ij} = \mathbf{R}_i^{\top}\mathbf{R}_j = \prod_{k=i}^{j-1} \mathrm{Exp}\big((\tilde{\boldsymbol{\omega}}_k - \mathbf{b}^{g})\,\Delta t\big) $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{R}_i^{\top}\) in front of the state side</li>
+      <li>\(\mathbf{g}\,\Delta t_{ij}\) on the state side, not in the sum</li>
+      <li>\(\Delta\mathbf{R}_{ik}\), relative to \(i\), inside the sum, not \(\mathbf{R}_k\)</li>
+      <li>The sum uses only measurements and the bias</li>
+      <li>Why: no \(\mathbf{R}_i\) on the right, so moving it can't change the sum</li>
+    </ul>
+    <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Forster, Carlone, Dellaert &amp; Scaramuzza,
+  <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
+  Visual-Inertial Odometry</em></a>, IEEE T-RO. <strong>Read the start of §VI, from eq.&nbsp;(32)
+  through eq.&nbsp;(34).</strong> Stop at §VI-A, where the noise gets isolated: that comes later. Then
+  read glass-core's <a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/preintegration.hpp#L11-L37">preintegration.hpp
+  header</a>, which tells the same story in plain words.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Questions like "why is \(\Delta\mathbf{R}_{ij}\)
+  physical but \(\Delta\mathbf{v}_{ij}\) not?" or "where does \(\mathbf{v}_i\,\Delta t_{ij}\) in
+  \(\Delta\mathbf{p}_{ij}\) come from?" are exactly what it's for. Tell it how the warm-up and the
+  recall box went. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0002-integrating-one-imu-step.html">← Lesson 2: Integrating one IMU step</a>
+  <a href="../reference/imu-preintegration.html">Reference card: IMU preintegration →</a>
+  <a href="0004-the-bias-correction.html">Next: lesson 4, the bias correction →</a>
+</nav>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bias correction · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0004-the-bias-correction.html">Lesson 4</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 4</p>
+  <h1>Bias correction</h1>
+  <p class="subtitle">Why the deltas go stale when the bias moves, and the first-order fix.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">Warm-up, from memory</p>
+<div class="eq">$$ \Delta\mathbf{v}_{ij} = \sum_{k=i}^{j-1} \Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t $$</div>
+<p class="label">Correct to first order</p>
+<div class="eq">$$ \begin{aligned}
+\Delta\tilde{\mathbf{R}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{R}}_{ij}(\bar{\mathbf{b}})\,\mathrm{Exp}\big(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\big)\\
+\Delta\tilde{\mathbf{v}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{v}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{v}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{v}_{a}\,\delta\mathbf{b}^{a}\\
+\Delta\tilde{\mathbf{p}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{p}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{p}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{p}_{a}\,\delta\mathbf{b}^{a}
+\end{aligned} \tag{44} $$</div>
+<p class="label">Derive one Jacobian yourself</p>
+<div class="eq">$$ \begin{aligned}
+\Delta\bar{\mathbf{v}}_{ij} &= \sum_{k=i}^{j-1} \Delta\bar{\mathbf{R}}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\\
+\Longrightarrow\quad \mathbf{J}^{v}_{a} = \frac{\partial\Delta\bar{\mathbf{v}}_{ij}}{\partial\mathbf{b}^{a}} &= -\sum_{k=i}^{j-1} \Delta\bar{\mathbf{R}}_{ik}\,\Delta t
+\end{aligned} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ \begin{aligned}
+    \Delta\tilde{\mathbf{R}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{R}}_{ij}(\bar{\mathbf{b}})\,\mathrm{Exp}\big(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\big)\\
+    \Delta\tilde{\mathbf{v}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{v}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{v}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{v}_{a}\,\delta\mathbf{b}^{a}\\
+    \Delta\tilde{\mathbf{p}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{p}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{p}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{p}_{a}\,\delta\mathbf{b}^{a}
+    \end{aligned} $$</div>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>"The preintegrated deltas depend on the bias they were integrated with, and the solver keeps
+  moving the bias. Rather than re-integrating, I also accumulate each delta's Jacobian with respect to
+  the biases during preintegration. Then, for a bias offset \(\delta\mathbf{b}\), \(\Delta\mathbf{v}\) and
+  \(\Delta\mathbf{p}\) get a linear correction, and \(\Delta\mathbf{R}\) is right-multiplied by the
+  \(\mathrm{Exp}\) of its Jacobian times \(\delta\mathbf{b}^{g}\), because rotations don't add. The
+  Jacobians are fixed at the integration bias, so it's cheap; if the bias drifts far, you
+  re-integrate."</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0004-the-bias-correction.html">← Lesson 4: The bias correction</a>
+  <a href="imu-preintegration-covariance.html">Next card: Preintegration covariance →</a>
+</nav>
+</main>
+</body>
+</html>

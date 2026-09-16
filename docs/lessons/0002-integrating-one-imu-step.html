@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integrating one IMU step · Lesson 2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 2 · Inertial state estimation · about 15 minutes</p>
+  <h1>Integrating one IMU step</h1>
+  <p class="subtitle">Where gravity comes back in, and the update-order trap.</p>
+</header>
+
+<article>
+
+<p class="lede">Lesson 1 ended on a question. glass-core's <code>integrate()</code> subtracts the
+biases but never touches gravity, so where does \(\mathbf{g}\) come back? This lesson answers it
+by building Forster's eq.&nbsp;(31): the update that turns one IMU sample into a change of
+orientation, velocity and position. If an interviewer says "integrate this IMU sample", this is
+what you write first.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>Before anything new, one retrieval from last time. Don't open lesson 1.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write eq.&nbsp;(28), the accelerometer's
+  <a href="../glossary.html#measurement-model">measurement model</a>.</p>
+  <textarea placeholder="e.g. a~ = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ {}_{B}\tilde{\mathbf{a}} = \mathbf{R}_{WB}^{\top}\big({}_{W}\mathbf{a} - {}_{W}\mathbf{g}\big) + \mathbf{b}^{a} + \boldsymbol{\eta}^{a} $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{R}_{WB}^{\top}\) in front of the bracket</li>
+      <li>\(\mathbf{a} - \mathbf{g}\) inside it, in \(W\)</li>
+      <li>Bias and noise outside it, in \(B\)</li>
+    </ul>
+    <p>Keep it in view: in section 3 you'll solve this equation for \(\mathbf{a}\).</p>
+  </div>
+</div>
+
+<h2>1 · How the state moves</h2>
+
+<p>Forster writes the kinematics of orientation, velocity and position like this:<span class="sidenote">Forster
+et al., <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration…</em></a>, §V,
+eq.&nbsp;(29). The hat \((\cdot)^{\wedge}\) turns a 3-vector into its skew-symmetric matrix (§III-A).</span></p>
+
+<div class="eq">$$ \dot{\mathbf{R}}_{WB} = \mathbf{R}_{WB}\;{}_{B}\boldsymbol{\omega}_{WB}^{\wedge}, \qquad {}_{W}\dot{\mathbf{v}} = {}_{W}\mathbf{a}, \qquad {}_{W}\dot{\mathbf{p}} = {}_{W}\mathbf{v} \tag{29} $$</div>
+
+<p>Velocity and position live in the world frame and are plain calculus. The rotation equation
+is the interesting one: the angular rate is measured in the <em>body frame</em>, so it multiplies
+\(\mathbf{R}_{WB}\) <em>on the right</em>.</p>
+
+<h2>2 · Hold everything constant for one step</h2>
+
+<p>An IMU samples every \(\Delta t\). Assume \(\boldsymbol{\omega}\) and \(\mathbf{a}\) stay
+constant across one sample interval, and eq.&nbsp;(29) integrates in closed form:<span class="sidenote">Forster
+§V, eq.&nbsp;(30).</span></p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}(t+\Delta t) &= \mathbf{R}(t)\,\mathrm{Exp}\big(\boldsymbol{\omega}(t)\,\Delta t\big)\\
+\mathbf{v}(t+\Delta t) &= \mathbf{v}(t) + \mathbf{a}(t)\,\Delta t\\
+\mathbf{p}(t+\Delta t) &= \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\,\mathbf{a}(t)\,\Delta t^{2}
+\end{aligned} \tag{30} $$</div>
+
+<p>The last two lines are the constant-acceleration formulas from school physics. The first
+uses \(\mathrm{Exp}(\boldsymbol{\phi}) = \exp(\boldsymbol{\phi}^{\wedge})\), which turns a
+<em>rotation vector</em> (axis times angle) into a rotation matrix.<span class="sidenote">Forster
+eq.&nbsp;(6). For the Lie-theory side, see Solà, Deray &amp; Atchuthan,
+<a href="https://arxiv.org/abs/1812.01537"><em>A micro Lie theory for state estimation in
+robotics</em></a>.</span> Here \(\boldsymbol{\omega}\,\Delta t\) is the small rotation the body
+turned through in one step. Multiplying on the right applies it in the body frame, where the
+gyroscope measured it.</p>
+
+<h2>3 · Put the IMU in: gravity comes back</h2>
+
+<p>Eq.&nbsp;(30) needs the <em>true</em> \(\boldsymbol{\omega}\) and \(\mathbf{a}\), but the IMU
+only gives measurements. So invert eqs.&nbsp;(27) and (28). The gyroscope is one subtraction.
+The accelerometer takes three short steps:</p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}^{\top}(\mathbf{a} - \mathbf{g}) &= \tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{a}\\
+\Longrightarrow\quad \mathbf{a} - \mathbf{g} &= \mathbf{R}\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{a})\\
+\Longrightarrow\quad \mathbf{a} &= \mathbf{R}\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{a}) + \mathbf{g}
+\end{aligned} $$</div>
+
+<p>The middle step multiplies both sides by \(\mathbf{R}\), using \(\mathbf{R}\mathbf{R}^{\top} = \mathbf{I}\).
+That answers lesson 1's question: <strong>gravity comes back here, outside \(\mathbf{R}\)</strong>.
+\(\mathbf{R}\) carries the bias-corrected <a href="../glossary.html#specific-force">specific force</a> out of the body
+frame into the world, and gravity was never in the body frame, so there's nothing to rotate.</p>
+
+<p>Substitute both into eq.&nbsp;(30) and you get Forster's discrete-time IMU update:<span class="sidenote">Forster
+§V, eq.&nbsp;(31). The superscript \(d\) marks <em>discrete-time</em> noise: over one step,
+\(\mathrm{Cov}(\boldsymbol{\eta}^{gd}) = \mathrm{Cov}(\boldsymbol{\eta}^{g})/\Delta t\). glass-core
+builds exactly that, \(\sigma^2/\Delta t\), in <a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L59-L66"><code>preintegration.cpp</code>,
+lines 59–66</a>.</span></p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{R}(t+\Delta t) &= \mathbf{R}(t)\,\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}} - \mathbf{b}^{g} - \boldsymbol{\eta}^{gd})\,\Delta t\big)\\
+\mathbf{v}(t+\Delta t) &= \mathbf{v}(t) + \mathbf{g}\,\Delta t + \mathbf{R}(t)\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{ad})\,\Delta t\\
+\mathbf{p}(t+\Delta t) &= \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\,\mathbf{g}\,\Delta t^{2}\\
+&\quad + \tfrac{1}{2}\,\mathbf{R}(t)\,(\tilde{\mathbf{a}} - \mathbf{b}^{a} - \boldsymbol{\eta}^{ad})\,\Delta t^{2}
+\end{aligned} \tag{31} $$</div>
+
+<p>The measurements, biases and noise are all taken at time \(t\): Forster writes the \((t)\)
+out, and it's dropped here to fit the page. Read it term by term: gravity appears as \(\mathbf{g}\,\Delta t\) and
+\(\tfrac{1}{2}\mathbf{g}\,\Delta t^{2}\), unrotated, because it's a constant world-frame
+acceleration. The IMU's contribution is rotated by \(\mathbf{R}(t)\).<span class="sidenote">Holding
+\(\mathbf{R}(t)\) fixed across the step is not exact while the IMU rotates. Forster notes that a
+high-rate IMU keeps the error small, and that slower IMUs may call for higher-order integration
+(§V).</span></p>
+
+<h2>4 · The update-order trap</h2>
+
+<p>Look at what sits on the right-hand side of eq.&nbsp;(31): everything is at time \(t\), the
+<em>start</em> of the step. Velocity and position both use \(\mathbf{R}(t)\), not the rotation
+you've just computed, and position uses \(\mathbf{v}(t)\), not the new velocity. In code, that
+forces the order: position first, then velocity, rotation last.</p>
+
+<p>glass-core does exactly this.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L85-L90"><code>preintegration.cpp</code>,
+lines 85–90</a>. Its comment: "Update dR first and you have integrated position with the wrong
+orientation." And on the last line: "compose ON the manifold, on the RIGHT (body-frame increment)".</span> Here \(\mathbf{R}(t)\) becomes <code>dR_</code>, the orientation relative to
+the start of the preintegration window, and \(\mathbf{g}\) is left out:</p>
+
+<pre><code>dp_ += dv_ * dt + 0.5 * dR_mat * a * dt * dt;
+dv_ += dR_mat * a * dt;
+dR_ = dR_ * dRk;</code></pre>
+
+<h2>5 · Where glass-core puts gravity back</h2>
+
+<p>The deltas are gravity-free, so gravity has to return somewhere. It comes back once, over the
+whole interval, in <code>predictState()</code>:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L152-L162"><code>nav_residual.hpp</code>,
+lines 152–162</a>.</span></p>
+
+<pre><code>xj.R = xi.R * pre.dR();
+xj.v = xi.v + gravity * dt + xi.R * pre.dv();
+xj.p = xi.p + xi.v * dt + 0.5 * gravity * dt * dt + xi.R * pre.dp();</code></pre>
+
+<p>It's the same shape as eq.&nbsp;(31): gravity unrotated in the world frame, and the IMU part
+rotated by the orientation at the start, <code>xi.R</code>. The code's comment says why gravity
+was kept out of the deltas: "so the deltas would not depend on xi". Why that matters is
+lesson 3.</p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"For one IMU step, orientation is right-multiplied by the Exp of the bias-corrected gyro
+  times \(\Delta t\), because the rate is in the body frame. For velocity and position, I rotate
+  the bias-corrected specific force into the world with the orientation at the start of the step,
+  then add gravity back unrotated, because gravity lives in the world frame. Everything on the
+  right-hand side is at the start of the step, so in code I update position, then velocity, and
+  rotation last."</p>
+</div>
+
+<h2>6 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 1: mixing old and new
+material is what makes it stick.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="plus">
+  <p class="q">Solve eq.&nbsp;(28) for the true world acceleration \(\mathbf{a}\), ignoring
+  noise. Which is right?</p>
+  <ol class="options">
+    <li><button class="option" data-key="plus">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
+    <li><button class="option" data-key="minus">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) - \mathbf{g}\)</button></li>
+    <li><button class="option" data-key="transpose">\(\mathbf{a} = \mathbf{R}^{\top}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
+    <li><button class="option" data-key="bias">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} + \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Subtract the bias, multiply by \(\mathbf{R}\) to leave the body frame (since
+    \(\mathbf{R}\mathbf{R}^{\top} = \mathbf{I}\)), then add \(\mathbf{g}\) to both sides.
+    \(\mathbf{R}^{\top}\) would take you <em>into</em> the body frame, the wrong direction.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="world">
+  <p class="q">In the velocity line of eq.&nbsp;(31), why isn't \(\mathbf{g}\) multiplied by \(\mathbf{R}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="world">Gravity is already in the world</button></li>
+    <li><button class="option" data-key="small">Gravity is too small to rotate</button></li>
+    <li><button class="option" data-key="bias">The bias already cancels the gravity</button></li>
+    <li><button class="option" data-key="later">R is applied only to position</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{R}\)'s job is to carry the body-frame specific force into the world. Gravity is a
+    world-frame vector and never lived in the body frame, so there's nothing to rotate.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="start">
+  <p class="q">In eq.&nbsp;(31), and in glass-core's <code>integrate()</code>, which orientation
+  multiplies the specific force in the velocity and position updates?</p>
+  <ol class="options">
+    <li><button class="option" data-key="start">the orientation at the step's start</button></li>
+    <li><button class="option" data-key="end">the orientation at the step's end</button></li>
+    <li><button class="option" data-key="avg">the average of start and end</button></li>
+    <li><button class="option" data-key="next">the orientation from the next keyframe</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Everything on the right-hand side of (31) is at time \(t\). That's why the code updates
+    position, then velocity, then rotation last. Averaging start and end (a midpoint scheme) is a
+    legitimate higher-order method, but it isn't what (31) or <code>integrate()</code> do.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="body">
+  <p class="q">Why does the rotation update right-multiply, \(\mathbf{R}(t)\,\mathrm{Exp}(\boldsymbol{\omega}\Delta t)\),
+  rather than \(\mathrm{Exp}(\boldsymbol{\omega}\Delta t)\,\mathbf{R}(t)\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="body">The gyro rate is body-frame</button></li>
+    <li><button class="option" data-key="commute">Matrix products always commute here</button></li>
+    <li><button class="option" data-key="gravity">Gravity must be applied first</button></li>
+    <li><button class="option" data-key="unstable">The left side is unstable</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>In eq.&nbsp;(29) the rate multiplies \(\mathbf{R}\) on the right because \(\boldsymbol{\omega}\)
+    is measured in \(B\). Left-multiplying would apply the step in the world frame instead: in general
+    a different rotation, since \(\mathrm{Exp}(\boldsymbol{\phi})\mathbf{R} = \mathbf{R}\,\mathrm{Exp}(\mathbf{R}^{\top}\boldsymbol{\phi})\)
+    (Forster eq.&nbsp;11).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="twice">
+  <p class="q"><em>From lesson 1.</em> A level IMU accelerates straight up at 1&nbsp;g. What does
+  its \(z\) axis read?</p>
+  <ol class="options">
+    <li><button class="option" data-key="twice">+19.6 m/s²</button></li>
+    <li><button class="option" data-key="up">+9.81 m/s²</button></li>
+    <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
+    <li><button class="option" data-key="down">−9.81 m/s²</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{a} = [0,0,+9.81]\) and \(\mathbf{g} = [0,0,-9.81]\), so
+    \(\mathbf{a} - \mathbf{g} = [0,0,+19.62]\). The sensor feels 2&nbsp;g: the floor pushing twice
+    as hard as at rest.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the three lines of eq.&nbsp;(31), bias-corrected,
+  with the noise dropped. Then say the whiteboard sentence out loud.</p>
+  <textarea placeholder="R(t+dt) = ...&#10;v(t+dt) = ...&#10;p(t+dt) = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \begin{aligned}
+    \mathbf{R}(t+\Delta t) &= \mathbf{R}(t)\,\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}} - \mathbf{b}^{g})\,\Delta t\big)\\
+    \mathbf{v}(t+\Delta t) &= \mathbf{v}(t) + \mathbf{g}\,\Delta t + \mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t\\
+    \mathbf{p}(t+\Delta t) &= \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\mathbf{g}\,\Delta t^{2}\\
+    &\quad + \tfrac{1}{2}\mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t^{2}
+    \end{aligned} $$</div>
+    <ul class="checklist">
+      <li>\(\mathrm{Exp}\) of the bias-corrected gyro times \(\Delta t\), on the right</li>
+      <li>\(\mathbf{g}\,\Delta t\) and \(\tfrac{1}{2}\mathbf{g}\,\Delta t^{2}\), never rotated</li>
+      <li>\(\mathbf{R}(t)\), the step's start, in front of \((\tilde{\mathbf{a}} - \mathbf{b}^{a})\) in both</li>
+      <li>The old velocity \(\mathbf{v}(t)\,\Delta t\) in the position line</li>
+      <li>\(\tfrac{1}{2}\) on both \(\Delta t^{2}\) terms</li>
+    </ul>
+    <p>Missed something? Try this box again in a couple of days, before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Forster, Carlone, Dellaert &amp; Scaramuzza,
+  <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
+  Visual-Inertial Odometry</em></a>, IEEE T-RO. <strong>Reread eqs.&nbsp;(29)–(31) with this lesson
+  in hand, then read eq.&nbsp;(32) and the paragraph under it.</strong> That paragraph explains why
+  iterating (31) between keyframes must be redone whenever the start orientation changes, which is
+  where lesson 3 begins.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Questions like "why is \(\boldsymbol{\omega}\,\Delta t\)
+  a rotation vector?" or "what would a midpoint scheme change?" are exactly what it's for. Tell it
+  how the warm-up and the recall box went, too. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0001-what-an-imu-actually-measures.html">← Lesson 1: What an IMU actually measures</a>
+  <a href="../reference/imu-motion-integration.html">Reference card: IMU motion integration →</a>
+  <a href="0003-why-preintegrate.html">Next: lesson 3, why preintegrate →</a>
+</nav>
+
+</main>
+</body>
+</html>

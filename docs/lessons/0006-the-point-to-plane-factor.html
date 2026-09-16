@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The point-to-plane factor · Lesson 6</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 6 · Inertial state estimation · about 15 minutes</p>
+  <h1>The point-to-plane factor</h1>
+  <p class="subtitle">One residual per laser return, its Jacobian, and how thousands of them build one linear system.</p>
+</header>
+
+<article>
+
+<p class="lede">Lessons 3–5 built the IMU's half of glass-lio's solve. This is the other half: the
+LiDAR factor. Each laser return becomes one scalar residual, its distance to a plane in the map. By
+the end you should be able to derive that residual's 1×6 Jacobian at a whiteboard, and say exactly
+what one correspondence adds to the normal equations. It's the fifth success criterion in your
+mission: justify every term of glass-lio's tight coupling.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>From lesson 2, and it matters here: this lesson turns on <em>which side</em> a small rotation is
+applied on.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the rotation line of eq.&nbsp;(31). Which side does the
+  gyro increment multiply on, and why?</p>
+  <textarea placeholder="R(t+dt) = ...   (left or right? why?)"></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \mathbf{R}(t+\Delta t) = \mathbf{R}(t)\,\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}} - \mathbf{b}^{g})\,\Delta t\big) $$</div>
+    <ul class="checklist">
+      <li>\(\mathrm{Exp}\) of the bias-corrected gyro times \(\Delta t\)</li>
+      <li>On the <strong>right</strong>, because the gyro measures in the <a href="../glossary.html#body-frame">body frame</a></li>
+    </ul>
+    <p>Hold on to "the side is set by the frame the increment lives in". This lesson uses the other side.</p>
+  </div>
+</div>
+
+<h2>1 · The residual</h2>
+
+<p>Take a laser return \(\mathbf{p}\) in the sensor frame, move it into the world with the current pose,
+\(\mathbf{q} = \mathbf{T}\mathbf{p}\), and match it to a plane in the map with centroid \(\mathbf{c}\) and unit
+normal \(\mathbf{n}\). The residual is the point's signed distance to that plane:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/registration.hpp#L62-L74"><code>registration.hpp</code>,
+lines 62–74</a>. Where \(\mathbf{c}\) and \(\mathbf{n}\) come from, a plane fitted per map voxel, is lesson 7.</span></p>
+
+<div class="eq">$$ r(\mathbf{T}) = \mathbf{n}^{\top}(\mathbf{T}\mathbf{p} - \mathbf{c}) = \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c}) $$</div>
+
+<p>Why a plane, not the nearest point? glass-lio's comment says it best: "a LiDAR never re-samples
+the same physical points, it hits the same <em>surface</em> in different spots. Penalising only the
+distance ALONG the normal lets points slide freely ACROSS the surface." Low's classic note adds that
+the point-to-plane metric "has been shown to converge much faster than one that uses the
+point-to-point error metric".<span class="sidenote">Low,
+<a href="https://www.comp.nus.edu.sg/~lowkl/publications/lowk_point-to-plane_icp_techrep.pdf"><em>Linear Least-Squares
+Optimization for Point-to-Plane ICP Surface Registration</em></a>, UNC TR04-004, 2004.</span> FAST-LIO2
+uses the same geometry: "a point is registered to a small local plane in the map".<span class="sidenote">Xu
+et al., <a href="https://arxiv.org/abs/2107.06829"><em>FAST-LIO2: Fast Direct LiDAR-inertial Odometry</em></a>,
+arXiv:2107.06829. It cites Low's note for this residual.</span></p>
+
+<h2>2 · Perturb on the left</h2>
+
+<p>glass-lio's loose path solves for the pose \(\mathbf{T}\in SE(3)\) with a <em>left</em> perturbation,
+\(\mathbf{T} \leftarrow \mathrm{Exp}(\boldsymbol{\xi})\,\mathbf{T}\), where \(\boldsymbol{\xi} = [\boldsymbol{\rho};\ \boldsymbol{\phi}]\)
+is translation then rotation. The warm-up's rule decides the side: this correction is expressed in the
+<em>world</em> frame, so it composes on the left, while the gyro's increment lives in the body frame and
+composes on the right. glass-core's solver header says "Same manifold, same Exp, opposite side.
+Swapping them silently produces an estimator that still runs, still converges, and is wrong."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/gauss_newton.hpp#L17-L29"><code>gauss_newton.hpp</code>,
+lines 17–29</a>. glass-lio's own derivation is in <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a>,
+§3.3–3.4.</span></p>
+
+<h2>3 · Derive the Jacobian</h2>
+
+<p>To first order a small rotation acts like a cross product, so
+\(\mathrm{Exp}(\boldsymbol{\xi})\,\mathbf{q} \approx \mathbf{q} + \boldsymbol{\rho} + \boldsymbol{\phi}\times\mathbf{q}\).
+Low does the same thing in Euler angles by "replacing sin θ by θ and cos θ by 1". Substitute into the
+residual:</p>
+
+<div class="eq">$$ \begin{aligned}
+r(\boldsymbol{\xi}) &\approx \mathbf{n}^{\top}(\mathbf{q} + \boldsymbol{\rho} + \boldsymbol{\phi}\times\mathbf{q} - \mathbf{c})\\
+&= r + \mathbf{n}^{\top}\boldsymbol{\rho} + \mathbf{n}^{\top}(\boldsymbol{\phi}\times\mathbf{q})\\
+&= r + \mathbf{n}^{\top}\boldsymbol{\rho} + (\mathbf{q}\times\mathbf{n})^{\top}\boldsymbol{\phi}
+\end{aligned} $$</div>
+
+<p>The last step is the scalar triple product, \(\mathbf{n}\cdot(\boldsymbol{\phi}\times\mathbf{q}) = \boldsymbol{\phi}\cdot(\mathbf{q}\times\mathbf{n})\).
+Read off the coefficients of \(\boldsymbol{\rho}\) and \(\boldsymbol{\phi}\):</p>
+
+<div class="eq">$$ \mathbf{J} = \frac{\partial r}{\partial\boldsymbol{\xi}} = \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix} $$</div>
+
+<p>In code, two lines:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/registration.hpp#L76-L96"><code>registration.hpp</code>,
+lines 76–96</a>. Its warning: "(q x n), NOT (n x q): swapping them flips the sign of every rotational
+update, and the solver will then walk away from the solution while still reporting a plausible residual."
+<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/test/test_jacobian.cpp#L58-L104"><code>test_jacobian.cpp</code></a> checks it against
+finite differences to 1e-7 over 500 trials, and proves the swapped version would be caught.</span></p>
+
+<pre><code>J.head&lt;3&gt;() = normal.transpose();
+J.tail&lt;3&gt;() = q.cross(normal).transpose();</code></pre>
+
+<h2>4 · The build</h2>
+
+<p>Gauss-Newton minimises \(\sum_i w_i\,(r_i + \mathbf{J}_i\boldsymbol{\xi})^2\). Setting the derivative to
+zero gives the normal equations \(\mathbf{H}\boldsymbol{\xi} = \mathbf{b}\), accumulated one correspondence
+at a time. Each one adds a rank-1, 6×6 term to \(\mathbf{H}\):</p>
+
+<div class="eq">$$ \begin{aligned}
+\mathbf{H} &\leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J}\\
+\mathbf{b} &\leftarrow \mathbf{b} - w\,\mathbf{J}^{\top} r
+\end{aligned} $$</div>
+
+<p>Here \(w\) is the Huber weight: 1 for small residuals, shrinking for big ones, so "a handful of gross
+residuals (a moving car, a wall seen for the first time)" can't dominate.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/gauss_newton.hpp#L31-L78"><code>gauss_newton.hpp</code>,
+lines 31–78</a>, and its comment on lines 59–61: "BOTH FOLD INTO THE SAME H AND b. That sum IS the sensor
+fusion." The IMU factor enters the same \(\mathbf{H}\) through <code>addBlock</code>.</span></p>
+
+<pre><code>const double w = huberWeight(r, huber_delta);
+H_.noalias() += w * J.transpose() * J;
+b_.noalias() -= w * J.transpose() * r;</code></pre>
+
+<p>Then solve and retract, on the left, with \(\mathrm{Exp}\), never by adding \(\boldsymbol{\xi}\) to the pose:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/gauss_newton.hpp#L172-L181"><code>gauss_newton.hpp</code>,
+lines 172–181</a>: "Never add xi to the state -- SE(3) is not a vector space."</span></p>
+
+<pre><code>const Eigen::Matrix&lt;double, 6, 1&gt; xi = eq.solve();
+T = Sophus::SE3d::exp(xi) * T;</code></pre>
+
+<p>Re-associate every point at the new pose and repeat: "that re-association IS the ICP loop".<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/registration.cpp#L38-L62"><code>registration.cpp</code>,
+lines 38–62</a>.</span> One thing to notice for lesson 7: \(\mathbf{H}\)'s translation block is
+\(\sum w\,\mathbf{n}\mathbf{n}^{\top}\). If every normal points the same way, that block is singular.</p>
+
+<h2>5 · Same residual, different derivative</h2>
+
+<p>The tight solve uses the <em>same</em> residual, but perturbs rotation on the right, like the IMU state
+(\(\mathbf{R}\leftarrow\mathbf{R}\,\mathrm{Exp}(\delta\boldsymbol{\phi})\)). With
+\(\mathbf{R}\,\mathrm{Exp}(\delta\boldsymbol{\phi})\,\mathbf{p} \approx \mathbf{R}\mathbf{p} - \mathbf{R}\,\mathbf{p}^{\wedge}\delta\boldsymbol{\phi}\):</p>
+
+<div class="eq">$$ \begin{aligned}
+\partial r/\partial\delta\boldsymbol{\phi} &= -\mathbf{n}^{\top}\mathbf{R}\,\mathbf{p}^{\wedge}\\
+\partial r/\partial\delta\mathbf{p} &= \mathbf{n}^{\top}\\
+\partial r/\partial(\mathbf{v}, \mathbf{b}^{g}, \mathbf{b}^{a}) &= \mathbf{0}
+\end{aligned} $$</div>
+
+<p>glass-core flags it in capitals, "THIS IS NOT THE SAME JACOBIAN AS pointToPlaneJacobian()", and notes
+that copying the left one in "still runs, still converges, and is wrong."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L275-L312"><code>nav_residual.hpp</code>,
+lines 275–312</a>.</span> Two more differences in the tight loop: each residual and its Jacobian are divided
+by <code>lidar_sigma</code>, giving each point an information of \(1/\sigma^{2}\), on the same footing as the
+IMU's \(\Sigma^{-1}\) from lesson 5; and the zero columns say something real, "The IMU is the only thing
+constraining them".<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L64-L91"><code>tight_registration.cpp</code>,
+lines 64–91</a>. The gravity columns are zero too: "a laser return sees the pose, not gravity".</span></p>
+
+<pre><code>J.block&lt;1, 3&gt;(0, kIdxPhi) =
+  -normal.transpose() * x.R.matrix() * Sophus::SO3d::hat(p_sensor);
+J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"Each LiDAR point, moved into the world by the current pose, \(\mathbf{q} = \mathbf{T}\mathbf{p}\), gives one
+  scalar residual: its signed distance to the matched plane, \(r = \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c})\).
+  Point-to-plane lets points slide along the surface, which is right, because a LiDAR never re-hits the same
+  points. With a left perturbation \(\mathbf{T}\leftarrow\mathrm{Exp}(\boldsymbol{\xi})\mathbf{T}\), first order
+  gives \(r + \mathbf{n}^{\top}\boldsymbol{\rho} + (\mathbf{q}\times\mathbf{n})^{\top}\boldsymbol{\phi}\), so
+  \(\mathbf{J} = [\mathbf{n}^{\top},\ (\mathbf{q}\times\mathbf{n})^{\top}]\). Each correspondence adds
+  \(w\mathbf{J}^{\top}\mathbf{J}\) to \(\mathbf{H}\) and \(-w\mathbf{J}^{\top}r\) to \(\mathbf{b}\); solve, retract with
+  \(\mathrm{Exp}\) on the left, re-associate, repeat. The tight solve differentiates the same residual for a
+  right perturbation, whitens it by the LiDAR's noise, and its velocity and bias columns are zero."</p>
+</div>
+
+<h2>6 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 5.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="slide">
+  <p class="q">Why point-to-plane rather than point-to-point?</p>
+  <ol class="options">
+    <li><button class="option" data-key="slide">Points can slide along the surface</button></li>
+    <li><button class="option" data-key="mem">Planes use less memory than points</button></li>
+    <li><button class="option" data-key="rot">Normals remove the need for rotation</button></li>
+    <li><button class="option" data-key="guess">It avoids needing any initial guess</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A LiDAR hits the same <em>surface</em> in different spots each scan, never the same points. Penalising only
+    the distance along the normal leaves points free to slide across the surface, which is also why it
+    converges faster (Low).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="qn">
+  <p class="q">Under the left perturbation \(\mathbf{T}\leftarrow\mathrm{Exp}(\boldsymbol{\xi})\mathbf{T}\), what is the
+  rotation block of \(\mathbf{J}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="qn">\((\mathbf{q}\times\mathbf{n})^{\top}\)</button></li>
+    <li><button class="option" data-key="nq">\((\mathbf{n}\times\mathbf{q})^{\top}\)</button></li>
+    <li><button class="option" data-key="pn">\((\mathbf{p}\times\mathbf{n})^{\top}\)</button></li>
+    <li><button class="option" data-key="cn">\((\mathbf{c}\times\mathbf{n})^{\top}\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{n}^{\top}(\boldsymbol{\phi}\times\mathbf{q}) = (\mathbf{q}\times\mathbf{n})^{\top}\boldsymbol{\phi}\), with the world-frame
+    point \(\mathbf{q}\). \((\mathbf{n}\times\mathbf{q})\) flips the sign of every rotational update, and the sensor-frame
+    \(\mathbf{p}\) belongs to the right-perturbation Jacobian, not this one.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="jtj">
+  <p class="q">What does one correspondence add to \(\mathbf{H}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="jtj">\(w\,\mathbf{J}^{\top}\mathbf{J}\)</button></li>
+    <li><button class="option" data-key="jjt">\(w\,\mathbf{J}\mathbf{J}^{\top}\)</button></li>
+    <li><button class="option" data-key="jtr">\(w\,\mathbf{J}^{\top}r\)</button></li>
+    <li><button class="option" data-key="r2">\(w\,r^{2}\mathbf{I}\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{J}\) is 1×6, so \(\mathbf{J}^{\top}\mathbf{J}\) is a 6×6 rank-1 matrix. \(\mathbf{J}\mathbf{J}^{\top}\) is a single
+    number, and \(-w\,\mathbf{J}^{\top}r\) goes into \(\mathbf{b}\), not \(\mathbf{H}\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="right">
+  <p class="q">Why does the tight solve use a different Jacobian for the very same residual?</p>
+  <ol class="options">
+    <li><button class="option" data-key="right">It perturbs rotation on the right</button></li>
+    <li><button class="option" data-key="meas">The residual is measured differently there</button></li>
+    <li><button class="option" data-key="white">Whitening by sigma changes the derivative</button></li>
+    <li><button class="option" data-key="imu">The IMU adds velocity to it</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Same residual, different retraction: \(\mathbf{R}\leftarrow\mathbf{R}\,\mathrm{Exp}(\delta\boldsymbol{\phi})\), in the body frame,
+    gives \(-\mathbf{n}^{\top}\mathbf{R}\,\mathbf{p}^{\wedge}\). Whitening only scales the row by \(1/\sigma\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="vb">
+  <p class="q">In the tight solve, which columns of the LiDAR factor's Jacobian are always zero?</p>
+  <ol class="options">
+    <li><button class="option" data-key="vb">velocity and both biases</button></li>
+    <li><button class="option" data-key="rp">rotation and position only</button></li>
+    <li><button class="option" data-key="pg">position and gyro bias</button></li>
+    <li><button class="option" data-key="none">none; it sees everything</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A laser return constrains where the sensor is and how it's oriented, nothing else. Velocity and the biases
+    (and gravity) are left to the IMU: "The IMU is the only thing constraining them."</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="weight">
+  <p class="q"><em>From lesson 5.</em> What does the inverse of the preintegration covariance do in the solve?</p>
+  <ol class="options">
+    <li><button class="option" data-key="weight">It weights the IMU residual</button></li>
+    <li><button class="option" data-key="white">It whitens each LiDAR point</button></li>
+    <li><button class="option" data-key="bias">It corrects the bias offset</button></li>
+    <li><button class="option" data-key="huber">It sets the Huber threshold</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\Sigma_{ij}^{-1}\) is the information matrix on the IMU residual, passed to <code>addBlock</code>. Each LiDAR point
+    gets \(1/\sigma^{2}\) from <code>lidar_sigma</code> instead, and the two meet in the same \(\mathbf{H}\).</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the point-to-plane residual and its 1×6 Jacobian under the left
+  perturbation. Then write what one correspondence adds to \(\mathbf{H}\) and to \(\mathbf{b}\).
+  <em>Stretch:</em> the tight path's rotation block.</p>
+  <textarea placeholder="r = ...&#10;J = [ ... , ... ]&#10;H += ...   b ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \begin{aligned}
+    r &= \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c}), \quad \mathbf{q} = \mathbf{T}\mathbf{p}\\
+    \mathbf{J} &= \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix}\\
+    \mathbf{H} &\leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J}, \qquad \mathbf{b} \leftarrow \mathbf{b} - w\,\mathbf{J}^{\top}r
+    \end{aligned} $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{q} = \mathbf{T}\mathbf{p}\), the point in the world</li>
+      <li>\(\mathbf{n}^{\top}\) for translation, \((\mathbf{q}\times\mathbf{n})^{\top}\) for rotation, in that order</li>
+      <li>\((\mathbf{q}\times\mathbf{n})\), not \((\mathbf{n}\times\mathbf{q})\)</li>
+      <li>\(\mathbf{J}^{\top}\mathbf{J}\), 6×6 and rank 1, into \(\mathbf{H}\)</li>
+      <li>\(-\mathbf{J}^{\top}r\) into \(\mathbf{b}\): note the minus</li>
+    </ul>
+    <p>Stretch answer: \(\partial r/\partial\delta\boldsymbol{\phi} = -\mathbf{n}^{\top}\mathbf{R}\,\mathbf{p}^{\wedge}\), with the
+    sensor-frame \(\mathbf{p}\). Missed something? Try this box again after a night's sleep.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Kok-Lim Low, <a href="https://www.comp.nus.edu.sg/~lowkl/publications/lowk_point-to-plane_icp_techrep.pdf"><em>Linear
+  Least-Squares Optimization for Point-to-Plane ICP Surface Registration</em></a>, UNC TR04-004, 2004.
+  <strong>Three pages; read all of it.</strong> It's the point-to-plane metric and its small-angle linearisation:
+  this lesson's derivation, in Euler angles. Then read glass-lio's own
+  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.3–3.4, and
+  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/gauss-newton.md"><code>doc/gauss-newton.md</code></a> §3 and §6 for the build and the retraction.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Questions like "why is \(\mathrm{Exp}(\boldsymbol{\xi})\mathbf{q}\approx
+  \mathbf{q}+\boldsymbol{\rho}+\boldsymbol{\phi}\times\mathbf{q}\)?" or "why is it \(\mathbf{b}-\) and not \(\mathbf{b}+\)?" are exactly
+  what it's for. Tell it how the warm-up and the recall box went. Terms follow the
+  <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0005-the-noise-preintegration-carries.html">← Lesson 5: The noise preintegration carries</a>
+  <a href="../reference/point-to-plane-factor.html">Reference card: point-to-plane factor →</a>
+  <a href="0007-planes-and-degeneracy.html">Next: lesson 7, planes and degeneracy →</a>
+</nav>
+
+</main>
+</body>
+</html>

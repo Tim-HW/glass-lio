@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The tight solve, end to end · Lesson 9</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+<script defer src="../assets/sequence.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 9 · Inertial state estimation · capstone · about 20 minutes</p>
+  <h1>The tight solve, end to end</h1>
+  <p class="subtitle">One scan through glass-lio, every term justified, and each one traced to the lesson it came from.</p>
+</header>
+
+<article>
+
+<p class="lede">This is the fifth goal in your mission, whole: walk an interviewer through glass-lio's tight coupling and
+justify every term. Nothing here is new. It's lessons 1–8 put in the order the code runs them. By the end you should be
+able to narrate one scan from raw points to an updated map, and say for each weight what glass-lio measured when it was
+set wrong.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>Lessons 3 and 4 in one line: the IMU residual this solve stacks.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the velocity row of the IMU residual, with the bias-corrected delta.</p>
+  <textarea placeholder="r_dv = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \mathbf{r}_{\Delta v} = \mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) - \Delta\hat{\mathbf{v}}_{ij}(\mathbf{b}) $$</div>
+    <ul class="checklist">
+      <li>State side: \(\mathbf{R}_i^{\top}(\cdots)\) with gravity, from lesson 3</li>
+      <li>Minus the delta, corrected to the current bias, from lesson 4's eq.&nbsp;(44)</li>
+    </ul>
+  </div>
+</div>
+
+<h2>1 · The one equation</h2>
+
+<p>Forster writes visual-inertial estimation as a single least-squares problem: a prior, the IMU factors, and the sensor
+factors, each weighted by its own covariance:<span class="sidenote">Forster et al.,
+<a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration…</em></a>, §IV, eq.&nbsp;(26); the IMU factor with
+bias updates is §VI-D, eq.&nbsp;(45).</span></p>
+
+<div class="eq">$$ \mathcal{X}^{\star} = \arg\min\; \|\mathbf{r}_0\|^2_{\Sigma_0} + \sum \|\mathbf{r}_{\mathcal{I}_{ij}}\|^2_{\Sigma_{ij}} + \sum\sum \|\mathbf{r}_{\mathcal{C}_{il}}\|^2_{\Sigma_{\mathcal{C}}} \tag{26} $$</div>
+
+<p>glass-lio's tight solve is that shape with one IMU interval and LiDAR in place of the camera. It solves for the new
+state and gravity, an 18-dimensional increment \([\delta\boldsymbol{\phi},\ \delta\mathbf{p},\ \delta\mathbf{v},\ \delta\mathbf{b}^{g},\ \delta\mathbf{b}^{a},\ \delta\mathbf{g}]\):<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_state.hpp#L46-L79"><code>nav_state.hpp</code>,
+lines 46–79</a>: the state layout, and <code>boxplus</code>, which composes rotation on the right. Gravity is appended in
+<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/tight_registration.hpp#L22-L23"><code>tight_registration.hpp</code></a>.</span></p>
+
+<div class="eq">$$ \begin{aligned}
+\arg\min_{\mathbf{x}_j,\,\mathbf{g}}\;\; &\sum_{l} \rho\big(r_l/\sigma\big) \;+\; \|\mathbf{r}_{\mathcal{I}}\|^{2}_{\Sigma_{\text{eff}}}\\
++\;&\|\mathbf{b}_j - \mathbf{b}_i\|^{2}_{\mathbf{P}_b} \;+\; \|\mathbf{g} - \mathbf{g}_{\text{init}}\|^{2}_{\sigma_g^{2}\mathbf{I}}
+\end{aligned} $$</div>
+
+<p>Four blocks: every LiDAR point (lesson 6, Huber \(\rho\)), the IMU factor (lessons 3–5), a bias prior, and a gravity
+prior. All four fold into the same \(\mathbf{H}\), "That sum IS the sensor fusion."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L59-L170"><code>tight_registration.cpp</code>,
+lines 59–170</a>, and glass-lio's <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.11, "One
+tight solve, four residual blocks".</span></p>
+
+<pre><code>eq.addScalar(r * inv_sigma, Jl * inv_sigma, huber_whitened);
+eq.addBlock&lt;9&gt;(imuResidual(xi, x, pre, g), Jimu, imu_information);
+eq.addBlock&lt;6&gt;(biasResidual(xi, x), Jb, bias_information);
+eq.addBlock&lt;3&gt;(g - gravity_prior, Jg, gravity_information);</code></pre>
+
+<h2>2 · One scan, in order</h2>
+
+<ol>
+  <li><strong>Deskew</strong> the points with the gyro, integrated on SO(3) (<a href="0002-integrating-one-imu-step.html">lesson 2</a>).</li>
+  <li><strong>Loose for the first 10 scans</strong>, to <em>measure</em> the velocity that a static init can't observe (<a href="0001-what-an-imu-actually-measures.html">lesson 1</a>).</li>
+  <li><strong>Preintegrate</strong> the IMU over (last scan's end, this scan's end]: the deltas and their covariance (<a href="0003-why-preintegrate.html">lessons 3</a>, <a href="0005-the-noise-preintegration-carries.html">5</a>).</li>
+  <li><strong>Grow the bias covariance</strong> by its random walk over that interval.</li>
+  <li><strong>Predict</strong> the new state with <code>predictState</code>, putting gravity back in the world (<a href="0002-integrating-one-imu-step.html">lesson 2</a>).</li>
+  <li><strong>Iterate the solve</strong>: re-associate every point to a plane (<a href="0007-planes-and-degeneracy.html">lesson 7</a>), stack the four blocks with bias-corrected deltas (<a href="0004-the-bias-correction.html">lesson 4</a>), solve 18×18, retract.</li>
+  <li><strong>Accept or coast</strong>: under-constrained, or RMSE above 0.5&nbsp;m, commits the prediction and keeps the scan out of the map.</li>
+  <li><strong>Carry the posteriors</strong>: the bias covariance \((\mathbf{P}^{-1}+\mathbf{H}_{bb})^{-1}\), and \(\mathbf{x}_j\)'s covariance, which becomes the next \(\mathbf{P}_i\) (<a href="0008-filter-window-or-factor.html">lesson 8</a>).</li>
+  <li><strong>Resync deskew's gyro bias</strong>, but only if the LiDAR alone constrains rotation (lesson 7's eigen-ratio, on the rotation block).</li>
+  <li><strong>Insert</strong> the deskewed scan into the map, only if the pose was trusted.</li>
+</ol>
+
+<p>All of this is two functions.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L58-L82"><code>processScan()</code></a>
+(deskew, downsample, register, insert), <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L154-L167"><code>registerScan()</code></a>
+(the warm-up switch), and <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L284-L407"><code>registerScanTight()</code></a>, lines 284–407.</span>
+Now close your eyes on the list and rebuild it:</p>
+
+<div class="sequence-task">
+  <ol class="steps">
+    <li data-step="1">Deskew the scan with the gyro</li>
+    <li data-step="2">Preintegrate the IMU since the last scan</li>
+    <li data-step="3">Predict the new state with the deltas</li>
+    <li data-step="4">Stack LiDAR, IMU, bias and gravity rows</li>
+    <li data-step="5">Solve the 18×18 system and retract</li>
+    <li data-step="6">Accept, or coast on the prediction</li>
+    <li data-step="7">Carry the posterior covariances forward</li>
+    <li data-step="8">Insert the scan into the map</li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Steps 4–5 repeat until the increment is small, re-associating points each time, the ICP loop from lesson 6 over a bigger
+    state. Coasting (step 6) skips steps 7 and 8, and the deskew resync sits between them.</p>
+  </div>
+</div>
+
+<h2>3 · Justify every weight</h2>
+
+<p>Each weight in the equation above was measured, and each has a failure glass-lio actually hit when it was wrong:<span class="sidenote">glass-lio
+<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.11–3.12; the case study is in
+<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a> §12.</span></p>
+
+<table class="compact">
+  <tr><th>Block</th><th>Weight</th><th>Set wrong, glass-lio measured…</th></tr>
+  <tr><td>LiDAR</td><td>\(1/\sigma^2\), \(\sigma = 0.02\)&nbsp;m (a Livox's real noise)</td><td>at 0.05, the IMU over-integrated velocity to ~40&nbsp;m/s; drift fell from 1,339&nbsp;m to 429&nbsp;m once calibrated</td></tr>
+  <tr><td>IMU</td><td>\(\Sigma_{\text{eff}}^{-1}\), \(\Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\)</td><td>with \(\mathbf{x}_i\) treated as exact, the IMU's information overruled the LiDAR and pinned the pose ("the FREEZE")</td></tr>
+  <tr><td>Bias prior</td><td>the carried bias covariance</td><td>a random-walk constant alone can't say how wrong the bias was <em>to begin with</em>, so the accel bias would stay frozen</td></tr>
+  <tr><td>Gravity prior</td><td>\(\mathbf{I}/\sigma_g^2\), \(\sigma_g = 0.05\), anchored to \(\mathbf{g}_{\text{init}}\)</td><td>anchored to its own estimate, \(|\mathbf{g}|\) wandered to ~25 in 200 scans and threw the pose ~500&nbsp;km</td></tr>
+</table>
+
+<p>One structural fact ties them together: a LiDAR row has zeros in the velocity, bias and gravity columns (lesson 6). The IMU
+factor is the only thing that constrains them. That's why the LiDAR's weight, which only reaches velocity through position, is
+what decides whether velocity stays disciplined.</p>
+
+<pre><code>x = boxplus(x, dx.head&lt;kNavDim&gt;());
+g += dx.segment&lt;3&gt;(kIdxGrav);</code></pre>
+
+<p>That's the retraction: \(\mathrm{Exp}\) on the right for rotation, plain addition for everything else, gravity included.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L148-L169"><code>tight_registration.cpp</code>,
+lines 148–169</a>: solve, retract, and stop once both the translation and rotation increments are small.</span></p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard: the whole scan</p>
+  <p>"Each scan, glass-lio deskews the points with the gyro, then preintegrates the IMU from the previous scan's end to this one's:
+  \(\Delta\mathbf{R}\), \(\Delta\mathbf{v}\), \(\Delta\mathbf{p}\) and their covariance, after growing the bias uncertainty by its random walk. It
+  predicts the new state from those deltas, putting gravity back in the world frame. Then it iterates one 18-DoF Gauss-Newton solve over
+  rotation, position, velocity, both biases and gravity, with four blocks in the same \(\mathbf{H}\): every LiDAR point's point-to-plane
+  residual, whitened by its 2&nbsp;cm noise and Huber-weighted; the 9-row IMU residual with bias-corrected deltas, weighted by the
+  preintegration covariance inflated by the previous state's uncertainty; a prior from the carried bias covariance; and a gravity prior
+  anchored to its initial value. Rotation is retracted on the right. If the solve is under-constrained or the residual too large, it
+  coasts on the prediction and keeps the scan out of the map. Otherwise it carries the posterior covariances forward, resyncs deskew's
+  gyro bias if the LiDAR constrains rotation, and inserts the scan into the map."</p>
+</div>
+
+<h2>4 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 1, where this started.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="vel">
+  <p class="q">Why does glass-lio run its first 10 scans loose before switching to the tight solve?</p>
+  <ol class="options">
+    <li><button class="option" data-key="vel">Velocity is unobservable from IMU init</button></li>
+    <li><button class="option" data-key="map">The map has no planes yet</button></li>
+    <li><button class="option" data-key="bias">Gyro bias must converge before tight</button></li>
+    <li><button class="option" data-key="noise">The LiDAR noise is still unknown</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A static window can't tell rest from constant velocity, and the test bag starts already moving at ~1.5&nbsp;m/s. Seed \(\mathbf{v} = 0\)
+    and the IMU factor fights the LiDAR. Loose ICP measures the velocity first; the tight solver starts from it.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="over">
+  <p class="q">What does \(\Sigma_{\text{eff}} = \Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\) prevent?</p>
+  <ol class="options">
+    <li><button class="option" data-key="over">The IMU overruling the LiDAR</button></li>
+    <li><button class="option" data-key="grav">Gravity wandering off to 25</button></li>
+    <li><button class="option" data-key="stale">The bias going stale mid-solve</button></li>
+    <li><button class="option" data-key="degen">Degenerate LiDAR geometry on roads</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>With \(\mathbf{x}_i\) held exact (\(\mathbf{P}_i = 0\)), the IMU's information over 0.1&nbsp;s is enormous and pins the pose. Inflating by
+    \(\mathbf{x}_i\)'s uncertainty is "the closed-form marginalization of a Gaussian x_i out of this one factor": lesson 8, applied.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="anchor">
+  <p class="q">Why is the gravity prior anchored to the initial value, not to the previous scan's estimate?</p>
+  <ol class="options">
+    <li><button class="option" data-key="anchor">Otherwise nothing pulls it back</button></li>
+    <li><button class="option" data-key="slow">Gravity changes slowly over time</button></li>
+    <li><button class="option" data-key="exact">Init is always exactly correct</button></li>
+    <li><button class="option" data-key="imu">The IMU cannot measure gravity</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Gravity is nearly unobservable over one 0.1&nbsp;s scan. An anchor that chases the estimate has no restoring force, so every small pose
+    error is explained by tilting \(\mathbf{g}\): it reached \(|\mathbf{g}|\approx 25\) in 200 scans and threw the pose ~500&nbsp;km.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="vel">
+  <p class="q">In the tight solve, <code>lidar_sigma</code> is raised from 0.02 to 0.05. What happens?</p>
+  <ol class="options">
+    <li><button class="option" data-key="vel">The IMU over-integrates the velocity</button></li>
+    <li><button class="option" data-key="lidar">The LiDAR overrules the IMU</button></li>
+    <li><button class="option" data-key="cancel">Nothing, it cancels in H</button></li>
+    <li><button class="option" data-key="planes">Planes fail the planarity gate</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A bigger \(\sigma\) trusts the LiDAR less. It reaches velocity only through position, so the IMU's integration runs unchecked: ~40&nbsp;m/s
+    on a bland stretch. A global scale only cancels in the LiDAR-only loose path, never once a second sensor shares \(\mathbf{H}\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="rot">
+  <p class="q">After an accepted tight solve, when does glass-lio <em>skip</em> resyncing deskew's gyro bias?</p>
+  <ol class="options">
+    <li><button class="option" data-key="rot">When LiDAR barely constrains the rotation</button></li>
+    <li><button class="option" data-key="cov">When the bias covariance is large</button></li>
+    <li><button class="option" data-key="short">When the IMU interval is short</button></li>
+    <li><button class="option" data-key="grav">When gravity differs from its init</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Below a rotation eigen-ratio of 0.05, the refined bias is mostly IMU dead-reckoning the LiDAR can't verify. On Corridor02, resyncing
+    anyway corrupted every later scan's geometry and diverged.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="sf">
+  <p class="q"><em>From lesson 1.</em> What does the accelerometer in this whole pipeline actually measure?</p>
+  <ol class="options">
+    <li><button class="option" data-key="sf">Acceleration minus gravity, body frame</button></li>
+    <li><button class="option" data-key="plus">Acceleration plus gravity, world frame</button></li>
+    <li><button class="option" data-key="acc">Acceleration alone, in body frame</button></li>
+    <li><button class="option" data-key="g">Gravity alone, in world frame</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Specific force, \(\mathbf{R}^{\top}(\mathbf{a} - \mathbf{g})\) plus bias and noise. Every line of this lesson rests on that one equation.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> name the four blocks of the tight solve, what each one's weight is, and one thing that went wrong
+  when glass-lio set it badly. Then say which state columns only the IMU constrains.</p>
+  <textarea style="min-height: 9.5rem" placeholder="LiDAR: ...&#10;IMU: ...&#10;bias: ...&#10;gravity: ...&#10;only the IMU constrains: ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <ul class="checklist">
+      <li>LiDAR: \(1/\sigma^2\) per point, \(\sigma = 0.02\)&nbsp;m, Huber; at 0.05 velocity ran away</li>
+      <li>IMU: \(\Sigma_{\text{eff}}^{-1} = (\Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top})^{-1}\); without the inflation, the freeze</li>
+      <li>Bias prior: the carried bias covariance, shrunk by each solve</li>
+      <li>Gravity prior: anchored to \(\mathbf{g}_{\text{init}}\), \(\sigma_g = 0.05\); anchored to itself, \(|\mathbf{g}|\to 25\)</li>
+      <li>Velocity, both biases and gravity: the LiDAR's columns there are zero</li>
+    </ul>
+    <p>That's the whole solve in five lines. Try this box again after a night's sleep; it's the best single check that the course has stuck.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Forster, Carlone, Dellaert &amp; Scaramuzza, <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
+  Visual-Inertial Odometry</em></a>, IEEE T-RO. <strong>Read §IV (the MAP problem, eq.&nbsp;26) and §VI-D (the preintegrated IMU factor with bias
+  updates, eq.&nbsp;45)</strong>: glass-lio's tight solve is those two equations with LiDAR rows. Then read glass-lio's own case study,
+  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a> §12, for how each weight in section 3 was found.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Try: "walk me through a scan, and interrupt me when I'm wrong", or "what would change if
+  glass-lio became a filter?" Tell it how the sequence exercise and the recall box went. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0008-filter-window-or-factor.html">← Lesson 8: Filter, window, or factor</a>
+  <a href="../reference/the-tight-solve.html">Reference card: the tight solve →</a>
+  <span>Next: a cold review of every recall box, after a night's sleep</span>
+</nav>
+
+</main>
+</body>
+</html>

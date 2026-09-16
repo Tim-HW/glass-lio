@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planes and degeneracy · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0007-planes-and-degeneracy.html">Lesson 7</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 7</p>
+  <h1>Planes and degeneracy</h1>
+  <p class="subtitle">One skill, used twice: reading the smallest eigenvalue of a 3×3 matrix.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">Warm-up, from memory</p>
+<div class="eq">$$ \mathbf{J} = \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix}, \qquad \mathbf{H} \leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J} $$</div>
+<p class="label">From points to a plane</p>
+<div class="eq">$$ \mathbf{c} = \frac{1}{n}\sum_{k}\mathbf{p}_k, \qquad \mathbf{C} = \frac{1}{n}\sum_{k}(\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top} $$</div>
+<p class="label">The second eigen-test: degeneracy</p>
+<div class="eq">$$ \mathbf{H}_t = \sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ \begin{aligned}
+    \mathbf{c} &= \tfrac{1}{n}\textstyle\sum_k \mathbf{p}_k, \qquad \mathbf{C} = \tfrac{1}{n}\textstyle\sum_k (\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top}\\
+    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{plane iff } \lambda_0 \le 0.1\,\lambda_1\\
+    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{degenerate iff } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
+    \end{aligned} $$</div>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>"Both LiDAR tests are the same move: build a 3×3 scatter matrix and read its smallest eigenvalue. For a voxel's
+  points, the covariance's smallest-eigenvalue eigenvector is the plane normal, and if that eigenvalue isn't much
+  smaller than the middle one, it's a blob, a corner or a line, so there's no plane. For the whole scan,
+  \(\mathbf{H}\)'s translation block is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\); its smallest-eigenvalue eigenvector is the
+  direction no plane constrains, and when that eigenvalue is a tiny fraction of the trace, like floor plus one wall,
+  the pose can slide along it with a perfectly healthy RMSE. glass-lio refuses those scans at a ratio of 0.05 and lets
+  the IMU carry that direction; Zhang et al. instead solve only the well-conditioned directions."</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0007-planes-and-degeneracy.html">← Lesson 7: Planes and degeneracy</a>
+  <a href="filter-window-or-factor.html">Next card: Filter, window, or factor →</a>
+</nav>
+</main>
+</body>
+</html>

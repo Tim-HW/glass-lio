@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preintegration covariance · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0005-the-noise-preintegration-carries.html">Lesson 5</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 5</p>
+  <h1>Preintegration covariance</h1>
+  <p class="subtitle">One covariance, propagated a sample at a time, and why it decides who wins.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">Warm-up, from memory</p>
+<div class="eq">$$ \mathbf{p}(t+\Delta t) = \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\mathbf{g}\,\Delta t^{2} + \tfrac{1}{2}\mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t^{2} $$</div>
+<p class="label">One sample at a time</p>
+<div class="eq">$$ \begin{aligned}
+\boldsymbol{\eta}^{\Delta}_{i,k+1} &= \mathbf{A}_k\,\boldsymbol{\eta}^{\Delta}_{ik} + \mathbf{B}_k\,\boldsymbol{\eta}^{d}_k\\
+\Sigma_{i,k+1} &= \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}, \qquad \Sigma_{ii} = \mathbf{0}
+\end{aligned} \tag{63} $$</div>
+<div class="eq">$$ \mathbf{A}_k = \begin{bmatrix}
+\Delta\tilde{\mathbf{R}}_{k,k+1}^{\top} & \mathbf{0} & \mathbf{0}\\
+-\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\Delta t & \mathbf{I} & \mathbf{0}\\
+-\tfrac{1}{2}\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\Delta t^{2} & \mathbf{I}\,\Delta t & \mathbf{I}
+\end{bmatrix}
+\qquad
+\mathbf{B}_k = \begin{bmatrix}
+\mathbf{J}_r^{k}\,\Delta t & \mathbf{0}\\
+\mathbf{0} & \Delta\tilde{\mathbf{R}}_{ik}\,\Delta t\\
+\mathbf{0} & \tfrac{1}{2}\Delta\tilde{\mathbf{R}}_{ik}\,\Delta t^{2}
+\end{bmatrix} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ \begin{aligned}
+    \Sigma_{i,k+1} &= \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}\\
+    \Sigma_{ii} &= \mathbf{0}\\
+    \Sigma_{\eta} &= \frac{1}{\Delta t}\begin{bmatrix}\sigma_g^{2}\mathbf{I} & \mathbf{0}\\ \mathbf{0} & \sigma_a^{2}\mathbf{I}\end{bmatrix}
+    \end{aligned} $$</div>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>"Preintegration's noise is a linear function of the IMU's white noise, so I propagate its 9×9
+  covariance over \([\delta\boldsymbol{\phi}, \delta\mathbf{v}, \delta\mathbf{p}]\) one sample at a time:
+  \(\Sigma \leftarrow \mathbf{A}\Sigma\mathbf{A}^{\top} + \mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), starting from
+  zero, with the datasheet densities turned into discrete covariances \(\sigma^{2}/\Delta t\). A and B are eq.
+  (31) linearised, plus one coupling: an orientation error tilts the specific force. The inverse of that
+  covariance weights the IMU residual, so a longer interval means a bigger covariance and a less trusted
+  IMU."</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0005-the-noise-preintegration-carries.html">← Lesson 5: The noise preintegration carries</a>
+  <a href="point-to-plane-factor.html">Next card: Point-to-plane factor →</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The noise preintegration carries · Lesson 5</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 5 · Inertial state estimation · about 15 minutes</p>
+  <h1>The noise preintegration carries</h1>
+  <p class="subtitle">One covariance, propagated a sample at a time, and why it decides who wins.</p>
+</header>
+
+<article>
+
+<p class="lede">The deltas tell the solver what the IMU says happened. The solver also needs to know
+<em>how much to believe it</em>: that's the 9×9 covariance \(\Sigma_{ij}\) of the deltas. Its inverse
+is the weight on the IMU residual, and in glass-lio it's what gets set against the LiDAR. This lesson
+is how that covariance is built, one sample at a time. It's the second half of the mission's second
+goal, and the answer to an interview question you should expect: how do you weigh the IMU against
+another sensor?</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>The position line of eq.&nbsp;(31), from lesson 2. The noise update in this lesson has exactly
+its shape.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the position line of eq.&nbsp;(31), with noise dropped.</p>
+  <textarea placeholder="p(t+dt) = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \mathbf{p}(t+\Delta t) = \mathbf{p}(t) + \mathbf{v}(t)\,\Delta t + \tfrac{1}{2}\mathbf{g}\,\Delta t^{2} + \tfrac{1}{2}\mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t^{2} $$</div>
+    <ul class="checklist">
+      <li>The old velocity, times \(\Delta t\)</li>
+      <li>\(\tfrac{1}{2}\) on both \(\Delta t^{2}\) terms</li>
+      <li>\(\mathbf{R}(t)\) in front of the bias-corrected specific force</li>
+    </ul>
+  </div>
+</div>
+
+<h2>1 · Why a covariance at all</h2>
+
+<p>Least squares weights each residual by its inverse covariance. Forster calls modelling it "of
+paramount importance… the inverse noise covariance is used to weight the terms in the optimization."<span class="sidenote">Forster
+et al., <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration…</em></a>, §VI-B.</span>
+glass-lio does exactly that. The IMU factor's weight is the inverse of the preintegration covariance,
+while each LiDAR point is whitened by <code>lidar_sigma</code>:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L118-L129"><code>tight_registration.cpp</code>,
+lines 118–129</a>. glass-lio also adds the previous state's own uncertainty,
+\(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\), which its comment calls "the exact marginalization of a
+Gaussian x_i out of this factor". The LiDAR side is at <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L64-L70">lines 64–70</a>.</span></p>
+
+<pre><code>const Eigen::Matrix&lt;double, 9, 9&gt; sigma_eff =
+  pre.covariance() + Ji * xi_cov * Ji.transpose();
+Eigen::Matrix&lt;double, 9, 9&gt; imu_information =
+  sigma_eff.inverse() * params.imu_prior_weight;</code></pre>
+
+<p>So whenever the IMU and the LiDAR disagree, this matrix decides who wins.</p>
+
+<h2>2 · The noise is linear, so propagate it linearly</h2>
+
+<p>Forster writes each delta as "the (to-be-estimated) state 'plus' a random noise", stacked as
+\(\boldsymbol{\eta}^{\Delta} = [\delta\boldsymbol{\phi};\ \delta\mathbf{v};\ \delta\mathbf{p}]\), and shows
+that, to first order, this is "a linear function of the IMU measurement noise". That makes the
+covariance "a simple linear propagation". Better still, it can be done <em>iteratively</em>: "as a new
+IMU measurement arrive[s] we only update \(\Sigma_{ij}\), rather than recomputing it from scratch."<span class="sidenote">Forster
+§VI-A (eq.&nbsp;38) and §VI-B (eqs.&nbsp;39–43). The iterative form is Appendix IX-A.</span></p>
+
+<h2>3 · One sample at a time</h2>
+
+<p>With \(\mathbf{a}_k \doteq \tilde{\mathbf{a}}_k - \mathbf{b}^{a}\) and the raw IMU noise
+\(\boldsymbol{\eta}^{d}_k = [\boldsymbol{\eta}^{gd}_k;\ \boldsymbol{\eta}^{ad}_k]\), each sample updates the
+noise, and so the covariance, like this:<span class="sidenote">Forster Appendix IX-A, eqs.&nbsp;(59)–(63),
+written there from \(j-1\) to \(j\); here from \(k\) to \(k+1\). \(\Delta\tilde{\mathbf{R}}_{k,k+1}\) is
+this step's rotation, and \(\Delta\tilde{\mathbf{R}}_{ik}\) the rotation accumulated before it.</span></p>
+
+<div class="eq">$$ \begin{aligned}
+\boldsymbol{\eta}^{\Delta}_{i,k+1} &= \mathbf{A}_k\,\boldsymbol{\eta}^{\Delta}_{ik} + \mathbf{B}_k\,\boldsymbol{\eta}^{d}_k\\
+\Sigma_{i,k+1} &= \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}, \qquad \Sigma_{ii} = \mathbf{0}
+\end{aligned} \tag{63} $$</div>
+
+<div class="eq">$$ \mathbf{A}_k = \begin{bmatrix}
+\Delta\tilde{\mathbf{R}}_{k,k+1}^{\top} & \mathbf{0} & \mathbf{0}\\
+-\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\Delta t & \mathbf{I} & \mathbf{0}\\
+-\tfrac{1}{2}\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\Delta t^{2} & \mathbf{I}\,\Delta t & \mathbf{I}
+\end{bmatrix}
+\qquad
+\mathbf{B}_k = \begin{bmatrix}
+\mathbf{J}_r^{k}\,\Delta t & \mathbf{0}\\
+\mathbf{0} & \Delta\tilde{\mathbf{R}}_{ik}\,\Delta t\\
+\mathbf{0} & \tfrac{1}{2}\Delta\tilde{\mathbf{R}}_{ik}\,\Delta t^{2}
+\end{bmatrix} $$</div>
+
+<p>It starts at zero because an empty interval has measured nothing yet. The raw noise covariance
+\(\Sigma_{\eta}\) comes from the datasheet densities, turned into discrete-time noise exactly as in
+lesson 2: \(\sigma^{2}/\Delta t\).</p>
+
+<h2>4 · Read it like eq. (31)</h2>
+
+<p>Don't memorise A and B as matrices. Read them row by row, and they're the warm-up's equation,
+linearised:</p>
+<ul>
+  <li><strong>Position row:</strong> the error picks up the old velocity error times \(\Delta t\) (the \(\mathbf{I}\,\Delta t\)),
+  and accelerometer noise enters with \(\tfrac{1}{2}\Delta\tilde{\mathbf{R}}_{ik}\,\Delta t^{2}\), exactly where the specific force does in (31).</li>
+  <li><strong>Velocity row:</strong> accelerometer noise enters with \(\Delta\tilde{\mathbf{R}}_{ik}\,\Delta t\), again mirroring (31).</li>
+  <li><strong>The first column:</strong> an orientation error tilts the specific force slightly the wrong way.
+  To first order that's \(-\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\delta\boldsymbol{\phi}\), fed into velocity and position.</li>
+  <li><strong>Rotation row:</strong> the old error, re-expressed in the new frame, plus fresh gyro noise.</li>
+</ul>
+
+<p>glass-core builds exactly these blocks, term for term:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L40-L68"><code>preintegration.cpp</code>,
+lines 40–68</a>. It runs <em>before</em> the state update in the same loop: "it linearises about the
+CURRENT state, so it needs dR before we advance it." That's the update-order trap from lesson 2, again.</span></p>
+
+<pre><code>A.block&lt;3, 3&gt;(0, 0) = dRk.matrix().transpose();
+A.block&lt;3, 3&gt;(3, 0) = -dR_mat * a_hat * dt;
+A.block&lt;3, 3&gt;(6, 0) = -0.5 * dR_mat * a_hat * dt * dt;
+A.block&lt;3, 3&gt;(6, 3) = Eigen::Matrix3d::Identity() * dt;
+
+B.block&lt;3, 3&gt;(0, 0) = Jr * dt;
+B.block&lt;3, 3&gt;(3, 3) = dR_mat * dt;
+B.block&lt;3, 3&gt;(6, 3) = 0.5 * dR_mat * dt * dt;
+
+cov_ = A * cov_ * A.transpose() + B * Q * B.transpose();</code></pre>
+
+<h2>5 · It only grows, and physics sets the scale</h2>
+
+<p>Nothing in eq.&nbsp;(63) ever removes uncertainty: every sample adds fresh noise
+\(\mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\). A longer interval therefore means a larger \(\Sigma_{ij}\), a
+smaller weight, and an IMU trusted less. glass-core's header puts it well: "a long gap between scans
+means a big covariance means the IMU is trusted less. It grows without bound the longer you integrate
+-- which is the honest statement that dead reckoning is not a substitute for a measurement."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/preintegration.hpp#L71-L78"><code>preintegration.hpp</code>,
+lines 71–78</a>.</span></p>
+
+<p>And the scale comes from the datasheet, not from tuning. glass-lio's config says so directly:
+"Which sensor is believed is decided by physics."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L217-L227"><code>livox_mid_360.yaml</code>,
+lines 217–227</a>: MEMS-grade densities of <code>1.7e-3</code> rad/s/√Hz (gyro) and <code>2.0e-2</code>
+m/s²/√Hz (accel). The same comment warns that navigation-grade numbers would let the IMU override good
+LiDAR geometry, "and it would be RIGHT to".</span></p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"Preintegration's noise is a linear function of the IMU's white noise, so I propagate its 9×9
+  covariance over \([\delta\boldsymbol{\phi}, \delta\mathbf{v}, \delta\mathbf{p}]\) one sample at a time:
+  \(\Sigma \leftarrow \mathbf{A}\Sigma\mathbf{A}^{\top} + \mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), starting from
+  zero, with the datasheet densities turned into discrete covariances \(\sigma^{2}/\Delta t\). A and B are eq.
+  (31) linearised, plus one coupling: an orientation error tilts the specific force. The inverse of that
+  covariance weights the IMU residual, so a longer interval means a bigger covariance and a less trusted
+  IMU."</p>
+</div>
+
+<h2>6 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 4.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="linear">
+  <p class="q">Why can \(\Sigma_{ij}\) be computed by linear propagation at all?</p>
+  <ol class="options">
+    <li><button class="option" data-key="linear">It's linear in the IMU noise</button></li>
+    <li><button class="option" data-key="sheet">The IMU datasheet already provides it</button></li>
+    <li><button class="option" data-key="bias">The biases are held fully constant</button></li>
+    <li><button class="option" data-key="grav">Gravity cancels all the noise terms</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>To first order, Forster's eqs.&nbsp;(42)–(43) write the preintegrated noise as a linear combination of
+    the raw IMU noise, so its covariance follows by linear propagation. The datasheet gives \(\Sigma_{\eta}\),
+    the raw noise, not \(\Sigma_{ij}\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="zero">
+  <p class="q">What is \(\Sigma_{ii}\), the covariance at the very start of the interval?</p>
+  <ol class="options">
+    <li><button class="option" data-key="zero">\(\mathbf{0}_{9\times 9}\)</button></li>
+    <li><button class="option" data-key="eye">\(\mathbf{I}_{9\times 9}\)</button></li>
+    <li><button class="option" data-key="eta">\(\Sigma_{\eta}\,\Delta t\)</button></li>
+    <li><button class="option" data-key="prev">\(\Sigma_{i-1,i}\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>An empty interval has measured nothing, so its delta carries no uncertainty yet. Forster starts from
+    \(\Sigma_{ii} = \mathbf{0}_{9\times 9}\), and glass-core's <code>cov_</code> starts at zero.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="tilt">
+  <p class="q">In the velocity row of \(\mathbf{A}_k\), where does the \(-\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\Delta t\) block come from?</p>
+  <ol class="options">
+    <li><button class="option" data-key="tilt">Orientation error tilts the specific force</button></li>
+    <li><button class="option" data-key="grav">Gravity is added back each step</button></li>
+    <li><button class="option" data-key="vel">Velocity error grows linearly with time</button></li>
+    <li><button class="option" data-key="bias">The accelerometer bias is still uncertain</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A small rotation error \(\delta\boldsymbol{\phi}\) points the measured specific force slightly the wrong way.
+    To first order that's \(-\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\delta\boldsymbol{\phi}\), integrated over
+    \(\Delta t\). Bias uncertainty isn't part of this 9×9 covariance at all.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="shrink">
+  <p class="q">The same IMU interval is made twice as long. What happens to the IMU residual's weight in the solve?</p>
+  <ol class="options">
+    <li><button class="option" data-key="shrink">It shrinks, as covariance grows</button></li>
+    <li><button class="option" data-key="more">It grows, from more samples</button></li>
+    <li><button class="option" data-key="fixed">It stays fixed per datasheet</button></li>
+    <li><button class="option" data-key="reset">It resets at each keyframe</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The weight is \(\Sigma^{-1}\), and every sample adds fresh noise to \(\Sigma\). More samples mean more
+    dead reckoning, not more information: "a long gap between scans means a big covariance means the IMU is
+    trusted less."</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="rot">
+  <p class="q"><em>From lesson 4.</em> In eq.&nbsp;(44), which delta's bias correction is <em>not</em> a plain addition?</p>
+  <ol class="options">
+    <li><button class="option" data-key="rot">the rotation delta</button></li>
+    <li><button class="option" data-key="vel">the velocity delta</button></li>
+    <li><button class="option" data-key="pos">the position delta</button></li>
+    <li><button class="option" data-key="all">all three deltas</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Rotations don't add: \(\Delta\tilde{\mathbf{R}}_{ij}\,\mathrm{Exp}(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g})\),
+    applied on the right. Velocity and position live in \(\mathbb{R}^3\) and just add.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the covariance recursion, with its starting value and
+  the discrete IMU noise covariance. Then say in one sentence what its inverse is used for.
+  <em>Stretch:</em> write \(\mathbf{B}_k\).</p>
+  <textarea placeholder="Sigma_{k+1} = ...&#10;Sigma_ii = ...&#10;Sigma_eta = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \begin{aligned}
+    \Sigma_{i,k+1} &= \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}\\
+    \Sigma_{ii} &= \mathbf{0}\\
+    \Sigma_{\eta} &= \frac{1}{\Delta t}\begin{bmatrix}\sigma_g^{2}\mathbf{I} & \mathbf{0}\\ \mathbf{0} & \sigma_a^{2}\mathbf{I}\end{bmatrix}
+    \end{aligned} $$</div>
+    <ul class="checklist">
+      <li>\(\mathbf{A}\Sigma\mathbf{A}^{\top}\): sandwiched, not \(\mathbf{A}\Sigma\)</li>
+      <li>Plus \(\mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), fresh noise every sample</li>
+      <li>Starts from zero</li>
+      <li>\(\sigma^{2}/\Delta t\): divided by the step, not multiplied</li>
+      <li>Its inverse is the weight on the IMU residual</li>
+    </ul>
+    <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Forster, Carlone, Dellaert &amp; Scaramuzza,
+  <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
+  Visual-Inertial Odometry</em></a>, IEEE T-RO. <strong>Read §VI-B, "Noise Propagation"</strong>, for
+  the conclusion (eqs.&nbsp;39 and 42–43), without chasing every step of §VI-A. Then read Appendix IX-A,
+  eqs.&nbsp;(59)–(63): the same recursion as this lesson, derived.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Questions like "why is it \(\mathbf{A}\Sigma\mathbf{A}^{\top}\)
+  and not \(\mathbf{A}\Sigma\)?" or "why does glass-lio add \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\)?" are
+  exactly what it's for. Tell it how the warm-up and the recall box went. Terms follow the
+  <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0004-the-bias-correction.html">← Lesson 4: The bias correction</a>
+  <a href="../reference/imu-preintegration-covariance.html">Reference card: preintegration covariance →</a>
+  <a href="0006-the-point-to-plane-factor.html">Next: lesson 6, the point-to-plane factor →</a>
+</nav>
+
+</main>
+</body>
+</html>

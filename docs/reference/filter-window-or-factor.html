@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filter, window, or factor · Reference card</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0008-filter-window-or-factor.html">Lesson 8</a> › Reference card</p>
+<header class="page">
+  <p class="kicker">Reference card · Lesson 8</p>
+  <h1>Filter, window, or factor</h1>
+  <p class="subtitle">What each estimator keeps, what it re-linearises, and what marginalization buys.</p>
+</header>
+
+<article>
+
+<h2>Key equations</h2>
+<p class="label">Warm-up, from memory</p>
+<div class="eq">$$ \Sigma_{i,k+1} = \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}, \qquad \Sigma_{ii} = \mathbf{0} $$</div>
+<p class="label">Marginalization, by hand</p>
+<div class="eq">$$ \begin{bmatrix}\mathbf{H}_{mm} & \mathbf{H}_{mk}\\ \mathbf{H}_{km} & \mathbf{H}_{kk}\end{bmatrix}
+\begin{bmatrix}\mathbf{x}_m\\ \mathbf{x}_k\end{bmatrix} = \begin{bmatrix}\mathbf{b}_m\\ \mathbf{b}_k\end{bmatrix} $$</div>
+<div class="eq">$$ \begin{aligned}
+\mathbf{H}' &= \mathbf{H}_{kk} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{H}_{mk}\\
+\mathbf{b}' &= \mathbf{b}_{k} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{b}_{m}
+\end{aligned} $$</div>
+<div class="eq">$$ \mathbf{H} = \begin{bmatrix}4 & 2\\ 2 & 3\end{bmatrix}, \qquad \mathbf{b} = \begin{bmatrix}2\\ 1\end{bmatrix} $$</div>
+<p class="label">Practice</p>
+<div class="eq">$$ \begin{aligned}
+    \mathbf{H}' &= \mathbf{H}_{kk} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{H}_{mk}\\
+    \mathbf{b}' &= \mathbf{b}_{k} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{b}_{m}
+    \end{aligned} $$</div>
+
+<h2>Say it at a whiteboard</h2>
+<div class="callout interview">
+<p>"Every real-time estimator has to decide what to do with the past. A filter keeps only the current state and its
+  covariance: it propagates \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\), updates, and has
+  marginalized everything older, so it's cheap but can never re-linearise an old state. A sliding window keeps the last
+  \(N\) states and re-linearises all of them each solve. To stay bounded it removes the oldest, properly by Schur
+  complement, which leaves the exact prior \(\mathbf{H}_{kk}-\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\), or cheaply by dropping it
+  and fixing an anchor. Holding an old state fixed instead of marginalizing it makes the estimator overconfident about
+  it. glass-lio is a one-shot factor that holds \(\mathbf{x}_i\) fixed but carries its covariance; FAST-LIO2 is an iterated EKF;
+  VINS-Mono is a marginalizing window."</p>
+</div>
+
+</article>
+
+<nav class="course">
+  <a href="../lessons/0008-filter-window-or-factor.html">← Lesson 8: Filter, window, or factor</a>
+  <a href="the-tight-solve.html">Next card: The tight solve →</a>
+</nav>
+</main>
+</body>
+</html>

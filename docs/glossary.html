@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glossary · glass-lio course</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<p class="crumbs"><a href="index.html">glass-lio course</a> › Glossary</p>
+
+<header class="page">
+  <p class="kicker">Reference</p>
+  <h1>Glossary</h1>
+  <p class="subtitle">The terms the lessons use, in one place.</p>
+</header>
+
+<article>
+<dl class="glossary">
+
+  <dt id="bias">Bias</dt>
+  <dd>A slowly drifting offset added to a sensor's reading, in the <a href="#body-frame">body frame</a>:
+  \(\mathbf{b}^{g}\) for the gyroscope, \(\mathbf{b}^{a}\) for the accelerometer. It is modelled as a random
+  walk and estimated alongside the pose, because nothing but motion over time reveals it.</dd>
+
+  <dt id="body-frame">Body frame</dt>
+  <dd>The frame attached to the IMU, written \(B\). The gyroscope and accelerometer measure in it, and
+  biases live in it. \(\mathbf{R}_{WB}\) rotates body-frame vectors into the <a href="#world-frame">world frame</a>.</dd>
+
+  <dt id="coasting">Coasting</dt>
+  <dd>Keeping the IMU prediction as the pose when a scan's registration is rejected, and not inserting
+  that scan into the map. A slightly stale pose recovers on the next scan; a wrong pose in the map does not.</dd>
+
+  <dt id="degeneracy">Degeneracy</dt>
+  <dd>Geometry that leaves some direction unconstrained, such as sliding along a corridor. It shows up
+  as a small eigenvalue of \(\mathbf{H}_t = \sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}\); glass-lio
+  tests the smallest eigenvalue divided by the trace against a gate.</dd>
+
+  <dt id="deskew">Deskew</dt>
+  <dd>Undoing the motion that happened while a LiDAR sweep was being captured, by moving every point
+  into the frame of one instant using the gyro-integrated rotation.</dd>
+
+  <dt id="exp-log">Exp and Log maps</dt>
+  <dd>The maps between a rotation vector in \(\mathbb{R}^3\) and a rotation matrix in SO(3).
+  \(\mathrm{Exp}\) turns a small rotation such as \(\boldsymbol{\omega}\,\Delta t\) into a rotation;
+  \(\mathrm{Log}\) turns a rotation back into a vector, which is how rotation residuals are measured.</dd>
+
+  <dt id="factor">Factor</dt>
+  <dd>One term in a least-squares cost that ties variables to a measurement, weighted by that
+  measurement's information: a point-to-plane residual, an IMU preintegration residual, a bias random walk.</dd>
+
+  <dt id="filter">Filter</dt>
+  <dd>An estimator that keeps only the current state and its covariance, and marginalizes the past
+  at every step. FAST-LIO2's iterated EKF is one.</dd>
+
+  <dt id="fixed-lag-window">Fixed-lag window</dt>
+  <dd>An estimator that keeps the last \(N\) states, re-linearises all of them at every solve, and
+  <a href="#marginalization">marginalizes</a> the oldest into a prior when it drops out.</dd>
+
+  <dt id="information-matrix">Information matrix</dt>
+  <dd>The inverse of a covariance. In the normal equations each sensor contributes
+  \(\mathbf{J}^{\top}\boldsymbol{\Sigma}^{-1}\mathbf{J}\), so the more information a sensor carries, the
+  more it decides the answer.</dd>
+
+  <dt id="jacobian">Jacobian</dt>
+  <dd>The matrix of first derivatives of a residual with respect to the state, taken on the
+  manifold for rotations. It is what linearises each factor for Gauss-Newton.</dd>
+
+  <dt id="loose-coupling">Loose coupling</dt>
+  <dd>Using the IMU only to predict the pose, then letting LiDAR registration solve alone. See
+  <a href="#tight-coupling">tight coupling</a>.</dd>
+
+  <dt id="marginalization">Marginalization</dt>
+  <dd>Removing variables from a problem while keeping what they knew, by taking the Schur complement
+  of the information matrix. The result is a prior on the variables that remain.</dd>
+
+  <dt id="measurement-model">Measurement model</dt>
+  <dd>The equation for what a sensor reports in terms of the true state, bias and noise. For the IMU:
+  \({}_{B}\tilde{\boldsymbol{\omega}} = {}_{B}\boldsymbol{\omega} + \mathbf{b}^{g} + \boldsymbol{\eta}^{g}\)
+  and \({}_{B}\tilde{\mathbf{a}} = \mathbf{R}_{WB}^{\top}({}_{W}\mathbf{a} - {}_{W}\mathbf{g}) + \mathbf{b}^{a} + \boldsymbol{\eta}^{a}\).
+  Lesson 1 covers both.</dd>
+
+  <dt id="normal-equations">Normal equations</dt>
+  <dd>The linear system \(\mathbf{H}\,\delta\mathbf{x} = -\mathbf{b}\), with
+  \(\mathbf{H} = \sum \mathbf{J}^{\top}\boldsymbol{\Sigma}^{-1}\mathbf{J}\), solved at each Gauss-Newton
+  step. Stacking LiDAR and IMU terms into one \(\mathbf{H}\) is the sensor fusion.</dd>
+
+  <dt id="point-to-plane">Point-to-plane residual</dt>
+  <dd>The signed distance from a transformed scan point to a plane in the map,
+  \(\mathbf{n}^{\top}(\mathbf{R}\mathbf{p} + \mathbf{t} - \mathbf{q})\). One per laser return.</dd>
+
+  <dt id="preintegration">Preintegration</dt>
+  <dd>Integrating the IMU samples between two keyframes once, into relative rotation, velocity and
+  position deltas that do not depend on the starting state, so they need not be re-integrated when
+  that state changes. Bias changes are handled by a first-order correction.</dd>
+
+  <dt id="retraction">Retraction</dt>
+  <dd>Applying a small update vector to a state on a manifold, for example
+  \(\mathbf{R} \leftarrow \mathbf{R}\,\mathrm{Exp}(\delta\boldsymbol{\phi})\), so a rotation stays a rotation.</dd>
+
+  <dt id="specific-force">Specific force</dt>
+  <dd>What an accelerometer actually measures: acceleration minus gravity, \(\mathbf{a} - \mathbf{g}\),
+  expressed in the body frame. At rest it reads \(-\mathbf{R}^{\top}\mathbf{g}\), about +9.81&nbsp;m/s²
+  upward: the table pushing up.</dd>
+
+  <dt id="tight-coupling">Tight coupling</dt>
+  <dd>Putting LiDAR and IMU residuals into the same normal equations and solving for the pose, velocity,
+  biases and gravity together, so the IMU takes over wherever the geometry is degenerate.</dd>
+
+  <dt id="world-frame">World frame</dt>
+  <dd>The fixed frame the map and trajectory live in, written \(W\), with gravity
+  \({}_{W}\mathbf{g} \approx [0,\,0,\,-9.81]^{\top}\).</dd>
+
+</dl>
+</article>
+
+<nav class="course">
+  <a href="index.html">← Course home</a>
+</nav>
+
+</main>
+</body>
+</html>

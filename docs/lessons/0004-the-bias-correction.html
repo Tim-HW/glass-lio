@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The bias correction · Lesson 4</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 4 · Inertial state estimation · about 15 minutes</p>
+  <h1>The bias correction</h1>
+  <p class="subtitle">Why the deltas go stale when the bias moves, and the first-order fix.</p>
+</header>
+
+<article>
+
+<p class="lede">Lesson 3 left one thing unexplained: the <code>_hat</code> in glass-core's residual.
+The deltas in eq.&nbsp;(33) still contain the <a href="../glossary.html#bias">biases</a>, and the solver
+keeps re-estimating the biases, so the deltas go stale. This lesson is Forster's fix, eq.&nbsp;(44):
+correct them to first order instead of re-integrating. It's also what keeps glass-lio's lesson-1 fix,
+estimating \(\mathbf{b}^{a}\) as a state, affordable.</p>
+
+<h2>0 · Warm-up, from memory</h2>
+
+<p>The measurement side of \(\Delta\mathbf{v}_{ij}\) from lesson 3, the sum this lesson
+differentiates. After a night's sleep, this box is the real test.</p>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the measurement side of \(\Delta\mathbf{v}_{ij}\), the sum over samples.</p>
+  <textarea placeholder="dv_ij = sum ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \Delta\mathbf{v}_{ij} = \sum_{k=i}^{j-1} \Delta\mathbf{R}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t $$</div>
+    <ul class="checklist">
+      <li>\(\Delta\mathbf{R}_{ik}\), relative to keyframe \(i\), not \(\mathbf{R}_k\)</li>
+      <li>The bias-corrected specific force, \(\tilde{\mathbf{a}}_k - \mathbf{b}^{a}\)</li>
+      <li>No gravity inside the sum</li>
+    </ul>
+    <p>Look at where \(\mathbf{b}^{a}\) sits. That's the whole problem this lesson solves.</p>
+  </div>
+</div>
+
+<h2>1 · The deltas go stale</h2>
+
+<p>Every sum in eq.&nbsp;(33) contains \(\mathbf{b}^{g}\) or \(\mathbf{b}^{a}\). They're integrated
+once, at whatever bias estimate \(\bar{\mathbf{b}}\) the solver held at the time. But the bias is a
+state, and the solver moves it. Forster: "more likely, the bias estimate changes by a small amount
+\(\delta\mathbf{b}\) during optimization. One solution would be to recompute the delta measurements
+when the bias changes; however, that is computationally expensive."<span class="sidenote">Forster
+et al., <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration…</em></a>,
+§VI-C, "Incorporating Bias Updates".</span></p>
+
+<p>glass-lio hits exactly this. Each scan's preintegration is built at the current bias
+estimate,<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L253"><code>lio_estimator.cpp</code>,
+<code>buildPreintegration()</code></a>. The bias is a state because of lesson 1's fix: "let b_a be
+ESTIMATED" (<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/glasslio_node.cpp#L349-L358"><code>glasslio_node.cpp</code></a>).</span>
+and then every Gauss-Newton iteration of the tight solve nudges that bias.</p>
+
+<h2>2 · Correct to first order</h2>
+
+<p>Rather than re-integrate, expand each delta to first order in the bias offset
+\(\delta\mathbf{b} = \mathbf{b} - \bar{\mathbf{b}}\). This is Forster's eq.&nbsp;(44), with a tilde
+for the preintegrated measurement, as in lesson 1:</p>
+
+<div class="eq">$$ \begin{aligned}
+\Delta\tilde{\mathbf{R}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{R}}_{ij}(\bar{\mathbf{b}})\,\mathrm{Exp}\big(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\big)\\
+\Delta\tilde{\mathbf{v}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{v}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{v}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{v}_{a}\,\delta\mathbf{b}^{a}\\
+\Delta\tilde{\mathbf{p}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{p}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{p}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{p}_{a}\,\delta\mathbf{b}^{a}
+\end{aligned} \tag{44} $$</div>
+
+<p>Each \(\mathbf{J}\) is a Jacobian, evaluated at \(\bar{\mathbf{b}}\): for example
+\(\mathbf{J}^{v}_{a} \doteq \partial\Delta\bar{\mathbf{v}}_{ij}/\partial\mathbf{b}^{a}\).<span class="sidenote">Forster
+writes the partial derivatives out in full; the \(\mathbf{J}\) shorthand is this course's, for writing
+by hand. In glass-core, \(\mathbf{J}^{v}_{a}\) is <code>dv_dba_</code>, \(\mathbf{J}^{R}_{g}\) is
+<code>dR_dbg_</code>, and so on.</span> Forster: "The Jacobians remain constant and can be precomputed
+during the preintegration." So the correction costs a few matrix products, not hundreds of samples.</p>
+
+<h2>3 · Rotations don't add</h2>
+
+<p>The velocity and position deltas live in \(\mathbb{R}^3\), so their correction is plain addition.
+The rotation delta doesn't: a rotation matrix plus a small matrix isn't a rotation. So its correction
+is a small rotation vector, \(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\), turned into a rotation by
+\(\mathrm{Exp}\) and applied <em>on the right</em>. That's the same pattern as lesson 2's rotation
+update. Note too that \(\Delta\tilde{\mathbf{R}}_{ij}\) depends only on the gyro bias, because it's
+built from the gyro alone.</p>
+
+<p>glass-core's three corrections, one line each:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L96-L119"><code>preintegration.cpp</code>,
+lines 96–119</a>. The comments: "The correction lives in the tangent space at dR_, so it composes on
+the RIGHT", and, for velocity, "dv lives in R^3: plain addition".</span></p>
+
+<pre><code>return dR_ * SO3d::exp(dR_dbg_ * dbg);
+return dv_ + dv_dbg_ * dbg + dv_dba_ * dba;
+return dp_ + dp_dbg_ * dbg + dp_dba_ * dba;</code></pre>
+
+<h2>4 · Derive one Jacobian yourself</h2>
+
+<p>The easiest one, and a good whiteboard moment. Start from the warm-up's sum. The accelerometer bias
+appears once, linearly, and \(\Delta\bar{\mathbf{R}}_{ik}\) doesn't depend on it at all (gyro only):</p>
+
+<div class="eq">$$ \begin{aligned}
+\Delta\bar{\mathbf{v}}_{ij} &= \sum_{k=i}^{j-1} \Delta\bar{\mathbf{R}}_{ik}\,(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\\
+\Longrightarrow\quad \mathbf{J}^{v}_{a} = \frac{\partial\Delta\bar{\mathbf{v}}_{ij}}{\partial\mathbf{b}^{a}} &= -\sum_{k=i}^{j-1} \Delta\bar{\mathbf{R}}_{ik}\,\Delta t
+\end{aligned} $$</div>
+
+<p>That's the expression in Forster's Appendix IX-B, and glass-core builds it as a running sum, one
+sample at a time:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L79"><code>preintegration.cpp</code>,
+line 79</a>. The gyro-bias Jacobians are harder, because \(\mathbf{b}^{g}\) sits inside every
+\(\Delta\mathbf{R}_{ik}\). They're accumulated in the same loop
+(<a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L71-L82">lines 71–82</a>), with their own update-order
+trap. The full list is on the reference card.</span></p>
+
+<pre><code>dv_dba_ += -dR_mat * dt;</code></pre>
+
+<h2>5 · Applied as an offset, in the residual</h2>
+
+<p>Here's the <code>_hat</code> from lesson 3. The residual measures the offset from the bias the
+deltas were integrated with, then corrects:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L50-L56"><code>nav_residual.hpp</code>,
+lines 50–56</a>. glass-core's comment on the correction: "dbg/dba are the OFFSET from the bias these
+deltas were integrated with -- not the new bias itself."</span></p>
+
+<pre><code>const Eigen::Vector3d dbg = xj.bg - pre.bias_gyro();
+const Eigen::Vector3d dba = xj.ba - pre.bias_accel();
+const Sophus::SO3d dR_hat = pre.dR_corrected(dbg);
+const Eigen::Vector3d dv_hat = pre.dv_corrected(dbg, dba);
+const Eigen::Vector3d dp_hat = pre.dp_corrected(dbg, dba);</code></pre>
+
+<p>How good is first order? Forster tested it by integrating 100 random IMU samples, perturbing the
+bias, and comparing the correction against a full re-integration: "The errors resulting from the
+first-order approximation are negligible, even for relatively large bias perturbations."<span class="sidenote">Forster
+§VIII, the discussion of Fig.&nbsp;11.</span> If the bias ever drifts too far, glass-core's own rule is
+blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>"The preintegrated deltas depend on the bias they were integrated with, and the solver keeps
+  moving the bias. Rather than re-integrating, I also accumulate each delta's Jacobian with respect to
+  the biases during preintegration. Then, for a bias offset \(\delta\mathbf{b}\), \(\Delta\mathbf{v}\) and
+  \(\Delta\mathbf{p}\) get a linear correction, and \(\Delta\mathbf{R}\) is right-multiplied by the
+  \(\mathrm{Exp}\) of its Jacobian times \(\delta\mathbf{b}^{g}\), because rotations don't add. The
+  Jacobians are fixed at the integration bias, so it's cheap; if the bias drifts far, you
+  re-integrate."</p>
+</div>
+
+<h2>6 · Practice</h2>
+
+<p>From memory, no scrolling. The last question comes from lesson 3.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="iter">
+  <p class="q">Why doesn't glass-core simply re-integrate the deltas whenever the bias estimate changes?</p>
+  <ol class="options">
+    <li><button class="option" data-key="iter">It changes every solver iteration</button></li>
+    <li><button class="option" data-key="never">The bias is never estimated</button></li>
+    <li><button class="option" data-key="noisy">IMU samples are too noisy</button></li>
+    <li><button class="option" data-key="grav">Gravity must be re-estimated first</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The bias is a state, so every Gauss-Newton iteration can move it by \(\delta\mathbf{b}\).
+    Re-integrating hundreds of samples each time is what Forster calls "computationally expensive".</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="add">
+  <p class="q">Why is \(\Delta\tilde{\mathbf{R}}_{ij}\) corrected as \(\Delta\tilde{\mathbf{R}}_{ij}\,\mathrm{Exp}(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g})\)
+  and not as \(\Delta\tilde{\mathbf{R}}_{ij} + \mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="add">Rotations cannot be added directly</button></li>
+    <li><button class="option" data-key="cheap">Exp is cheaper to compute</button></li>
+    <li><button class="option" data-key="rot">The gyro bias is a rotation</button></li>
+    <li><button class="option" data-key="double">Addition would double the correction</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A rotation plus a small matrix isn't a rotation. The correction is a small rotation vector in the
+    tangent space, mapped by \(\mathrm{Exp}\) and applied on the right, just like lesson 2's rotation update.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="minus">
+  <p class="q">Differentiate \(\Delta\bar{\mathbf{v}}_{ij} = \sum_k \Delta\bar{\mathbf{R}}_{ik}(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\)
+  with respect to \(\mathbf{b}^{a}\). What is \(\mathbf{J}^{v}_{a}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="minus">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\Delta t\)</button></li>
+    <li><button class="option" data-key="plus">\(+\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\Delta t\)</button></li>
+    <li><button class="option" data-key="trans">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}^{\top}\,\Delta t\)</button></li>
+    <li><button class="option" data-key="bias">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\mathbf{b}^{a}\,\Delta t\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{b}^{a}\) enters linearly with coefficient \(-\Delta\bar{\mathbf{R}}_{ik}\,\Delta t\), and
+    \(\Delta\bar{\mathbf{R}}_{ik}\) doesn't depend on it. In code: <code>dv_dba_ += -dR_mat * dt;</code></p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="offset">
+  <p class="q">In glass-core's residual, what is the <code>dbg</code> passed to <code>dR_corrected()</code>?</p>
+  <ol class="options">
+    <li><button class="option" data-key="offset">the offset from the integration bias</button></li>
+    <li><button class="option" data-key="new">the new gyro bias estimate itself</button></li>
+    <li><button class="option" data-key="step">the change since the last iteration</button></li>
+    <li><button class="option" data-key="rw">the bias random walk per scan</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p><code>dbg = xj.bg - pre.bias_gyro()</code>: the current estimate minus the bias the deltas were
+    integrated with. The Jacobians were evaluated at that integration bias, so the expansion is around it.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="rot">
+  <p class="q"><em>From lesson 3.</em> Which preintegrated delta corresponds to a true physical quantity?</p>
+  <ol class="options">
+    <li><button class="option" data-key="rot">the rotation delta</button></li>
+    <li><button class="option" data-key="vel">the velocity delta</button></li>
+    <li><button class="option" data-key="pos">the position delta</button></li>
+    <li><button class="option" data-key="all">all three deltas</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\Delta\mathbf{R}_{ij} = \mathbf{R}_i^{\top}\mathbf{R}_j\) is the actual relative rotation. Forster:
+    "neither \(\Delta\mathbf{v}_{ij}\) nor \(\Delta\mathbf{p}_{ij}\) correspond to the true physical change in
+    velocity and position", because gravity and \(\mathbf{v}_i\) have been moved to the state side.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the three lines of eq.&nbsp;(44) using the
+  \(\mathbf{J}\) shorthand. Then say which line is <em>not</em> a plain addition, and why.</p>
+  <textarea placeholder="dR~(b) ≈ ...&#10;dv~(b) ≈ ...&#10;dp~(b) ≈ ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \begin{aligned}
+    \Delta\tilde{\mathbf{R}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{R}}_{ij}(\bar{\mathbf{b}})\,\mathrm{Exp}\big(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\big)\\
+    \Delta\tilde{\mathbf{v}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{v}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{v}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{v}_{a}\,\delta\mathbf{b}^{a}\\
+    \Delta\tilde{\mathbf{p}}_{ij}(\mathbf{b}) &\simeq \Delta\tilde{\mathbf{p}}_{ij}(\bar{\mathbf{b}}) + \mathbf{J}^{p}_{g}\,\delta\mathbf{b}^{g} + \mathbf{J}^{p}_{a}\,\delta\mathbf{b}^{a}
+    \end{aligned} $$</div>
+    <ul class="checklist">
+      <li>\(\Delta\tilde{\mathbf{R}}_{ij}\) corrected by right-multiplying an \(\mathrm{Exp}\): rotations don't add</li>
+      <li>\(\Delta\tilde{\mathbf{v}}_{ij}\), \(\Delta\tilde{\mathbf{p}}_{ij}\): plain additions</li>
+      <li>\(\Delta\tilde{\mathbf{R}}_{ij}\) depends on the gyro bias only</li>
+      <li>\(\delta\mathbf{b}\) is the offset from the integration bias \(\bar{\mathbf{b}}\)</li>
+      <li>Jacobians evaluated at \(\bar{\mathbf{b}}\), accumulated during preintegration</li>
+    </ul>
+    <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Forster, Carlone, Dellaert &amp; Scaramuzza,
+  <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
+  Visual-Inertial Odometry</em></a>, IEEE T-RO. <strong>Read §VI-C, "Incorporating Bias Updates"</strong>:
+  half a column, eq.&nbsp;(44). Then skim the summary of Jacobians at the end of Appendix IX-B, and the
+  Fig.&nbsp;11 discussion in §VIII on how accurate first order is.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Questions like "why is the gyro-bias Jacobian of
+  \(\Delta\mathbf{v}\) so much messier?" or "why expand around \(\bar{\mathbf{b}}\) and not the current
+  bias?" are exactly what it's for. Tell it how the warm-up and the recall box went. Terms follow the
+  <a href="../glossary.html">glossary</a>.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="0003-why-preintegrate.html">← Lesson 3: Why preintegrate</a>
+  <a href="../reference/imu-bias-correction.html">Reference card: bias correction →</a>
+  <a href="0005-the-noise-preintegration-carries.html">Next: lesson 5, the noise preintegration carries →</a>
+</nav>
+
+</main>
+</body>
+</html>

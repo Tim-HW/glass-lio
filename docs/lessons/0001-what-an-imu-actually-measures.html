@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What an IMU actually measures · Lesson 1</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body>
+<main>
+
+<header class="page">
+  <p class="kicker">Lesson 1 · Inertial state estimation · about 15 minutes</p>
+  <h1>What an IMU actually measures</h1>
+  <p class="subtitle">Two equations, one sign, and the bug it caused in glass-lio.</p>
+</header>
+
+<article>
+
+<p class="lede">Every IMU-preintegration derivation an interviewer asks for starts from the
+<em>measurement model</em>: what the gyroscope and the accelerometer actually report. Get one
+sign wrong there and everything built on it is wrong too. By the end of this page you should be
+able to write both equations from memory, and explain in one sentence why an early version of
+glass-lio's tight coupling drifted hundreds of metres a minute.</p>
+
+<h2>1 · The bug</h2>
+
+<p>An early version of glass-lio's tight coupling averaged the accelerometer over a static
+window and used that mean as gravity. The estimator then accelerated slowly and steadily away,
+with Z falling about 380&nbsp;m in a minute.<span class="sidenote">The post-mortem is in the code,
+where the fix lives: <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/glasslio_node.cpp#L349-L358"><code>glasslio_node.cpp</code>,
+lines 349–358</a>.</span> Nothing crashed and nothing reported an error. One equation explains it.</p>
+
+<h2>2 · The two equations</h2>
+
+<p>This is how Forster et al. write the IMU model:<span class="sidenote">Forster, Carlone,
+Dellaert &amp; Scaramuzza, <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold
+Preintegration for Real-Time Visual-Inertial Odometry</em></a>, IEEE T-RO, §V, eqs.&nbsp;(27)–(28).
+This page uses their notation.</span></p>
+
+<div class="eq">$$ {}_{B}\tilde{\boldsymbol{\omega}}_{WB}(t) = {}_{B}\boldsymbol{\omega}_{WB}(t) + \mathbf{b}^{g}(t) + \boldsymbol{\eta}^{g}(t) \tag{27} $$</div>
+<div class="eq">$$ {}_{B}\tilde{\mathbf{a}}(t) = \mathbf{R}_{WB}^{\top}(t)\,\big({}_{W}\mathbf{a}(t) - {}_{W}\mathbf{g}\big) + \mathbf{b}^{a}(t) + \boldsymbol{\eta}^{a}(t) \tag{28} $$</div>
+
+<dl class="symbols">
+  <dt>\(\tilde{x}\)</dt><dd>A tilde means <em>measured</em>: what the sensor reports, not the truth.</dd>
+  <dt>\({}_{B}x,\ {}_{W}x\)</dt><dd>The frame a vector is expressed in: \(B\) is the body (IMU) frame, \(W\) the world frame.</dd>
+  <dt>\(\mathbf{R}_{WB}\)</dt><dd>Rotates body-frame vectors into the world, so \(\mathbf{R}_{WB}^{\top}\) takes world vectors into the body frame.</dd>
+  <dt>\({}_{W}\mathbf{a}\)</dt><dd>The sensor's true acceleration, in the world.</dd>
+  <dt>\({}_{W}\mathbf{g}\)</dt><dd>The gravity vector in the world. It points <em>down</em>: with \(z\) up, \(\mathbf{g} \approx [0,\,0,\,-9.81]^{\top}\,\mathrm{m/s^2}\).</dd>
+  <dt>\(\mathbf{b}\)</dt><dd>Bias: a slowly drifting offset, added in the <em>body</em> frame.</dd>
+  <dt>\(\boldsymbol{\eta}\)</dt><dd>White noise.</dd>
+</dl>
+
+<p>The gyroscope equation holds no surprises: true rate plus bias plus noise. All the interesting
+behaviour is in the accelerometer.<span class="sidenote">Forster also neglects the Earth's
+rotation, which amounts to treating \(W\) as an inertial frame (§V).</span></p>
+
+<h2>3 · The sign that matters: specific force</h2>
+
+<p>An accelerometer doesn't measure acceleration \(\mathbf{a}\). It measures
+\(\mathbf{a} - \mathbf{g}\), expressed in its own body frame. This is called
+<strong>specific force</strong>, and two cases make it concrete:</p>
+
+<ul>
+  <li><strong>At rest, level.</strong> \(\mathbf{a} = 0\), so \(\tilde{\mathbf{a}} = -\mathbf{R}_{WB}^{\top}\mathbf{g}\), which reads +9.81 on the axis pointing <em>up</em>. The sensor is feeling the table push it up.</li>
+  <li><strong>In free fall.</strong> \(\mathbf{a} = \mathbf{g}\), so \(\tilde{\mathbf{a}} = 0\). A falling accelerometer reads nothing.</li>
+</ul>
+
+<p>glass-lio's code relies on this. <code>ImuInit</code> averages the static accelerometer
+readings, stores the mean as <code>gravity_</code>, and rotates that vector onto <em>+Z</em>,
+pointing up.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/imu_init.cpp#L73-L79"><code>imu_init.cpp</code>,
+lines 73–79</a>. Strictly, by eq.&nbsp;(28) that mean is \(-\mathbf{R}_{WB}^{\top}\mathbf{g} + \mathbf{b}^{a}\):
+specific force, not gravity. The variable name is loose, but the maths is consistent.</span>
+The node then seeds the estimator's gravity pointing <em>down</em>, as \([0,\,0,\,-9.81]\).</p>
+
+<div class="callout">
+  <p class="label">Units trap</p>
+  <p>The Livox reports specific force in <em>g</em>, not m/s², so at rest it reads about 1.0,
+  not 9.81. That's why glass-lio has an <code>imu.accel_in_g</code> setting and multiplies every
+  accelerometer sample by <code>accel_scale</code> before integrating.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L270-L275"><code>lio_estimator.cpp</code>,
+  lines 270–275</a>.</span></p>
+</div>
+
+<h2>4 · The bug, explained</h2>
+
+<p>Put \(\mathbf{a} = 0\) into eq.&nbsp;(28) and drop the noise. A stationary IMU reports</p>
+
+<div class="eq">$$ \tilde{\mathbf{a}} = -\mathbf{R}_{WB}^{\top}\,\mathbf{g} + \mathbf{b}^{a} $$</div>
+
+<p>Every sample in a static window gives <em>the same sum</em>. Averaging more samples makes the
+sum more precise, but never separates it into its two parts. And those parts behave
+differently:</p>
+
+<ul>
+  <li>the gravity term is fixed in the <strong>world</strong>, so in the body frame it moves whenever the robot turns;</li>
+  <li>the bias is fixed in the <strong>body</strong>, so it turns along with the robot.</li>
+</ul>
+
+<p>The early version treated the whole sum as a world-fixed gravity vector, which baked
+\(\mathbf{b}^{a}\) into the world frame. As soon as the robot turned, that baked-in bias pointed
+the wrong way. It became a fake acceleration of size \(|\mathbf{b}^{a}|\), which was integrated
+twice into position. The fix was to seed gravity at its known magnitude and estimate
+\(\mathbf{b}^{a}\) as a body-frame state.<span class="sidenote">The same equation also tells you
+<em>when</em> the two become separable: once \(\mathbf{R}_{WB}\) changes, the gravity term moves
+and the bias doesn't. Rotation is what makes the accelerometer bias observable.</span></p>
+
+<div class="callout interview">
+  <p class="label">Say it at a whiteboard</p>
+  <p>“An accelerometer measures specific force, \(\mathbf{a} - \mathbf{g}\), in the body frame.
+  At rest you only ever see \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\) as one sum, so a
+  static initialisation can't separate gravity from the accelerometer bias. You fix gravity's
+  magnitude, and the bias becomes observable once the platform rotates.”</p>
+</div>
+
+<h2>5 · Where this lives in the code</h2>
+
+<p>Every preintegration step in glass-core starts from eqs.&nbsp;(27)–(28) rearranged, by
+subtracting the current bias estimates:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L29-L33"><code>preintegration.cpp</code>,
+lines 29–33</a>. The noise terms \(\boldsymbol{\eta}\) aren't subtracted, because they can't be.
+They come back as the covariance the preintegration carries (<a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L64-L66">lines 64–66</a>).</span></p>
+
+<pre><code>const Eigen::Vector3d w = gyro - bias_gyro_;
+const Eigen::Vector3d a = accel - bias_accel_;</code></pre>
+
+<p>Notice what that function <em>doesn't</em> do: it never touches gravity. So where does
+\(\mathbf{g}\) come back in? That's the next lesson.</p>
+
+<h2>6 · Practice</h2>
+
+<p>Answer from memory, without scrolling back up. Having to work to recall it is what makes it
+stick.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="up">
+  <p class="q">A level IMU sits still on a table, with its \(z\) axis pointing up. Ignoring bias
+  and noise, what does the accelerometer's \(z\) axis read?</p>
+  <ol class="options">
+    <li><button class="option" data-key="up">+9.81 m/s²</button></li>
+    <li><button class="option" data-key="down">−9.81 m/s²</button></li>
+    <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
+    <li><button class="option" data-key="double">+19.6 m/s²</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\mathbf{a} = 0\), so \(\tilde{\mathbf{a}} = -\mathbf{R}^{\top}\mathbf{g} = -[0,\,0,\,-9.81]^{\top}\),
+    which is +9.81: the table pushing up. If you chose −9.81, you probably used \(\mathbf{a} + \mathbf{g}\), or a
+    gravity vector pointing up.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="zero">
+  <p class="q">The same IMU is dropped and is now in free fall. What does its \(z\) axis read?</p>
+  <ol class="options">
+    <li><button class="option" data-key="up">+9.81 m/s²</button></li>
+    <li><button class="option" data-key="down">−9.81 m/s²</button></li>
+    <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
+    <li><button class="option" data-key="double">+19.6 m/s²</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>In free fall \(\mathbf{a} = \mathbf{g}\), so \(\mathbf{a} - \mathbf{g} = 0\). An accelerometer
+    measures specific force, and a falling sensor feels none.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="body">
+  <p class="q">In eq.&nbsp;(28), which frame is the accelerometer bias \(\mathbf{b}^{a}\) expressed in?</p>
+  <ol class="options">
+    <li><button class="option" data-key="body">the moving body frame</button></li>
+    <li><button class="option" data-key="world">the fixed world frame</button></li>
+    <li><button class="option" data-key="lidar">the LiDAR sensor frame</button></li>
+    <li><button class="option" data-key="key">the first keyframe frame</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>It's added <em>after</em> \(\mathbf{R}_{WB}^{\top}\) has brought everything into \(B\), so it
+    turns with the IMU. Gravity sits inside the bracket, fixed in \(W\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="sum">
+  <p class="q">A static window averages 10,000 accelerometer samples. Why still can't it separate
+  gravity from \(\mathbf{b}^{a}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="sum">Only their sum is observed</button></li>
+    <li><button class="option" data-key="short">The window is too short</button></li>
+    <li><button class="option" data-key="noise">Bias noise swamps the gravity</button></li>
+    <li><button class="option" data-key="gyro">The gyroscope bias hides both</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Every sample gives the same \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\). More samples
+    make that sum more precise but can't split it. Only a change in \(\mathbf{R}_{WB}\) can.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write both measurement models, gyroscope and
+  accelerometer, and label the frame of each term. Then say the whiteboard sentence out loud.</p>
+  <textarea placeholder="Write it here, however roughly. Symbols like w~ = w + b_g + n_g are fine."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ {}_{B}\tilde{\boldsymbol{\omega}}_{WB} = {}_{B}\boldsymbol{\omega}_{WB} + \mathbf{b}^{g} + \boldsymbol{\eta}^{g} $$</div>
+    <div class="eq">$$ {}_{B}\tilde{\mathbf{a}} = \mathbf{R}_{WB}^{\top}\big({}_{W}\mathbf{a} - {}_{W}\mathbf{g}\big) + \mathbf{b}^{a} + \boldsymbol{\eta}^{a} $$</div>
+    <ul class="checklist">
+      <li>Tildes on the measured side only</li>
+      <li>\(\mathbf{R}_{WB}^{\top}\) in front of the accelerometer bracket</li>
+      <li>\(\mathbf{a} - \mathbf{g}\), not \(\mathbf{a} + \mathbf{g}\)</li>
+      <li>Bias and noise added outside the bracket, in \(B\)</li>
+      <li>Gravity inside the bracket, in \(W\)</li>
+    </ul>
+    <p>Missed a box? Good: that's the useful kind of mistake. Try this box again tomorrow,
+    before rereading anything.</p>
+  </div>
+</div>
+
+<aside class="source">
+  <p class="label">Primary source</p>
+  <p>Forster, Carlone, Dellaert &amp; Scaramuzza,
+  <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
+  Visual-Inertial Odometry</em></a>, IEEE Transactions on Robotics
+  (<a href="https://doi.org/10.1109/TRO.2016.2597321">doi:10.1109/TRO.2016.2597321</a>).
+  <strong>Read §V, “IMU Model and Motion Integration”, about a page.</strong> Every later
+  derivation starts there, and so does the next lesson.</p>
+</aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. Nothing is too basic: questions like “why
+  \(\mathbf{R}^{\top}\) and not \(\mathbf{R}\)?” are exactly what it's for. Tell it how the recall
+  box went, too. That's how the next lesson gets pitched at the right level.</p>
+</aside>
+
+</article>
+
+<nav class="course">
+  <a href="../reference/imu-measurement-model.html">Reference card: IMU measurement model →</a>
+  <a href="0002-integrating-one-imu-step.html">Next: lesson 2, integrating one IMU step →</a>
+</nav>
+
+</main>
+</body>
+</html>
