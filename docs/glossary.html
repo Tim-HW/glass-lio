@@ -27,7 +27,7 @@
   <dt id="bias">Bias</dt>
   <dd>A slowly drifting offset added to a sensor's reading, in the <a href="#body-frame">body frame</a>:
   \(\mathbf{b}^{g}\) for the gyroscope, \(\mathbf{b}^{a}\) for the accelerometer. It is modelled as a random
-  walk and estimated alongside the pose, because nothing but motion over time reveals it.</dd>
+  walk and estimated alongside the pose. A known stationary interval can reveal gyro bias; separating accelerometer bias from gravity and attitude requires additional information and suitable excitation.</dd>
 
   <dt id="body-frame">Body frame</dt>
   <dd>The frame attached to the IMU, written \(B\). The gyroscope and accelerometer measure in it, and
@@ -40,7 +40,7 @@
   <dt id="degeneracy">Degeneracy</dt>
   <dd>Geometry that leaves some direction unconstrained, such as sliding along a corridor. It shows up
   as a small eigenvalue of \(\mathbf{H}_t = \sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}\); glass-lio
-  tests the smallest eigenvalue divided by the trace against a gate.</dd>
+  tests the smallest eigenvalue divided by the trace against a gate in the loose path. This tests pure translation with rotation fixed; it does not certify full pose observability.</dd>
 
   <dt id="deskew">Deskew</dt>
   <dd>Undoing the motion that happened while a LiDAR sweep was being captured, by moving every point
@@ -77,8 +77,7 @@
   <a href="#tight-coupling">tight coupling</a>.</dd>
 
   <dt id="marginalization">Marginalization</dt>
-  <dd>Removing variables from a problem while keeping what they knew, by taking the Schur complement
-  of the information matrix. The result is a prior on the variables that remain.</dd>
+  <dd>Integrating out variables. For a nonsingular linear Gaussian problem, the Schur complement of the information matrix gives an exact Gaussian prior on the survivors. In a nonlinear problem this applies to a local linearization, whose approximation is retained in the prior.</dd>
 
   <dt id="measurement-model">Measurement model</dt>
   <dd>The equation for what a sensor reports in terms of the true state, bias and noise. For the IMU:
@@ -87,8 +86,8 @@
   Lesson 1 covers both.</dd>
 
   <dt id="normal-equations">Normal equations</dt>
-  <dd>The linear system \(\mathbf{H}\,\delta\mathbf{x} = -\mathbf{b}\), with
-  \(\mathbf{H} = \sum \mathbf{J}^{\top}\boldsymbol{\Sigma}^{-1}\mathbf{J}\), solved at each Gauss-Newton
+  <dd>The linear system \(\mathbf{H}\,\delta\mathbf{x} = \mathbf{b}\), with
+  \(\mathbf{H} = \sum \mathbf{J}^{\top}\boldsymbol{\Sigma}^{-1}\mathbf{J}\) and \(\mathbf{b}=-\sum\mathbf{J}^{\top}\boldsymbol{\Sigma}^{-1}\mathbf{r}\), solved at each Gauss-Newton
   step. Stacking LiDAR and IMU terms into one \(\mathbf{H}\) is the sensor fusion.</dd>
 
   <dt id="point-to-plane">Point-to-plane residual</dt>

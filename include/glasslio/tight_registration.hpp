@@ -76,20 +76,19 @@ struct TightParams
 struct TightResult
 {
   NavState state;
-  /// The solved gravity (world frame). Carried forward by the caller as the next scan's
-  /// prior anchor -- this is what lets an initial tilt error be corrected over time instead
-  /// of frozen at the init window.
+  /// The solved gravity (world frame). Carried as the next initial guess; the prior
+  /// remains anchored to the fixed initialization value.
   Eigen::Vector3d gravity = Eigen::Vector3d::Zero();
-  /// The total information matrix at the solution, H = sum(J^T Omega J), over the FULL
+  /// The total information matrix at the last linearization, H = sum(J^T Omega J), over the FULL
   /// 18-DoF augmented state [nav (15) ; gravity (3)].
   ///
-  /// Handed back so the caller can carry a POSTERIOR covariance forward:
-  ///     P_posterior = (P_prior^-1 + H_data)^-1
-  /// which is the whole difference between a filter and a one-shot factor. Without it,
-  /// the estimator can never become MORE certain about a bias (or gravity) than it started,
-  /// and a quantity like the accel bias -- which only the data can reveal -- stays frozen.
+  /// Includes the bias and gravity priors already. Marginal covariances are blocks of
+  /// H^-1, NOT inverses of H's diagonal blocks. This is a local Gaussian approximation
+  /// with the last robust weights; it does not make the estimator a complete filter.
   Eigen::Matrix<double, kTightDim, kTightDim> H =
     Eigen::Matrix<double, kTightDim, kTightDim>::Zero();
+  /// Solve H P = I. On non-finite or non-positive-definite H, leave covariance unchanged.
+  bool posteriorCovariance(Eigen::Matrix<double, kTightDim, kTightDim> & covariance) const;
   bool valid = false;
   bool converged = false;
   int iterations = 0;

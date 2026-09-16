@@ -14,7 +14,7 @@
 <main>
 
 <header class="page">
-  <p class="kicker">Lesson 6 · Inertial state estimation · about 15 minutes</p>
+  <p class="kicker">Lesson 6 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
   <h1>The point-to-plane factor</h1>
   <p class="subtitle">One residual per laser return, its Jacobian, and how thousands of them build one linear system.</p>
 </header>
@@ -24,8 +24,7 @@
 <p class="lede">Lessons 3–5 built the IMU's half of glass-lio's solve. This is the other half: the
 LiDAR factor. Each laser return becomes one scalar residual, its distance to a plane in the map. By
 the end you should be able to derive that residual's 1×6 Jacobian at a whiteboard, and say exactly
-what one correspondence adds to the normal equations. It's the fifth success criterion in your
-mission: justify every term of glass-lio's tight coupling.</p>
+what one correspondence adds to the normal equations. It's the fifth success criterion in this course: justify every term of glass-lio's tight coupling.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -151,8 +150,7 @@ lines 38–62</a>.</span> One thing to notice for lesson 7: \(\mathbf{H}\)'s tra
 that copying the left one in "still runs, still converges, and is wrong."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L275-L312"><code>nav_residual.hpp</code>,
 lines 275–312</a>.</span> Two more differences in the tight loop: each residual and its Jacobian are divided
 by <code>lidar_sigma</code>, giving each point an information of \(1/\sigma^{2}\), on the same footing as the
-IMU's \(\Sigma^{-1}\) from lesson 5; and the zero columns say something real, "The IMU is the only thing
-constraining them".<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L64-L91"><code>tight_registration.cpp</code>,
+IMU's \(\Sigma^{-1}\) from lesson 5; and the zero columns mean LiDAR has no direct sensitivity to velocity or bias. Those variables are constrained through the IMU coupling and the bias prior.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L64-L91"><code>tight_registration.cpp</code>,
 lines 64–91</a>. The gravity columns are zero too: "a laser return sees the pose, not gravity".</span></p>
 
 <pre><code>J.block&lt;1, 3&gt;(0, kIdxPhi) =
@@ -245,8 +243,7 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
     <li><button class="option" data-key="none">none; it sees everything</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>A laser return constrains where the sensor is and how it's oriented, nothing else. Velocity and the biases
-    (and gravity) are left to the IMU: "The IMU is the only thing constraining them."</p>
+    <p>A laser return constrains where the sensor is and how it's oriented, nothing else. Velocity is coupled through the IMU. Bias and gravity also have their own prior residuals in the tight solve.</p>
   </div>
 </div>
 

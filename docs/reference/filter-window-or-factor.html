@@ -21,6 +21,7 @@
 
 <article>
 
+<p>For the local Gaussian approximation, \(P\approx H_{\rm total}^{-1}\); take marginal covariance blocks <em>after</em> solving the full system. Priors are already included in \(H_{\rm total}\). See <a href="../lessons/0008-filter-window-or-factor.html#posterior">the derivation and implementation limits</a>.</p>
 <h2>Key equations</h2>
 <p class="label">Warm-up, from memory</p>
 <div class="eq">$$ \Sigma_{i,k+1} = \mathbf{A}_k\,\Sigma_{ik}\,\mathbf{A}_k^{\top} + \mathbf{B}_k\,\Sigma_{\eta}\,\mathbf{B}_k^{\top}, \qquad \Sigma_{ii} = \mathbf{0} $$</div>

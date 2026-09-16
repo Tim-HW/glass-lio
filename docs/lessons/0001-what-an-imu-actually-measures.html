@@ -14,7 +14,7 @@
 <main>
 
 <header class="page">
-  <p class="kicker">Lesson 1 · Inertial state estimation · about 15 minutes</p>
+  <p class="kicker">Lesson 1 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
   <h1>What an IMU actually measures</h1>
   <p class="subtitle">Two equations, one sign, and the bug it caused in glass-lio.</p>
 </header>
@@ -26,6 +26,8 @@
 sign wrong there and everything built on it is wrong too. By the end of this page you should be
 able to write both equations from memory, and explain in one sentence why an early version of
 glass-lio's tight coupling drifted hundreds of metres a minute.</p>
+
+<p>New to matrices, derivatives, or uncertainty? Start with <a href="0000-math-prerequisites.html">the mathematical toolkit</a>. It introduces the notation used throughout these lessons.</p>
 
 <h2>1 · The bug</h2>
 
@@ -102,18 +104,17 @@ differently:</p>
 
 <p>The early version treated the whole sum as a world-fixed gravity vector, which baked
 \(\mathbf{b}^{a}\) into the world frame. As soon as the robot turned, that baked-in bias pointed
-the wrong way. It became a fake acceleration of size \(|\mathbf{b}^{a}|\), which was integrated
+the wrong way. It became an orientation-dependent fake acceleration, on the scale of \(|\mathbf{b}^{a}|\), which was integrated
 twice into position. The fix was to seed gravity at its known magnitude and estimate
 \(\mathbf{b}^{a}\) as a body-frame state.<span class="sidenote">The same equation also tells you
 <em>when</em> the two become separable: once \(\mathbf{R}_{WB}\) changes, the gravity term moves
-and the bias doesn't. Rotation is what makes the accelerometer bias observable.</span></p>
+and the bias doesn't. Suitable changes of orientation, together with motion constraints from other measurements, can separate the terms. Pure yaw about gravity leaves the gravity reading unchanged and is not sufficient.</span></p>
 
 <div class="callout interview">
   <p class="label">Say it at a whiteboard</p>
   <p>“An accelerometer measures specific force, \(\mathbf{a} - \mathbf{g}\), in the body frame.
   At rest you only ever see \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\) as one sum, so a
-  static initialisation can't separate gravity from the accelerometer bias. You fix gravity's
-  magnitude, and the bias becomes observable once the platform rotates.”</p>
+  static initialisation can't separate gravity from the accelerometer bias. You constrain gravity's magnitude and use sufficiently varied motion and external motion measurements to separate bias from gravity and attitude.”</p>
 </div>
 
 <h2>5 · Where this lives in the code</h2>
@@ -190,7 +191,7 @@ stick.</p>
   </ol>
   <div class="explain" hidden>
     <p>Every sample gives the same \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\). More samples
-    make that sum more precise but can't split it. Only a change in \(\mathbf{R}_{WB}\) can.</p>
+    make that sum more precise but can't split it. Additional information is needed: for example, known orientations with different gravity projections, or sufficiently excited motion measured by LiDAR. More samples at one unknown static attitude cannot do it.</p>
   </div>
 </div>
 

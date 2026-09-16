@@ -15,6 +15,25 @@ namespace glasslio
 // frozen at init (roadmap Phase 1).
 using NavEquations = NormalEquationsN<kTightDim>;
 
+bool TightResult::posteriorCovariance(
+  Eigen::Matrix<double, kTightDim, kTightDim> & covariance) const
+{
+  if (!H.allFinite()) {
+    return false;
+  }
+  const Eigen::LDLT<Eigen::Matrix<double, kTightDim, kTightDim>> ldlt(H);
+  if (ldlt.info() != Eigen::Success || (ldlt.vectorD().array() <= 0.0).any()) {
+    return false;
+  }
+  const Eigen::Matrix<double, kTightDim, kTightDim> candidate =
+    ldlt.solve(Eigen::Matrix<double, kTightDim, kTightDim>::Identity());
+  if (!candidate.allFinite()) {
+    return false;
+  }
+  covariance = candidate;
+  return true;
+}
+
 // predictState() moved to glass_core/nav_residual.hpp, beside the imuResidual it is the
 // forward dual of. It is engine, not LiDAR, and glassvio needs it too.
 
@@ -110,7 +129,8 @@ TightResult alignTightlyCoupled(
     //
     // WEIGHT: inflate the preintegration covariance by x_i's uncertainty,
     //     Sigma_eff = Sigma_pre + J_i P_i J_i^T,
-    // which is the exact marginalization of a Gaussian x_i out of this factor. This is the
+    // which marginalizes an independent Gaussian x_i perturbation from this linearized
+    // factor (not the whole historical joint distribution). This is the
     // fix for the FREEZE: with x_i held infinitely certain (P_i = 0) the IMU's information
     // is enormous and it overrules the LiDAR, pinning the pose (roadmap Phase 2). J_i is the
     // d/dx_i block; it depends on the current x_j iterate, so this is per-iteration.

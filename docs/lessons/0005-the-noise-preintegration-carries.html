@@ -14,7 +14,7 @@
 <main>
 
 <header class="page">
-  <p class="kicker">Lesson 5 · Inertial state estimation · about 15 minutes</p>
+  <p class="kicker">Lesson 5 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
   <h1>The noise preintegration carries</h1>
   <p class="subtitle">One covariance, propagated a sample at a time, and why it decides who wins.</p>
 </header>
@@ -24,8 +24,7 @@
 <p class="lede">The deltas tell the solver what the IMU says happened. The solver also needs to know
 <em>how much to believe it</em>: that's the 9×9 covariance \(\Sigma_{ij}\) of the deltas. Its inverse
 is the weight on the IMU residual, and in glass-lio it's what gets set against the LiDAR. This lesson
-is how that covariance is built, one sample at a time. It's the second half of the mission's second
-goal, and the answer to an interview question you should expect: how do you weigh the IMU against
+is how that covariance is built, one sample at a time. It's the second half of the course's uncertainty-propagation goal, and the answer to an interview question you should expect: how do you weigh the IMU against
 another sensor?</p>
 
 <h2>0 · Warm-up, from memory</h2>
@@ -55,15 +54,14 @@ et al., <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegratio
 glass-lio does exactly that. The IMU factor's weight is the inverse of the preintegration covariance,
 while each LiDAR point is whitened by <code>lidar_sigma</code>:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L118-L129"><code>tight_registration.cpp</code>,
 lines 118–129</a>. glass-lio also adds the previous state's own uncertainty,
-\(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\), which its comment calls "the exact marginalization of a
-Gaussian x_i out of this factor". The LiDAR side is at <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L64-L70">lines 64–70</a>.</span></p>
+\(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\), which marginalizes an independent Gaussian perturbation of x_i from this one linearized factor. The LiDAR side is at <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L64-L70">lines 64–70</a>.</span></p>
 
 <pre><code>const Eigen::Matrix&lt;double, 9, 9&gt; sigma_eff =
   pre.covariance() + Ji * xi_cov * Ji.transpose();
 Eigen::Matrix&lt;double, 9, 9&gt; imu_information =
   sigma_eff.inverse() * params.imu_prior_weight;</code></pre>
 
-<p>So whenever the IMU and the LiDAR disagree, this matrix decides who wins.</p>
+<p>This matrix helps set the balance with LiDAR. The covariance inflation is exact for that local linear Gaussian model with independent noise; it is not the marginalization of every historical factor or a proof of consistency of the whole estimator.</p>
 
 <h2>2 · The noise is linear, so propagate it linearly</h2>
 
@@ -103,6 +101,12 @@ this step's rotation, and \(\Delta\tilde{\mathbf{R}}_{ik}\) the rotation accumul
 \(\Sigma_{\eta}\) comes from the datasheet densities, turned into discrete-time noise exactly as in
 lesson 2: \(\sigma^{2}/\Delta t\).</p>
 
+<p>Here \(\mathbf{J}_r^k=\mathbf{J}_r((\tilde{\boldsymbol{\omega}}_k-\mathbf{b}^g)\Delta t)\) is the
+<a href="0000-math-prerequisites.html#right-jacobian">right Jacobian of SO(3)</a>: it converts an additive error in a rotation vector into a small right-multiplied rotation. It tends to \(\mathbf{I}\) near zero.</p>
+<p>The covariance recursion assumes the new measurement noise is independent of the accumulated error.
+The densities use the convention \(Q_d=\operatorname{diag}(\sigma_g^2\mathbf I,\sigma_a^2\mathbf I)/\Delta t\).
+This 9×9 matrix conditions on the chosen integration biases; it does not include their uncertainty or random walk.</p>
+
 <h2>4 · Read it like eq. (31)</h2>
 
 <p>Don't memorise A and B as matrices. Read them row by row, and they're the warm-up's equation,
@@ -131,20 +135,20 @@ B.block&lt;3, 3&gt;(6, 3) = 0.5 * dR_mat * dt * dt;
 
 cov_ = A * cov_ * A.transpose() + B * Q * B.transpose();</code></pre>
 
-<h2>5 · It only grows, and physics sets the scale</h2>
-
-<p>Nothing in eq.&nbsp;(63) ever removes uncertainty: every sample adds fresh noise
-\(\mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\). A longer interval therefore means a larger \(\Sigma_{ij}\), a
-smaller weight, and an IMU trusted less. glass-core's header puts it well: "a long gap between scans
-means a big covariance means the IMU is trusted less. It grows without bound the longer you integrate
--- which is the honest statement that dead reckoning is not a substitute for a measurement."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/preintegration.hpp#L71-L78"><code>preintegration.hpp</code>,
-lines 71–78</a>.</span></p>
-
-<p>And the scale comes from the datasheet, not from tuning. glass-lio's config says so directly:
-"Which sensor is believed is decided by physics."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L217-L227"><code>livox_mid_360.yaml</code>,
-lines 217–227</a>: MEMS-grade densities of <code>1.7e-3</code> rad/s/√Hz (gyro) and <code>2.0e-2</code>
-m/s²/√Hz (accel). The same comment warns that navigation-grade numbers would let the IMU override good
-LiDAR geometry, "and it would be RIGHT to".</span></p>
+<h2>5 · Accumulating noise is not a monotonicity theorem</h2>
+<p>Each sample adds a positive semidefinite term \(\mathbf B\Sigma_\eta\mathbf B^\top\) to the
+<em>propagated</em> covariance \(\mathbf A\Sigma\mathbf A^\top\). This does not imply
+\(\Sigma_{k+1}-\Sigma_k\succeq0\): propagation rotates and couples errors, so individual directional variances need not increase at every step.</p>
+<p>For example, let \(\Sigma=\operatorname{diag}(4,1)\), let \(A\) rotate by 90°, and add \(Q=0.1I\).
+Then \(A\Sigma A^\top+Q=\operatorname{diag}(1.1,4.1)\). The first variance fell despite fresh noise.
+Longer inertial dead reckoning generally accumulates error, but that practical trend is not an ordering of every covariance matrix or its inverse.</p>
+<p>In the simpler scalar model \(v_{k+1}=v_k+\eta_k\Delta t\), with independent
+\(\operatorname{Var}(\eta_k)=\sigma_a^2/\Delta t\), the variance is exactly \(\sigma_a^2T\).
+Doubling \(T\) doubles that variance and halves its information. State the model before drawing this conclusion.</p>
+<p>Noise densities are physical parameters to measure or obtain from a suitable sensor specification. Validate their units,
+bandwidth assumptions, and the resulting residual statistics. Datasheet range noise alone is not the full point-to-plane
+residual uncertainty: plane fitting, deskew errors, and correlated returns also matter. The historical glass-lio settings
+are calibration choices for those experiments, not universal constants.</p>
 
 <div class="callout interview">
   <p class="label">Say it at a whiteboard</p>
@@ -153,8 +157,7 @@ LiDAR geometry, "and it would be RIGHT to".</span></p>
   \(\Sigma \leftarrow \mathbf{A}\Sigma\mathbf{A}^{\top} + \mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), starting from
   zero, with the datasheet densities turned into discrete covariances \(\sigma^{2}/\Delta t\). A and B are eq.
   (31) linearised, plus one coupling: an orientation error tilts the specific force. The inverse of that
-  covariance weights the IMU residual, so a longer interval means a bigger covariance and a less trusted
-  IMU."</p>
+  covariance weights the IMU residual. Dead reckoning generally accumulates uncertainty, but propagation does not guarantee monotonic growth in every direction."</p>
 </div>
 
 <h2>6 · Practice</h2>
@@ -207,17 +210,17 @@ LiDAR geometry, "and it would be RIGHT to".</span></p>
 </div>
 
 <div class="quiz" data-answer="shrink">
-  <p class="q">The same IMU interval is made twice as long. What happens to the IMU residual's weight in the solve?</p>
+  <p class="q">For scalar velocity driven only by independent white accelerometer noise, \(\operatorname{Var}(v)=\sigma_a^2T\). Double \(T\): what happens to its inverse-variance weight?</p>
   <ol class="options">
-    <li><button class="option" data-key="shrink">It shrinks, as covariance grows</button></li>
+    <li><button class="option" data-key="shrink">It halves</button></li>
     <li><button class="option" data-key="more">It grows, from more samples</button></li>
     <li><button class="option" data-key="fixed">It stays fixed per datasheet</button></li>
     <li><button class="option" data-key="reset">It resets at each keyframe</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>The weight is \(\Sigma^{-1}\), and every sample adds fresh noise to \(\Sigma\). More samples mean more
-    dead reckoning, not more information: "a long gap between scans means a big covariance means the IMU is
-    trusted less."</p>
+    <p>In this specified scalar model, \(1/(\sigma_a^2(2T))\) is half the original weight.
+    The full coupled 9×9 propagation does not imply that every direction loses information monotonically.</p>
+
   </div>
 </div>
 

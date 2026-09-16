@@ -15,7 +15,7 @@
 <main>
 
 <header class="page">
-  <p class="kicker">Lesson 7 · Inertial state estimation · about 15 minutes</p>
+  <p class="kicker">Lesson 7 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
   <h1>Planes and degeneracy</h1>
   <p class="subtitle">One skill, used twice: reading the smallest eigenvalue of a 3×3 matrix.</p>
 </header>
@@ -80,7 +80,7 @@ scenes, where too few planes form. The rejecting line in <code>fitPlane()</code>
 
 <ul>
   <li><strong>A flat patch:</strong> \(\lambda_0 \ll \lambda_1 \le \lambda_2\). Accepted.</li>
-  <li><strong>A corner</strong> (wall meets floor): the points spread in all three directions, so \(\lambda_0\) isn't small. Rejected.</li>
+  <li><strong>A corner</strong> (wall meets floor): a balanced sample usually spreads in three directions and is rejected. An uneven sample dominated by one surface can still pass; this ratio is a heuristic, not a surface classifier.</li>
   <li><strong>A blob</strong> (foliage): all three similar. Rejected. Hoppe: when "the eigenvalues are similar… the eigenvectors do not reveal the surface's true tangent plane."</li>
   <li><strong>A line</strong> (a pole's edge): \(\lambda_0 \approx \lambda_1 \ll \lambda_2\). Comparing with \(\lambda_1\), not \(\lambda_2\), is what catches it: a line has no single normal.</li>
 </ul>
@@ -112,6 +112,12 @@ nearest-neighbour tree search, which is why registration is cheap.</p>
 planes constrain least. If every normal is perpendicular to some direction, sliding along it changes no
 residual at all. Try it: a scan of floor plus one wall, then add a second wall.</p>
 
+<div class="callout">
+  <p class="label">What this test can establish</p>
+  <p>\(H_t\) tests pure translation <strong>with rotation held fixed</strong>. A zero eigenvalue gives a pure-translation null direction. A positive ratio does not prove that all six pose degrees of freedom are observable: rotation and coupled rotation–translation motions may still be unobservable.</p>
+  <p>To examine the full pose, inspect the full Jacobian's nullspace or the full 6×6 information matrix, with appropriate translation/rotation scaling. If \(H_{rr}\) is invertible, the translation information after eliminating rotation is \(H_{tt}-H_{tr}H_{rr}^{-1}H_{rt}\), which can be smaller than \(H_{tt}\).</p>
+</div>
+
 <div class="scatter-explorer" data-gate="0.05" data-init="100,0,100"></div>
 
 <p>glass-lio divides by the trace, because the raw eigenvalue "scales with correspondence count and so
@@ -127,7 +133,7 @@ const double trace = Ht.trace();
 result.translation_eigenvalue_ratio =
   trace &gt; 0.0 ? es.eigenvalues().minCoeff() / trace : 0.0;</code></pre>
 
-<p>Below the gate, the scan is marked invalid.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/registration.cpp#L72-L88"><code>registration.cpp</code>,
+<p>In the <strong>loose path</strong>, a ratio below the gate marks the scan invalid. The tight path does not reject a scan using this translation ratio: it adds IMU information in the same solve. Its separate rotation ratio gates only the gyro-bias feedback into deskew.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/registration.cpp#L72-L88"><code>registration.cpp</code>,
 lines 72–88</a>. It re-associates once at the converged pose, to test the \(\mathbf{H}\) the answer actually rests on.</span>
 Why was it needed? On M3DGR's Outdoor01, glass-lio's path came out at 38,657&nbsp;m against a true 346&nbsp;m,
 while the RMSE sat at its normal 0.10–0.16 and correspondences never fell below 300. A pose sliding along a
@@ -149,8 +155,7 @@ an interview.</p>
   smaller than the middle one, it's a blob, a corner or a line, so there's no plane. For the whole scan,
   \(\mathbf{H}\)'s translation block is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\); its smallest-eigenvalue eigenvector is the
   direction no plane constrains, and when that eigenvalue is a tiny fraction of the trace, like floor plus one wall,
-  the pose can slide along it with a perfectly healthy RMSE. glass-lio refuses those scans at a ratio of 0.05 and lets
-  the IMU carry that direction; Zhang et al. instead solve only the well-conditioned directions."</p>
+  the pose can slide along it with a perfectly healthy RMSE. glass-lio's loose path refuses scans below 0.05; the tight path can use IMU information along the weak direction; Zhang et al. instead solve only the well-conditioned directions."</p>
 </div>
 
 <h2>5 · Practice</h2>
@@ -173,7 +178,7 @@ an interview.</p>
 </div>
 
 <div class="quiz" data-answer="reject">
-  <p class="q">A voxel straddles the corner where a wall meets the floor. What does the planarity gate do?</p>
+  <p class="q">A voxel samples a wall–floor corner with eigenvalues \((0.03,0.04,0.08)\) m². What does the 0.1 planarity gate do?</p>
   <ol class="options">
     <li><button class="option" data-key="reject">Rejects it: not a plane</button></li>
     <li><button class="option" data-key="floor">Accepts it, using the floor</button></li>
@@ -181,7 +186,7 @@ an interview.</p>
     <li><button class="option" data-key="split">Splits it into two planes</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>Two surfaces spread the points in all three directions, so \(\lambda_0\) isn't much smaller than \(\lambda_1\), and
+    <p>The measured ratio is \(0.03/0.04=0.75\), so
     \(\lambda_0 &gt; 0.1\,\lambda_1\) rejects it. glass-lio never splits a voxel (VoxelMap's octrees are one way to).</p>
   </div>
 </div>
@@ -252,8 +257,8 @@ an interview.</p>
   <div class="answer" hidden>
     <div class="eq">$$ \begin{aligned}
     \mathbf{c} &= \tfrac{1}{n}\textstyle\sum_k \mathbf{p}_k, \qquad \mathbf{C} = \tfrac{1}{n}\textstyle\sum_k (\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top}\\
-    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{plane iff } \lambda_0 \le 0.1\,\lambda_1\\
-    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{degenerate iff } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
+    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{accept plane if }\lambda_1\ge10^{-12}\text{ and }\lambda_0\le0.1\lambda_1\\
+    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
     \end{aligned} $$</div>
     <ul class="checklist">
       <li>The normal is the <em>smallest</em> eigenvalue's eigenvector</li>

@@ -21,6 +21,7 @@
 
 <article>
 
+<p>This tests pure translation with rotation fixed. Passing it does not certify full pose observability. The threshold rejects scans only in the loose path.</p>
 <h2>Key equations</h2>
 <p class="label">Warm-up, from memory</p>
 <div class="eq">$$ \mathbf{J} = \begin{bmatrix}\mathbf{n}^{\top} & (\mathbf{q}\times\mathbf{n})^{\top}\end{bmatrix}, \qquad \mathbf{H} \leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J} $$</div>
@@ -31,8 +32,8 @@
 <p class="label">Practice</p>
 <div class="eq">$$ \begin{aligned}
     \mathbf{c} &= \tfrac{1}{n}\textstyle\sum_k \mathbf{p}_k, \qquad \mathbf{C} = \tfrac{1}{n}\textstyle\sum_k (\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top}\\
-    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{plane iff } \lambda_0 \le 0.1\,\lambda_1\\
-    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{degenerate iff } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
+    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{accept plane if }\lambda_1\ge10^{-12}\text{ and }\lambda_0\le0.1\lambda_1\\
+    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
     \end{aligned} $$</div>
 
 <h2>Say it at a whiteboard</h2>

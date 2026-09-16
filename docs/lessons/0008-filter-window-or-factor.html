@@ -14,7 +14,7 @@
 <main>
 
 <header class="page">
-  <p class="kicker">Lesson 8 · Inertial state estimation · about 15 minutes</p>
+  <p class="kicker">Lesson 8 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
   <h1>Filter, window, or factor</h1>
   <p class="subtitle">What each estimator keeps, what it re-linearises, and what marginalization buys.</p>
 </header>
@@ -25,7 +25,7 @@
 and the cost grows forever; throw them away carelessly and you lose information or invent it. Your two
 repos answer this differently, and so do FAST-LIO2 and VINS-Mono. This lesson gives you one tool,
 <em>marginalization</em>, which you'll do by hand on a 2×2 system, and one table to compare them all. It's
-the third goal in your mission: defend a filter-vs-window choice at a whiteboard.</p>
+the third goal in this course: defend a filter-vs-window choice at a whiteboard.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -62,7 +62,7 @@ Image and Vision Computing, 2012 (authors' PDF), abstract.</span> Both are ways 
 <div class="eq">$$ \begin{bmatrix}\mathbf{H}_{mm} & \mathbf{H}_{mk}\\ \mathbf{H}_{km} & \mathbf{H}_{kk}\end{bmatrix}
 \begin{bmatrix}\mathbf{x}_m\\ \mathbf{x}_k\end{bmatrix} = \begin{bmatrix}\mathbf{b}_m\\ \mathbf{b}_k\end{bmatrix} $$</div>
 
-<p>Solve the top row for \(\mathbf{x}_m\) and substitute it into the bottom row. That's the Schur complement:</p>
+<p>Assume a symmetric positive definite information matrix and a linear Gaussian model (or a fixed local linearization). Solve the top row for \(\mathbf{x}_m\) and substitute it into the bottom row. That's the Schur complement:</p>
 
 <div class="eq">$$ \begin{aligned}
 \mathbf{H}' &= \mathbf{H}_{kk} - \mathbf{H}_{km}\,\mathbf{H}_{mm}^{-1}\,\mathbf{H}_{mk}\\
@@ -80,14 +80,14 @@ one scalar each:</p>
 <ul>
   <li><strong>Full solve:</strong> \(\mathbf{x} = \mathbf{H}^{-1}\mathbf{b} = \tfrac{1}{8}\begin{bmatrix}3 & -2\\ -2 & 4\end{bmatrix}\begin{bmatrix}2\\ 1\end{bmatrix} = \begin{bmatrix}0.5\\ 0\end{bmatrix}\), so \(x_k = 0\).</li>
   <li><strong>Marginalize \(m\):</strong> \(H' = 3 - 2\cdot\tfrac{1}{4}\cdot 2 = 2\) and \(b' = 1 - 2\cdot\tfrac{1}{4}\cdot 2 = 0\), so \(x_k = 0\). Exact.</li>
-  <li><strong>Hold \(m\) fixed and ignore the coupling:</strong> \(3x_k = 1\), so \(x_k = \tfrac{1}{3}\). Wrong, and with information 3 instead of 2: <em>overconfident</em>.</li>
+  <li><strong>Hold \(x_m=0\) fixed and ignore its uncertainty:</strong> \(3x_k = 1\), so \(x_k = \tfrac{1}{3}\). Wrong, and with information 3 instead of 2: <em>overconfident</em>.</li>
 </ul>
 
 <p>glass-core's test checks exactly these two claims on a 12-variable system: the Schur solve must match the full solve,
 and "hold-fixed (the freeze)" must not.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/test/test_marginalization.cpp#L43-L67"><code>test_marginalization.cpp</code>,
 lines 43–67</a>: match to 1e-9, and the naive solve must be off by more than 1e-2, "or the information the dropped block carried
 forward was zero".</span> One cost to know: \(\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\) couples everything the removed variable
-touched, so the prior is dense.</p>
+touched, so the prior can become dense. In a nonlinear problem this summary is exact only for the chosen linearization; discarded nonlinear factors cannot subsequently be relinearized.</p>
 
 <pre><code>H_marg = Hkk - Hmk.transpose() * Hmm_inv_Hmk;
 b_marg = bk - Hmk.transpose() * Hmm_inv_bm;</code></pre>
@@ -98,7 +98,7 @@ b_marg = bk - Hmk.transpose() * Hmm_inv_bm;</code></pre>
   <tr><th>Design</th><th>Keeps</th><th>Re-linearises</th><th>The past</th></tr>
   <tr><td><strong>Filter</strong> (EKF, iterated EKF: FAST-LIO2)</td><td>current state + its covariance</td><td>the current state only</td><td>marginalized every step</td></tr>
   <tr><td><strong>Window, marginalize</strong> (VINS-Mono)</td><td>last \(N\) states</td><td>all \(N\), every solve</td><td>oldest turned into a prior</td></tr>
-  <tr><td><strong>Window, drop</strong> (glass-vio, ORB-SLAM3)</td><td>last \(N\) keyframes</td><td>all \(N\), every solve</td><td>oldest dropped; an anchor held fixed</td></tr>
+  <tr><td><strong>Window, drop</strong> (the linked glass-vio version)</td><td>last \(N\) keyframes</td><td>all \(N\), every solve</td><td>oldest dropped; an anchor held fixed</td></tr>
   <tr><td><strong>Factor</strong> (glass-lio)</td><td>the new state \(\mathbf{x}_j\)</td><td>\(\mathbf{x}_j\) only</td><td>\(\mathbf{x}_i\) held fixed; its covariance carried</td></tr>
 </table>
 
@@ -111,7 +111,7 @@ filter", which re-linearises only the current state, a few times per update.<spa
 <p><strong>The window.</strong> VINS-Mono keeps a "window of recent states by marginalizing out past states", turning the
 measurements of each removed state "into a prior".<span class="sidenote">Qin, Li &amp; Shen,
 <a href="https://arxiv.org/abs/1708.03852"><em>VINS-Mono</em></a>, IEEE T-RO 2018: the introduction, and the Marginalization
-subsection with its Fig.&nbsp;7.</span> glass-vio's window takes ORB-SLAM3's cheaper route and simply pops the oldest keyframe,
+subsection with its Fig.&nbsp;7.</span> the linked glass-vio version simply pops the oldest keyframe,
 keeping the anchor fixed.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/src/vio/keyframe_window.cpp#L92-L98"><code>keyframe_window.cpp</code>,
 lines 92–98</a>; the design comparison is in glass-vio's <a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/doc/08-sliding-window.md"><code>doc/08-sliding-window.md</code></a>,
 §6, whose "Stage B" is marginalization, with the warning "a wrong marginalization injects spurious information… Do
@@ -122,18 +122,23 @@ while (static_cast&lt;int&gt;(kfs_.size()) &gt; p_.max_keyframes + 1) {
   kfs_.pop_front();
 }</code></pre>
 
-<p><strong>The factor.</strong> glass-lio solves only for \(\mathbf{x}_j\), with \(\mathbf{x}_i\) held at its estimate. That's the
-"hold fixed" row of the toy example, softened: it carries \(\mathbf{x}_i\)'s covariance forward to inflate the IMU factor
-(lesson 5's <code>sigma_eff</code>), and the bias posterior \(\mathbf{P} \leftarrow (\mathbf{P}^{-1} + \mathbf{H})^{-1}\). Its comment on
-that last line: "THIS is the difference between a filter and a one-shot factor."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L355-L382"><code>lio_estimator.cpp</code>,
-lines 355–382</a>.</span> Its own doc names the limit, "a factor, not a filter": \(\mathbf{x}_i\) "is committed after each scan and
-never revisited", and "This is why FAST-LIO is an iterated EKF."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a>
-§3.14 lists the three pieces a filter needs, and notes they already exist in glass-core: the transition \(\mathbf{F}\)
-(<a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L169-L189"><code>imuStateTransition</code></a>), a whole-state prior, and the
-posterior.</span></p>
-
-<pre><code>const Eigen::Matrix&lt;double, 6, 6&gt; posterior_info =
-  bias_cov_.inverse() + r.H.block&lt;6, 6&gt;(kIdxBg, kIdxBg);</code></pre>
+<p><strong>The current-state factor solve.</strong> A factor is a term in an objective, not a mutually exclusive alternative to a filter or smoother. glass-lio optimizes the new state and gravity, inflates the IMU covariance by the previous state's uncertainty, and carries selected covariance blocks. Not revisiting old states does not by itself distinguish it from a filter. The important question is which joint distribution and correlations its prior represents.</p>
+<p>ORB-SLAM3 also should not be described as a FIFO window that simply forgets old keyframes: it reuses covisible keyframes and maintains maps beyond the local optimization window. See the <a href="https://arxiv.org/abs/2007.11898">ORB-SLAM3 paper</a>. The table describes the linked glass-vio implementation only.</p>
+<h3 id="posterior">Extracting covariance without inventing information</h3>
+<p>Let \(H_{\rm total}=H_{\rm prior}+H_{\rm data}\) include all four residual blocks. For the resulting nonsingular local Gaussian approximation,</p>
+<div class="eq">$$ P\approx H_{\rm total}^{-1},\qquad
+P_{bb}=(H_{\rm total}^{-1})_{bb}
+=\big(H_{bb}-H_{bo}H_{oo}^{-1}H_{ob}\big)^{-1}. $$</div>
+<p>Here \(b\) labels bias variables and \(o\) all other variables. The block \(H_{bb}^{-1}\) is the covariance <em>conditional on the other variables being fixed</em>, not their marginal covariance. Our toy system makes the difference visible: for the first variable, the marginal variance is \(3/8\), while the conditional variance is \(1/4\).</p>
+<p>An earlier implementation added \(P_b^{-1}\) to \(H_{bb}\) even though that block already contained the bias prior, counting the prior twice. With a unit prior and no new information, that would halve the variance on every update. The revised implementation solves \(H_{\rm total}P=I\) once and extracts the nav and bias blocks from \(P\), including their coupling to gravity in this solve.</p>
+<pre><code>Eigen::Matrix&lt;double, kTightDim, kTightDim&gt; posterior;
+if (r.posteriorCovariance(posterior)) {
+  nav_cov_ = posterior.topLeftCorner&lt;kNavDim, kNavDim&gt;();
+  bias_cov_ = posterior.block&lt;6, 6&gt;(kIdxBg, kIdxBg);
+}</code></pre>
+<p>Read the current <a href="../../src/lio/tight_registration.cpp">covariance extraction</a> and
+<a href="../../src/lio/lio_estimator.cpp">caller</a>; older commit-pinned links elsewhere document the historical implementation.</p>
+<p>This is still a local covariance estimate at the last linearization and robust weights, not a complete Bayesian filter. The estimator carries selected blocks, uses a fixed gravity prior, and separately approximates previous-state and bias uncertainty; cross-factor correlations are not all preserved. Correct block extraction fixes these two algebraic errors, not every possible source of inconsistency.</p>
 
 <h2>4 · So which?</h2>
 
@@ -142,7 +147,7 @@ most accuracy per unit of computing time", because "it is usually more profitabl
 than the number of frames."<span class="sidenote">Strasdat et al., abstract and §8, Conclusion.</span> But FAST-LIO2 is a
 filter, and it's the system glass-lio benchmarks itself against. The honest interview answer names the trade: a filter
 is cheap and never revisits; a window re-linearises recent history at a bounded cost; and whichever you pick, the
-states you remove must be <em>marginalized</em>, not held fixed, or the estimator becomes overconfident about them.</p>
+uncertain states you remove should be marginalized if you intend to preserve their information. Dropping measurements loses information; fixing an uncertain state can invent certainty. Fixing a gauge to define the coordinate frame is a separate operation.</p>
 
 <div class="callout interview">
   <p class="label">Say it at a whiteboard</p>
@@ -150,7 +155,7 @@ states you remove must be <em>marginalized</em>, not held fixed, or the estimato
   covariance: it propagates \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\), updates, and has
   marginalized everything older, so it's cheap but can never re-linearise an old state. A sliding window keeps the last
   \(N\) states and re-linearises all of them each solve. To stay bounded it removes the oldest, properly by Schur
-  complement, which leaves the exact prior \(\mathbf{H}_{kk}-\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\), or cheaply by dropping it
+  complement, which leaves the prior for that linearization \(\mathbf{H}_{kk}-\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\), or cheaply by dropping it
   and fixing an anchor. Holding an old state fixed instead of marginalizing it makes the estimator overconfident about
   it. glass-lio is a one-shot factor that holds \(\mathbf{x}_i\) fixed but carries its covariance; FAST-LIO2 is an iterated EKF;
   VINS-Mono is a marginalizing window."</p>
@@ -171,7 +176,7 @@ states you remove must be <em>marginalized</em>, not held fixed, or the estimato
   </ol>
   <div class="explain" hidden>
     <p>"Filtering methods marginalise out past poses and summarise the information gained over time with a probability
-    distribution." The past survives only as the current state's covariance.</p>
+    distribution." In this filtering model, past information is summarized by the current state's mean and covariance.</p>
   </div>
 </div>
 
@@ -225,7 +230,7 @@ states you remove must be <em>marginalized</em>, not held fixed, or the estimato
     <li><button class="option" data-key="graph">Converts it into a pose graph</button></li>
   </ol>
   <div class="explain" hidden>
-    <p><code>pop_front()</code>, as ORB-SLAM3 does. Marginalizing it into a prior is glass-vio's planned "Stage B", with the kernel
+    <p><code>pop_front()</code> in the linked glass-vio revision. Marginalizing it into a prior is glass-vio's planned "Stage B", with the kernel
     already in glass-core.</p>
   </div>
 </div>

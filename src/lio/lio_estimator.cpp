@@ -352,34 +352,19 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
     return false;
   }
 
-  // POSTERIOR: fold in what this solve actually learned about the biases.
-  //
-  //     P_posterior = (P_prior^-1 + H_bias)^-1
-  //
-  // THIS is the difference between a filter and a one-shot factor. Without it the
-  // estimator can never become more certain of a bias than it was at startup, so a
-  // quantity only the data can reveal -- the accel bias -- stays frozen at its initial
-  // guess forever, and every error it causes is permanent.
-  const Eigen::Matrix<double, 6, 6> posterior_info =
-    bias_cov_.inverse() + r.H.block<6, 6>(kIdxBg, kIdxBg);
-  const Eigen::Matrix<double, 6, 6> posterior_cov = posterior_info.inverse();
-  if (posterior_cov.allFinite()) {
-    bias_cov_ = posterior_cov;
+  // H already includes every prior once. Solve the FULL 18x18 information system, then
+  // extract marginal covariance blocks, retaining this solve's coupling to gravity.
+  // Inverting H's nav/bias blocks instead would condition on the other variables being
+  // exact. Adding bias_cov_.inverse() again would double-count the bias prior.
+  // This remains a local approximation; carrying selected blocks is not a full filter.
+  Eigen::Matrix<double, kTightDim, kTightDim> posterior;
+  if (r.posteriorCovariance(posterior)) {
+    nav_cov_ = posterior.topLeftCorner<kNavDim, kNavDim>();
+    bias_cov_ = posterior.block<6, 6>(kIdxBg, kIdxBg);
   }
 
-  // Carry the corrected gravity forward as the next scan's anchor. This is what lets a tilt
-  // error at init drain away over scans instead of being frozen (roadmap Phase 1).
+  // Carry the corrected gravity as the next guess; its prior stays at gravity_init_.
   gravity_ = r.gravity;
-
-  // Carry x_j's posterior covariance forward: next scan it becomes x_i's uncertainty, which
-  // inflates the IMU factor there (roadmap Phase 2). r.H is the posterior information over
-  // the augmented state; its nav block, inverted, is x_j's covariance. Skip on a singular
-  // block (a degenerate scene) -- keep the prior rather than invent certainty.
-  const Eigen::Matrix<double, kNavDim, kNavDim> post_cov =
-    r.H.topLeftCorner<kNavDim, kNavDim>().inverse();
-  if (post_cov.allFinite()) {
-    nav_cov_ = post_cov;
-  }
 
   commitState(r.state);
 

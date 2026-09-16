@@ -13,6 +13,8 @@
 #include "glasslio/registration.hpp"
 #include "glasslio/tight_registration.hpp"
 
+#include <limits>
+
 using namespace glasslio;
 using namespace glass_core;
 using Sophus::SO3d;
@@ -312,6 +314,35 @@ static void testLidarWinsWhenGeometryIsStrong()
     "  lying IMU vs strong geometry: LiDAR wins, err %.3f m               OK\n", err);
 }
 
+// The total H already contains the prior. A coupled two-variable oracle distinguishes
+// a marginal variance from an inverse diagonal block, without duplicating the solver.
+static void testPosteriorCovariance()
+{
+  TightResult result;
+  result.H.setIdentity();
+  result.H(kIdxBg, kIdxBg) = 4.0;
+  result.H(kIdxGrav, kIdxGrav) = 3.0;
+  result.H(kIdxBg, kIdxGrav) = result.H(kIdxGrav, kIdxBg) = 2.0;
+  Eigen::Matrix<double, kTightDim, kTightDim> covariance;
+  assert(result.posteriorCovariance(covariance));
+  assert(std::abs(covariance(kIdxBg, kIdxBg) - 3.0 / 8.0) < 1e-12);
+  assert(std::abs(covariance(kIdxBg, kIdxGrav) + 1.0 / 4.0) < 1e-12);
+
+  // With only a unit prior and no new information, uncertainty must remain one.
+  result.H.setIdentity();
+  assert(result.posteriorCovariance(covariance));
+  assert(covariance.isIdentity(1e-12));
+  const auto previous = covariance;
+  result.H(kIdxBg, kIdxBg) = 0.0;
+  assert(!result.posteriorCovariance(covariance));
+  assert(covariance == previous);
+  result.H(kIdxBg, kIdxBg) = -1.0;
+  assert(!result.posteriorCovariance(covariance));
+  result.H(kIdxBg, kIdxBg) = std::numeric_limits<double>::quiet_NaN();
+  assert(!result.posteriorCovariance(covariance));
+  std::printf("  posterior: marginal blocks, prior counted once, invalid H rejected OK\n");
+}
+
 int main()
 {
   // Unbuffered: an assert() abort would otherwise discard the diagnostics we just
@@ -319,6 +350,7 @@ int main()
   std::setvbuf(stdout, nullptr, _IONBF, 0);
 
   std::printf("test_tight: tightly-coupled LiDAR-inertial solve\n");
+  testPosteriorCovariance();
   testCorridorIsRescuedByImu();
   testWellConditionedSceneStillWorks();
   testLidarWinsWhenGeometryIsStrong();
