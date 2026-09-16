@@ -538,14 +538,19 @@ $$
 \boldsymbol{\Sigma}_{\text{eff}} = \boldsymbol{\Sigma}_{\text{pre}} + \mathbf{J}_i\,\mathbf{P}_i\,\mathbf{J}_i^\top
 $$
 
-the closed-form marginalization of a Gaussian `x_i` out of this one factor. `J_i` is
+the marginalization of an independent Gaussian perturbation of `x_i` out of this one linearized factor. `J_i` is
 `imuJacobianI` (the `d/dx_i` block, verified against finite differences), and `P_i` is the
-previous solve's posterior — the inverse of the nav block of its information matrix `H`. It is
+previous solve's local covariance — the nav block of the inverse of its full 18×18 information matrix `H`. The effective factor covariance is
 recomputed every iteration, because `J_i` depends on the current `x_j`.
 
 **The bias prior comes from a carried covariance**, not a random-walk constant: it grows by the
-random walk over each interval and shrinks by what each accepted solve learned,
-`P ← (P⁻¹ + H_bb)⁻¹`. A random walk says how fast a bias may **drift** — never how wrong it
+random walk over each interval and is replaced after an accepted solve by the bias block of
+`H_total⁻¹`. The total information already includes the prior once; adding `P⁻¹` again would
+double-count it. Inverting `H_bb` alone would instead give a conditional covariance, treating
+other variables as certain. The implementation solves the full `H_total P = I` before
+extracting the bias and nav blocks, and retains the carried covariances if that solve is invalid.
+This is a local Gaussian approximation with the last linearization and robust weights;
+selected covariance blocks and a fixed gravity prior do not constitute a full Bayesian filter. A random walk says how fast a bias may **drift** — never how wrong it
 might have been to **begin with**, and an accel bias is exactly a quantity you start out wrong
 about.
 

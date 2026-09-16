@@ -154,10 +154,10 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
 <div class="quiz" data-answer="rk">
   <p class="q">Why does eq.&nbsp;(32) have to be re-integrated whenever the optimizer changes \(\mathbf{R}_i\)?</p>
   <ol class="options">
+    <li><button class="option" data-key="grav">The gravity term is part of each cached body-frame delta</button></li>
     <li><button class="option" data-key="rk">Every sample's world rotation needs it</button></li>
-    <li><button class="option" data-key="grav">Gravity changes on every solver iteration</button></li>
-    <li><button class="option" data-key="bias">The biases reset on every iteration</button></li>
-    <li><button class="option" data-key="noise">The noise is resampled each time</button></li>
+    <li><button class="option" data-key="bias">Rotations cannot be cached independently of translation</button></li>
+    <li><button class="option" data-key="noise">The covariance must be rebuilt even at a fixed bias</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Each acceleration sample is rotated into the world by \(\mathbf{R}_k\), and
@@ -169,10 +169,10 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
   <p class="q">In \(\mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) = \sum_k \Delta\mathbf{R}_{ik}(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\),
   which side is computed once from the IMU and reused while the solver iterates?</p>
   <ol class="options">
-    <li><button class="option" data-key="sum">the sum over IMU samples</button></li>
     <li><button class="option" data-key="states">the difference of the states</button></li>
     <li><button class="option" data-key="both">both sides, at every iteration</button></li>
     <li><button class="option" data-key="neither">neither side; both get recomputed</button></li>
+    <li><button class="option" data-key="sum">the sum over IMU samples</button></li>
   </ol>
   <div class="explain" hidden>
     <p>The sum uses only measurements and the bias, so it's integrated once. The state side is a
@@ -186,7 +186,7 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
     <li><button class="option" data-key="orient">It would bring back the orientation</button></li>
     <li><button class="option" data-key="small">It is negligible over short intervals</button></li>
     <li><button class="option" data-key="accel">The accelerometer has already removed it</button></li>
-    <li><button class="option" data-key="sign">Its sign flips inside the sum</button></li>
+    <li><button class="option" data-key="sign">Its constant magnitude makes it cancel from every sample</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Inside the sums, gravity would have to be expressed in frame \(i\), multiplied by
@@ -215,8 +215,8 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
   <p class="q"><em>From lesson 1.</em> An IMU at rest is rolled so that its body \(y\) axis points
   straight up. Ignoring bias and noise, what does its accelerometer read, as \((x, y, z)\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="y">[0, +9.81, 0]</button></li>
     <li><button class="option" data-key="z">[0, 0, +9.81]</button></li>
+    <li><button class="option" data-key="y">[0, +9.81, 0]</button></li>
     <li><button class="option" data-key="ny">[0, −9.81, 0]</button></li>
     <li><button class="option" data-key="nz">[0, 0, −9.81]</button></li>
   </ol>
@@ -245,6 +245,8 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
     <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#imu">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

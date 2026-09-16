@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The mathematical toolkit · glass-lio course</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="../assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="../assets/course.js"></script>
+</head>
+<body><main>
+<header class="page"><p class="kicker">Before lesson 1 · 45–60 minutes</p><h1>The mathematical toolkit</h1></header>
+<article>
+
+<p class="lede">This course starts from vectors and basic derivatives. This toolkit bridges those ideas to rotations,
+Jacobians, covariance, and least squares. Allow 45–60 minutes with pencil and paper; revisit the relevant section as each lesson needs it.</p>
+<p>You should be able to multiply a matrix by a vector, differentiate a scalar function, and use velocity and acceleration.
+If one of those is unfamiliar, work through its example below before continuing. A glossary definition alone is not a substitute for doing the calculation.</p>
+<h2 id="frames">1 · Vectors, frames, and transposes</h2>
+<p>A vector's coordinates depend on its frame. In this course \(R_{WB}\) takes body coordinates into world coordinates:
+\(u_W=R_{WB}u_B\). A rotation preserves lengths and angles, so \(R^\top R=I\), \(R^{-1}=R^\top\), and \(\det R=1\).
+The set of these 3×3 matrices is called SO(3). A pose \((R,t)\) is an element of SE(3). It acts on a point by \(q=Rp+t\).</p>
+<div class="eq">$$ R=\begin{bmatrix}0&-1&0\\1&0&0\\0&0&1\end{bmatrix},\qquad
+R\begin{bmatrix}1\\0\\0\end{bmatrix}=\begin{bmatrix}0\\1\\0\end{bmatrix}. $$</div>
+<p>This is a +90° rotation about z. Its transpose undoes it. Matrix multiplication does not generally commute:
+turning about x and then z is different from turning about z and then x.</p>
+<details><summary>Try it: where does body +y go, and how do you recover it?</summary>
+<p>\(R[0,1,0]^\top=[-1,0,0]^\top\). Apply \(R^\top\) to recover \([0,1,0]^\top\).</p></details>
+<h2 id="rotations">2 · Cross products, Exp, and local coordinates</h2>
+<p>The hat operator turns a vector into a matrix that computes a cross product:</p>
+<div class="eq">$$ \phi^\wedge=\begin{bmatrix}0&-\phi_z&\phi_y\\\phi_z&0&-\phi_x\\-\phi_y&\phi_x&0\end{bmatrix},
+\qquad \phi^\wedge u=\phi\times u. $$</div>
+<p>A rotation vector \(\phi=\theta a\) encodes an axis \(a\) of unit length and an angle \(\theta\) in radians.
+The exponential map makes it a rotation matrix. For \(\theta=\|\phi\|\ne0\), Rodrigues' formula is</p>
+<div class="eq">$$ \operatorname{Exp}(\phi)=I+\frac{\sin\theta}{\theta}\phi^\wedge+
+\frac{1-\cos\theta}{\theta^2}(\phi^\wedge)^2. $$</div>
+<p>At zero, use the limits. To first order, \(\operatorname{Exp}(\delta\phi)\approx I+\delta\phi^\wedge\).
+The approximation explains derivatives; the exact Exp keeps updates on SO(3).
+Log maps a rotation back to local coordinates; a unique smooth inverse requires a suitable branch away from the angle-π ambiguity.</p>
+<p>A tangent increment is a local coordinate for a small change. Retraction applies it to the state:
+\(R\leftarrow R\operatorname{Exp}(\delta\phi_B)\) for a body-frame increment, or
+\(R\leftarrow\operatorname{Exp}(\delta\phi_W)R\) for a world-frame increment. They describe the same physical update if
+\(\delta\phi_W=R\delta\phi_B\). Addition \(R+\delta R\) does not generally preserve rotation constraints.</p>
+<details><summary>Try it: use the first-order formula to rotate +x by a small positive z angle ε.</summary>
+<p>\([1,0,0]^\top+ [0,0,\epsilon]^\top\times[1,0,0]^\top=[1,\epsilon,0]^\top\).
+The exact result is \([\cos\epsilon,\sin\epsilon,0]^\top\).</p></details>
+<h2 id="jacobians">3 · A Jacobian is a local prediction</h2>
+<p>For a vector residual \(r(x)\), the Jacobian gives \(r(x+\delta x)\approx r(x)+J\delta x\).
+It has one row per residual and one column per state coordinate. A scalar example makes the idea concrete:</p>
+<div class="eq">$$ r(x,y)=x^2+3y,\quad J=[2x,3].\quad
+r(2,1)=7,\quad J(2,1)=[4,3]. $$</div>
+<p>For \(\delta x=0.01,\delta y=-0.02\), linearization predicts \(7+0.04-0.06=6.98\).
+The exact answer is 6.9801; the omitted term is quadratic.</p>
+<p>On rotations, define the perturbation before taking derivatives. To test column \(j\) numerically, perturb using the
+<em>same retraction</em> as the solver:</p>
+<div class="eq">$$ J_{:,j}\approx\frac{r(x\boxplus\epsilon e_j)-r(x\boxplus(-\epsilon e_j))}{2\epsilon}. $$</div>
+<p>Try several small ε values: too large gives truncation error; too small gives round-off error. Lesson 6 and the worksheet apply this to an actual point-to-plane residual.</p>
+<h2 id="right-jacobian">4 · Why a right Jacobian appears</h2>
+<p>Adding to a rotation vector and composing rotations are different operations. The right Jacobian converts between them locally:</p>
+<div class="eq">$$ \operatorname{Exp}(\phi+\delta\phi)\approx\operatorname{Exp}(\phi)
+\operatorname{Exp}(J_r(\phi)\delta\phi), $$</div>
+<div class="eq">$$ J_r(\phi)=I-\frac{1-\cos\theta}{\theta^2}\phi^\wedge+
+\frac{\theta-\sin\theta}{\theta^3}(\phi^\wedge)^2,\quad \theta=\|\phi\|. $$</div>
+<p>Near zero, \(J_r(\phi)\approx I-\tfrac12\phi^\wedge+\tfrac16(\phi^\wedge)^2\), and \(J_r(0)=I\).
+In lesson 5 the noisy gyro changes the vector inside Exp, so \(J_r\) maps that noise to a right rotation error.
+You need the meaning and the zero limit before memorizing the formula.
+The inverse map appears when differentiating Log: \(\operatorname{Log}(\operatorname{Exp}(\phi)\operatorname{Exp}(\delta))\approx\phi+J_r^{-1}(\phi)\delta\).</p>
+<h2 id="uncertainty">5 · Covariance, eigenvalues, and information</h2>
+<p>For an error \(e\) with zero mean, \(P=E[ee^\top]\). Diagonal entries are variances (squared units);
+off-diagonal entries encode correlations. In direction \(u\) of unit length, variance is \(u^\top Pu\).
+An eigenvector of a symmetric covariance gives a principal direction; its eigenvalue gives the variance in that direction.</p>
+<p>For \(P=\operatorname{diag}(4,1)\) m², standard deviations along x and y are 2 m and 1 m.
+Its inverse \(P^{-1}=\operatorname{diag}(1/4,1)\) m⁻² is information: an equal residual in x is penalized less.</p>
+<p>If \(e'=Ae+n\) and \(n\) is independent of \(e\), then</p>
+<div class="eq">$$ P'=APA^\top+Q,\qquad Q=E[nn^\top]. $$</div>
+<p>Expand \((Ae+n)(Ae+n)^\top\); the cross terms vanish by independence and zero means.
+For scalar \(A=2,P=3,Q=1\), this gives \(P'=13\), not 7. With correlated noise the cross terms must be included.</p>
+<h2 id="least-squares">6 · From residuals to a linear solve</h2>
+<p>For Gaussian measurement errors, a weighted least-squares cost is
+\(\tfrac12\sum r^\top\Sigma^{-1}r\). This course writes \(\|r\|_\Sigma^2=r^\top\Sigma^{-1}r\).
+Replace \(r\) by \(r+J\delta x\) and set the derivative to zero:</p>
+<div class="eq">$$ H\delta x=b,\qquad H=\sum J^\top\Sigma^{-1}J,\qquad b=-\sum J^\top\Sigma^{-1}r. $$</div>
+<p>The minus sign is already in \(b\). Other books define \(b\) as the positive gradient and write \(H\delta x=-b\);
+read the definition before copying a formula. Whiten a scalar residual and its Jacobian by dividing both by σ.
+For correlated residuals, use a matrix square root of the information.</p>
+<details><summary>Try it: r(x)=x−3, σ=2, starting at x=1. Find H, b, and the update.</summary>
+<p>\(r=-2,J=1,H=1/4,b=1/2\), so \(\delta x=2\) and the new estimate is 3.</p></details>
+<p>A singular H means at least one local direction is unconstrained. Adding a small diagonal can make a linear system solvable,
+but it does not turn missing measurements into real information. Lesson 7 explores this distinction.</p>
+<aside class="source"><p class="label">Read alongside the examples</p>
+<p><a href="https://arxiv.org/html/1512.02363v3#S3">Forster et al., §III</a> develops the manifold notation and right Jacobian.
+<a href="https://arxiv.org/abs/1812.01537">Solà et al., A micro Lie theory for state estimation in robotics</a> provides a fuller geometric treatment.</p></aside>
+
+</article>
+<nav class="course"><a href="../index.html">Course home</a><a href="0001-what-an-imu-actually-measures.html">Start lesson 1 →</a></nav>
+</main></body></html>

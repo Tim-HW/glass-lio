@@ -169,9 +169,9 @@ are calibration choices for those experiments, not universal constants.</p>
   <p class="q">Why can \(\Sigma_{ij}\) be computed by linear propagation at all?</p>
   <ol class="options">
     <li><button class="option" data-key="linear">It's linear in the IMU noise</button></li>
-    <li><button class="option" data-key="sheet">The IMU datasheet already provides it</button></li>
-    <li><button class="option" data-key="bias">The biases are held fully constant</button></li>
-    <li><button class="option" data-key="grav">Gravity cancels all the noise terms</button></li>
+    <li><button class="option" data-key="sheet">The integrated covariance equals the raw sensor covariance</button></li>
+    <li><button class="option" data-key="bias">Constant biases make the nonlinear noise model exact</button></li>
+    <li><button class="option" data-key="grav">Linear propagation is exact for arbitrarily large rotation errors</button></li>
   </ol>
   <div class="explain" hidden>
     <p>To first order, Forster's eqs.&nbsp;(42)–(43) write the preintegrated noise as a linear combination of
@@ -183,8 +183,8 @@ are calibration choices for those experiments, not universal constants.</p>
 <div class="quiz" data-answer="zero">
   <p class="q">What is \(\Sigma_{ii}\), the covariance at the very start of the interval?</p>
   <ol class="options">
-    <li><button class="option" data-key="zero">\(\mathbf{0}_{9\times 9}\)</button></li>
     <li><button class="option" data-key="eye">\(\mathbf{I}_{9\times 9}\)</button></li>
+    <li><button class="option" data-key="zero">\(\mathbf{0}_{9\times 9}\)</button></li>
     <li><button class="option" data-key="eta">\(\Sigma_{\eta}\,\Delta t\)</button></li>
     <li><button class="option" data-key="prev">\(\Sigma_{i-1,i}\)</button></li>
   </ol>
@@ -197,8 +197,8 @@ are calibration choices for those experiments, not universal constants.</p>
 <div class="quiz" data-answer="tilt">
   <p class="q">In the velocity row of \(\mathbf{A}_k\), where does the \(-\Delta\tilde{\mathbf{R}}_{ik}\,\mathbf{a}_k^{\wedge}\,\Delta t\) block come from?</p>
   <ol class="options">
-    <li><button class="option" data-key="tilt">Orientation error tilts the specific force</button></li>
     <li><button class="option" data-key="grav">Gravity is added back each step</button></li>
+    <li><button class="option" data-key="tilt">Orientation error tilts the specific force</button></li>
     <li><button class="option" data-key="vel">Velocity error grows linearly with time</button></li>
     <li><button class="option" data-key="bias">The accelerometer bias is still uncertain</button></li>
   </ol>
@@ -212,10 +212,10 @@ are calibration choices for those experiments, not universal constants.</p>
 <div class="quiz" data-answer="shrink">
   <p class="q">For scalar velocity driven only by independent white accelerometer noise, \(\operatorname{Var}(v)=\sigma_a^2T\). Double \(T\): what happens to its inverse-variance weight?</p>
   <ol class="options">
+    <li><button class="option" data-key="more">It doubles because twice as many samples are available</button></li>
+    <li><button class="option" data-key="fixed">It stays constant because the noise density is constant</button></li>
     <li><button class="option" data-key="shrink">It halves</button></li>
-    <li><button class="option" data-key="more">It grows, from more samples</button></li>
-    <li><button class="option" data-key="fixed">It stays fixed per datasheet</button></li>
-    <li><button class="option" data-key="reset">It resets at each keyframe</button></li>
+    <li><button class="option" data-key="reset">It falls by a factor of four, like a position variance</button></li>
   </ol>
   <div class="explain" hidden>
     <p>In this specified scalar model, \(1/(\sigma_a^2(2T))\) is half the original weight.
@@ -227,10 +227,10 @@ are calibration choices for those experiments, not universal constants.</p>
 <div class="quiz" data-answer="rot">
   <p class="q"><em>From lesson 4.</em> In eq.&nbsp;(44), which delta's bias correction is <em>not</em> a plain addition?</p>
   <ol class="options">
-    <li><button class="option" data-key="rot">the rotation delta</button></li>
     <li><button class="option" data-key="vel">the velocity delta</button></li>
     <li><button class="option" data-key="pos">the position delta</button></li>
     <li><button class="option" data-key="all">all three deltas</button></li>
+    <li><button class="option" data-key="rot">the rotation delta</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Rotations don't add: \(\Delta\tilde{\mathbf{R}}_{ij}\,\mathrm{Exp}(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g})\),
@@ -260,6 +260,8 @@ are calibration choices for those experiments, not universal constants.</p>
     <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#noise">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

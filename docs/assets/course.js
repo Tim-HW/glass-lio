@@ -33,6 +33,13 @@
     if (score) score.setAttribute('aria-live', 'polite');
 
     quizzes.forEach((quiz) => {
+      const list = quiz.querySelector('ol.options');
+      const items = Array.from(list.children);
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+      items.forEach((item) => list.appendChild(item));
       const buttons = Array.from(quiz.querySelectorAll('button.option'));
       buttons.forEach((btn) => {
         btn.addEventListener('click', () => {

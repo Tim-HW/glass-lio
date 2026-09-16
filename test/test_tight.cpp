@@ -205,7 +205,8 @@ static void testCorridorIsRescuedByImu()
 
   TightParams tp;
   tp.imu_prior_weight = 1.0;
-  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, kG, bad, biasInfo(), gravInfo(),
+  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, kG, bad, biasInfo(),
+    gravInfo(),
     xiCov(),
     tp);
   assert(tight.valid);
@@ -263,7 +264,8 @@ static void testWellConditionedSceneStillWorks()
   bad.p.y() += 0.15;
 
   TightParams tp;
-  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, kG, bad, biasInfo(), gravInfo(),
+  const TightResult tight = alignTightlyCoupled(scan, map, xi, pre, kG, kG, bad, biasInfo(),
+    gravInfo(),
     xiCov(),
     tp);
 

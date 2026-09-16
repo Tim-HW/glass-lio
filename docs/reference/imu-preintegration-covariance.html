@@ -55,8 +55,7 @@
   \(\Sigma \leftarrow \mathbf{A}\Sigma\mathbf{A}^{\top} + \mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), starting from
   zero, with the datasheet densities turned into discrete covariances \(\sigma^{2}/\Delta t\). A and B are eq.
   (31) linearised, plus one coupling: an orientation error tilts the specific force. The inverse of that
-  covariance weights the IMU residual, so a longer interval means a bigger covariance and a less trusted
-  IMU."</p>
+  covariance weights the IMU residual. Dead reckoning generally accumulates uncertainty, but propagation does not guarantee monotonic growth in every direction."</p>
 </div>
 
 </article>

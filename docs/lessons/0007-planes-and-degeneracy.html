@@ -180,8 +180,8 @@ an interview.</p>
 <div class="quiz" data-answer="reject">
   <p class="q">A voxel samples a wall–floor corner with eigenvalues \((0.03,0.04,0.08)\) m². What does the 0.1 planarity gate do?</p>
   <ol class="options">
-    <li><button class="option" data-key="reject">Rejects it: not a plane</button></li>
     <li><button class="option" data-key="floor">Accepts it, using the floor</button></li>
+    <li><button class="option" data-key="reject">Rejects it: not a plane</button></li>
     <li><button class="option" data-key="avg">Averages the two normals together</button></li>
     <li><button class="option" data-key="split">Splits it into two planes</button></li>
   </ol>
@@ -210,9 +210,9 @@ an interview.</p>
   <p class="q">Why does the gate use \(\lambda_{\min}/\mathrm{tr}(\mathbf{H}_t)\) rather than the raw \(\lambda_{\min}\)?</p>
   <ol class="options">
     <li><button class="option" data-key="count">The raw value scales with count</button></li>
-    <li><button class="option" data-key="cheap">The trace is cheaper to compute</button></li>
-    <li><button class="option" data-key="zero">The smallest eigenvalue is always zero</button></li>
-    <li><button class="option" data-key="units">Ratios survive a change of units</button></li>
+    <li><button class="option" data-key="cheap">The trace removes all effects of angular distribution</button></li>
+    <li><button class="option" data-key="zero">The smallest eigenvalue alone measures point-to-plane RMSE</button></li>
+    <li><button class="option" data-key="units">The ratio certifies that every rotation is observable</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Twice the correspondences doubles every eigenvalue. The raw value "cannot tell 'under-constrained' from 'just
@@ -224,9 +224,9 @@ an interview.</p>
   <p class="q">On Outdoor01 the pose drifted hundreds of metres while the RMSE stayed at 0.10–0.16. Why didn't the RMSE catch it?</p>
   <ol class="options">
     <li><button class="option" data-key="free">Motion along it adds no residual</button></li>
-    <li><button class="option" data-key="few">RMSE is averaged over too few</button></li>
-    <li><button class="option" data-key="imu">The IMU hid the error completely</button></li>
-    <li><button class="option" data-key="normals">Outdoor planes have no valid normals</button></li>
+    <li><button class="option" data-key="few">A low RMSE guarantees a correct pose if enough points match</button></li>
+    <li><button class="option" data-key="imu">A small point-to-plane residual also bounds tangential error</button></li>
+    <li><button class="option" data-key="normals">Large correspondence counts guarantee independent constraints</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Along a direction every normal is perpendicular to, \(\mathbf{n}^{\top}\boldsymbol{\rho} = 0\) for every correspondence:
@@ -238,9 +238,9 @@ an interview.</p>
   <p class="q"><em>From lesson 6.</em> Which block of \(\mathbf{J} = [\mathbf{n}^{\top},\ (\mathbf{q}\times\mathbf{n})^{\top}]\) builds
   \(\mathbf{H}\)'s translation block?</p>
   <ol class="options">
-    <li><button class="option" data-key="n">\(\mathbf{n}^{\top}\)</button></li>
     <li><button class="option" data-key="qn">\((\mathbf{q}\times\mathbf{n})^{\top}\)</button></li>
     <li><button class="option" data-key="r">\(r\)</button></li>
+    <li><button class="option" data-key="n">\(\mathbf{n}^{\top}\)</button></li>
     <li><button class="option" data-key="w">\(w\)</button></li>
   </ol>
   <div class="explain" hidden>
@@ -270,6 +270,8 @@ an interview.</p>
     <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#degeneracy">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

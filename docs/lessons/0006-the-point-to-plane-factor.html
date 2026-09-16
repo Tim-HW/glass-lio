@@ -24,7 +24,7 @@
 <p class="lede">Lessons 3–5 built the IMU's half of glass-lio's solve. This is the other half: the
 LiDAR factor. Each laser return becomes one scalar residual, its distance to a plane in the map. By
 the end you should be able to derive that residual's 1×6 Jacobian at a whiteboard, and say exactly
-what one correspondence adds to the normal equations. It's the fifth success criterion in this course: justify every term of glass-lio's tight coupling.</p>
+what one correspondence adds to the normal equations. This supplies the LiDAR terms needed to explain the complete tight solve.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -178,10 +178,10 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
 <div class="quiz" data-answer="slide">
   <p class="q">Why point-to-plane rather than point-to-point?</p>
   <ol class="options">
+    <li><button class="option" data-key="mem">Each plane fixes both tangential coordinates as well</button></li>
+    <li><button class="option" data-key="rot">The normal determines the point correspondence uniquely</button></li>
     <li><button class="option" data-key="slide">Points can slide along the surface</button></li>
-    <li><button class="option" data-key="mem">Planes use less memory than points</button></li>
-    <li><button class="option" data-key="rot">Normals remove the need for rotation</button></li>
-    <li><button class="option" data-key="guess">It avoids needing any initial guess</button></li>
+    <li><button class="option" data-key="guess">The plane residual eliminates the local-minimum problem</button></li>
   </ol>
   <div class="explain" hidden>
     <p>A LiDAR hits the same <em>surface</em> in different spots each scan, never the same points. Penalising only
@@ -194,10 +194,10 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
   <p class="q">Under the left perturbation \(\mathbf{T}\leftarrow\mathrm{Exp}(\boldsymbol{\xi})\mathbf{T}\), what is the
   rotation block of \(\mathbf{J}\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="qn">\((\mathbf{q}\times\mathbf{n})^{\top}\)</button></li>
     <li><button class="option" data-key="nq">\((\mathbf{n}\times\mathbf{q})^{\top}\)</button></li>
     <li><button class="option" data-key="pn">\((\mathbf{p}\times\mathbf{n})^{\top}\)</button></li>
     <li><button class="option" data-key="cn">\((\mathbf{c}\times\mathbf{n})^{\top}\)</button></li>
+    <li><button class="option" data-key="qn">\((\mathbf{q}\times\mathbf{n})^{\top}\)</button></li>
   </ol>
   <div class="explain" hidden>
     <p>\(\mathbf{n}^{\top}(\boldsymbol{\phi}\times\mathbf{q}) = (\mathbf{q}\times\mathbf{n})^{\top}\boldsymbol{\phi}\), with the world-frame
@@ -209,10 +209,10 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
 <div class="quiz" data-answer="jtj">
   <p class="q">What does one correspondence add to \(\mathbf{H}\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="jtj">\(w\,\mathbf{J}^{\top}\mathbf{J}\)</button></li>
     <li><button class="option" data-key="jjt">\(w\,\mathbf{J}\mathbf{J}^{\top}\)</button></li>
     <li><button class="option" data-key="jtr">\(w\,\mathbf{J}^{\top}r\)</button></li>
     <li><button class="option" data-key="r2">\(w\,r^{2}\mathbf{I}\)</button></li>
+    <li><button class="option" data-key="jtj">\(w\,\mathbf{J}^{\top}\mathbf{J}\)</button></li>
   </ol>
   <div class="explain" hidden>
     <p>\(\mathbf{J}\) is 1×6, so \(\mathbf{J}^{\top}\mathbf{J}\) is a 6×6 rank-1 matrix. \(\mathbf{J}\mathbf{J}^{\top}\) is a single
@@ -223,10 +223,10 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
 <div class="quiz" data-answer="right">
   <p class="q">Why does the tight solve use a different Jacobian for the very same residual?</p>
   <ol class="options">
-    <li><button class="option" data-key="right">It perturbs rotation on the right</button></li>
-    <li><button class="option" data-key="meas">The residual is measured differently there</button></li>
+    <li><button class="option" data-key="meas">Its plane normal is expressed in the body frame instead</button></li>
     <li><button class="option" data-key="white">Whitening by sigma changes the derivative</button></li>
-    <li><button class="option" data-key="imu">The IMU adds velocity to it</button></li>
+    <li><button class="option" data-key="right">It perturbs rotation on the right</button></li>
+    <li><button class="option" data-key="imu">Adding an IMU creates direct LiDAR velocity derivatives</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Same residual, different retraction: \(\mathbf{R}\leftarrow\mathbf{R}\,\mathrm{Exp}(\delta\boldsymbol{\phi})\), in the body frame,
@@ -237,10 +237,10 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
 <div class="quiz" data-answer="vb">
   <p class="q">In the tight solve, which columns of the LiDAR factor's Jacobian are always zero?</p>
   <ol class="options">
-    <li><button class="option" data-key="vb">velocity and both biases</button></li>
     <li><button class="option" data-key="rp">rotation and position only</button></li>
     <li><button class="option" data-key="pg">position and gyro bias</button></li>
-    <li><button class="option" data-key="none">none; it sees everything</button></li>
+    <li><button class="option" data-key="vb">velocity and both biases</button></li>
+    <li><button class="option" data-key="none">none; joint optimization makes every LiDAR column nonzero</button></li>
   </ol>
   <div class="explain" hidden>
     <p>A laser return constrains where the sensor is and how it's oriented, nothing else. Velocity is coupled through the IMU. Bias and gravity also have their own prior residuals in the tight solve.</p>
@@ -284,6 +284,8 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
     sensor-frame \(\mathbf{p}\). Missed something? Try this box again after a night's sleep.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#jacobian">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

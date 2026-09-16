@@ -169,9 +169,9 @@ material is what makes it stick.</p>
   <p class="q">Solve eq.&nbsp;(28) for the true world acceleration \(\mathbf{a}\), ignoring
   noise. Which is right?</p>
   <ol class="options">
-    <li><button class="option" data-key="plus">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
     <li><button class="option" data-key="minus">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) - \mathbf{g}\)</button></li>
     <li><button class="option" data-key="transpose">\(\mathbf{a} = \mathbf{R}^{\top}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
+    <li><button class="option" data-key="plus">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} - \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
     <li><button class="option" data-key="bias">\(\mathbf{a} = \mathbf{R}(\tilde{\mathbf{a}} + \mathbf{b}^{a}) + \mathbf{g}\)</button></li>
   </ol>
   <div class="explain" hidden>
@@ -184,10 +184,10 @@ material is what makes it stick.</p>
 <div class="quiz" data-answer="world">
   <p class="q">In the velocity line of eq.&nbsp;(31), why isn't \(\mathbf{g}\) multiplied by \(\mathbf{R}\)?</p>
   <ol class="options">
+    <li><button class="option" data-key="small">Gravity was already rotated by the accelerometer</button></li>
+    <li><button class="option" data-key="bias">Subtracting bias also subtracts world gravity</button></li>
     <li><button class="option" data-key="world">Gravity is already in the world</button></li>
-    <li><button class="option" data-key="small">Gravity is too small to rotate</button></li>
-    <li><button class="option" data-key="bias">The bias already cancels the gravity</button></li>
-    <li><button class="option" data-key="later">R is applied only to position</button></li>
+    <li><button class="option" data-key="later">The rotation is absorbed into the time step</button></li>
   </ol>
   <div class="explain" hidden>
     <p>\(\mathbf{R}\)'s job is to carry the body-frame specific force into the world. Gravity is a
@@ -199,10 +199,10 @@ material is what makes it stick.</p>
   <p class="q">In eq.&nbsp;(31), and in glass-core's <code>integrate()</code>, which orientation
   multiplies the specific force in the velocity and position updates?</p>
   <ol class="options">
-    <li><button class="option" data-key="start">the orientation at the step's start</button></li>
     <li><button class="option" data-key="end">the orientation at the step's end</button></li>
     <li><button class="option" data-key="avg">the average of start and end</button></li>
     <li><button class="option" data-key="next">the orientation from the next keyframe</button></li>
+    <li><button class="option" data-key="start">the orientation at the step's start</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Everything on the right-hand side of (31) is at time \(t\). That's why the code updates
@@ -215,10 +215,10 @@ material is what makes it stick.</p>
   <p class="q">Why does the rotation update right-multiply, \(\mathbf{R}(t)\,\mathrm{Exp}(\boldsymbol{\omega}\Delta t)\),
   rather than \(\mathrm{Exp}(\boldsymbol{\omega}\Delta t)\,\mathbf{R}(t)\)?</p>
   <ol class="options">
+    <li><button class="option" data-key="commute">Left and right multiplication agree at every orientation</button></li>
     <li><button class="option" data-key="body">The gyro rate is body-frame</button></li>
-    <li><button class="option" data-key="commute">Matrix products always commute here</button></li>
-    <li><button class="option" data-key="gravity">Gravity must be applied first</button></li>
-    <li><button class="option" data-key="unstable">The left side is unstable</button></li>
+    <li><button class="option" data-key="gravity">Right multiplication is required by the gravity convention</button></li>
+    <li><button class="option" data-key="unstable">A world-frame gyro rate would also multiply on the right</button></li>
   </ol>
   <div class="explain" hidden>
     <p>In eq.&nbsp;(29) the rate multiplies \(\mathbf{R}\) on the right because \(\boldsymbol{\omega}\)
@@ -232,8 +232,8 @@ material is what makes it stick.</p>
   <p class="q"><em>From lesson 1.</em> A level IMU accelerates straight up at 1&nbsp;g. What does
   its \(z\) axis read?</p>
   <ol class="options">
-    <li><button class="option" data-key="twice">+19.6 m/s²</button></li>
     <li><button class="option" data-key="up">+9.81 m/s²</button></li>
+    <li><button class="option" data-key="twice">+19.6 m/s²</button></li>
     <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
     <li><button class="option" data-key="down">−9.81 m/s²</button></li>
   </ol>
@@ -266,6 +266,8 @@ material is what makes it stick.</p>
     <p>Missed something? Try this box again in a couple of days, before rereading anything.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#imu">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

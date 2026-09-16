@@ -40,7 +40,7 @@
   rotation, position, velocity, both biases and gravity, with four blocks in the same \(\mathbf{H}\): every LiDAR point's point-to-plane
   residual, whitened by its 2&nbsp;cm noise and Huber-weighted; the 9-row IMU residual with bias-corrected deltas, weighted by the
   preintegration covariance inflated by the previous state's uncertainty; a prior from the carried bias covariance; and a gravity prior
-  anchored to its initial value. Rotation is retracted on the right. If the solve is under-constrained or the residual too large, it
+  anchored to its initial value. Rotation is retracted on the right. If the solve has too few correspondences, a non-finite update, or an excessive residual, it
   coasts on the prediction and keeps the scan out of the map. Otherwise it carries the posterior covariances forward, resyncs deskew's
   gyro bias if the LiDAR constrains rotation, and inserts the scan into the map."</p>
 </div>

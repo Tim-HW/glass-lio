@@ -99,7 +99,7 @@ b_marg = bk - Hmk.transpose() * Hmm_inv_bm;</code></pre>
   <tr><td><strong>Filter</strong> (EKF, iterated EKF: FAST-LIO2)</td><td>current state + its covariance</td><td>the current state only</td><td>marginalized every step</td></tr>
   <tr><td><strong>Window, marginalize</strong> (VINS-Mono)</td><td>last \(N\) states</td><td>all \(N\), every solve</td><td>oldest turned into a prior</td></tr>
   <tr><td><strong>Window, drop</strong> (the linked glass-vio version)</td><td>last \(N\) keyframes</td><td>all \(N\), every solve</td><td>oldest dropped; an anchor held fixed</td></tr>
-  <tr><td><strong>Factor</strong> (glass-lio)</td><td>the new state \(\mathbf{x}_j\)</td><td>\(\mathbf{x}_j\) only</td><td>\(\mathbf{x}_i\) held fixed; its covariance carried</td></tr>
+  <tr><td><strong>Current-state factor solve</strong> (glass-lio)</td><td>the new state \(\mathbf{x}_j\)</td><td>\(\mathbf{x}_j\) only</td><td>\(\mathbf{x}_i\) held fixed; its covariance carried</td></tr>
 </table>
 
 <p><strong>The filter.</strong> Propagate \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\) across the
@@ -136,8 +136,8 @@ if (r.posteriorCovariance(posterior)) {
   nav_cov_ = posterior.topLeftCorner&lt;kNavDim, kNavDim&gt;();
   bias_cov_ = posterior.block&lt;6, 6&gt;(kIdxBg, kIdxBg);
 }</code></pre>
-<p>Read the current <a href="../../src/lio/tight_registration.cpp">covariance extraction</a> and
-<a href="../../src/lio/lio_estimator.cpp">caller</a>; older commit-pinned links elsewhere document the historical implementation.</p>
+<p>Read the current <a href="https://github.com/Tim-HW/glass-lio/blob/HEAD/src/lio/tight_registration.cpp">covariance extraction</a> and
+<a href="https://github.com/Tim-HW/glass-lio/blob/HEAD/src/lio/lio_estimator.cpp">caller</a>; older commit-pinned links elsewhere document the historical implementation.</p>
 <p>This is still a local covariance estimate at the last linearization and robust weights, not a complete Bayesian filter. The estimator carries selected blocks, uses a fixed gravity prior, and separately approximates previous-state and bias uncertainty; cross-factor correlations are not all preserved. Correct block extraction fixes these two algebraic errors, not every possible source of inconsistency.</p>
 
 <h2>4 · So which?</h2>
@@ -157,7 +157,7 @@ uncertain states you remove should be marginalized if you intend to preserve the
   \(N\) states and re-linearises all of them each solve. To stay bounded it removes the oldest, properly by Schur
   complement, which leaves the prior for that linearization \(\mathbf{H}_{kk}-\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\), or cheaply by dropping it
   and fixing an anchor. Holding an old state fixed instead of marginalizing it makes the estimator overconfident about
-  it. glass-lio is a one-shot factor that holds \(\mathbf{x}_i\) fixed but carries its covariance; FAST-LIO2 is an iterated EKF;
+  it. glass-lio uses a current-state solve that holds \(\mathbf{x}_i\) fixed but carries its covariance; FAST-LIO2 is an iterated EKF;
   VINS-Mono is a marginalizing window."</p>
 </div>
 
@@ -172,7 +172,7 @@ uncertain states you remove should be marginalized if you intend to preserve the
     <li><button class="option" data-key="dist">A distribution over the current state</button></li>
     <li><button class="option" data-key="all">Every past state, re-linearised each step</button></li>
     <li><button class="option" data-key="n">The last N states and landmarks</button></li>
-    <li><button class="option" data-key="none">Nothing: each step starts from zero</button></li>
+    <li><button class="option" data-key="none">Only the latest pose, with no uncertainty attached</button></li>
   </ol>
   <div class="explain" hidden>
     <p>"Filtering methods marginalise out past poses and summarise the information gained over time with a probability
@@ -183,10 +183,10 @@ uncertain states you remove should be marginalized if you intend to preserve the
 <div class="quiz" data-answer="two">
   <p class="q">Marginalize the first variable out of \(\mathbf{H} = \begin{bmatrix}4 & 2\\ 2 & 3\end{bmatrix}\). What is \(H'\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="two">2.0</button></li>
     <li><button class="option" data-key="three">3.0</button></li>
     <li><button class="option" data-key="one">1.0</button></li>
     <li><button class="option" data-key="five">5.0</button></li>
+    <li><button class="option" data-key="two">2.0</button></li>
   </ol>
   <div class="explain" hidden>
     <p>\(H' = H_{kk} - H_{km}H_{mm}^{-1}H_{mk} = 3 - 2\cdot\tfrac{1}{4}\cdot 2 = 2\). The 3 is what you'd get by ignoring the coupling.</p>
@@ -196,8 +196,8 @@ uncertain states you remove should be marginalized if you intend to preserve the
 <div class="quiz" data-answer="zero">
   <p class="q">Same system, \(\mathbf{b} = [2;\ 1]\). Holding the first variable fixed gives \(x_k = 1/3\). What does the full solve give for \(x_k\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="zero">0.00</button></li>
     <li><button class="option" data-key="third">0.33</button></li>
+    <li><button class="option" data-key="zero">0.00</button></li>
     <li><button class="option" data-key="half">0.50</button></li>
     <li><button class="option" data-key="one">1.00</button></li>
   </ol>
@@ -210,10 +210,10 @@ uncertain states you remove should be marginalized if you intend to preserve the
 <div class="quiz" data-answer="certain">
   <p class="q">Why is holding an old state fixed worse than marginalizing it?</p>
   <ol class="options">
+    <li><button class="option" data-key="mem">It preserves uncertainty but discards the old mean</button></li>
+    <li><button class="option" data-key="sym">It gives the same marginal covariance at lower cost</button></li>
+    <li><button class="option" data-key="imu">It is always equivalent to fixing the global coordinate gauge</button></li>
     <li><button class="option" data-key="certain">It treats an estimate as certain</button></li>
-    <li><button class="option" data-key="mem">It needs more memory than marginalizing</button></li>
-    <li><button class="option" data-key="sym">It makes H no longer symmetric</button></li>
-    <li><button class="option" data-key="imu">It removes the IMU factor entirely</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Fixing ignores the old state's uncertainty and its coupling to the survivors, so the answer is biased and overconfident:
@@ -238,10 +238,10 @@ uncertain states you remove should be marginalized if you intend to preserve the
 <div class="quiz" data-answer="rk">
   <p class="q"><em>From lesson 3.</em> Why does naive IMU integration have to be redone whenever the solver moves \(\mathbf{R}_i\)?</p>
   <ol class="options">
+    <li><button class="option" data-key="grav">The gravity term is part of each cached body-frame delta</button></li>
+    <li><button class="option" data-key="bias">Rotations cannot be cached independently of translation</button></li>
     <li><button class="option" data-key="rk">Every sample's world rotation needs it</button></li>
-    <li><button class="option" data-key="grav">Gravity changes on every solver iteration</button></li>
-    <li><button class="option" data-key="bias">The biases reset on every iteration</button></li>
-    <li><button class="option" data-key="noise">The noise is resampled each time</button></li>
+    <li><button class="option" data-key="noise">The covariance must be rebuilt even at a fixed bias</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Each sample is rotated into the world by \(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\). That's the same "re-linearise the past"
@@ -269,6 +269,8 @@ uncertain states you remove should be marginalized if you intend to preserve the
     <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#covariance">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

@@ -22,7 +22,7 @@
 
 <article>
 
-<p class="lede">This is the fifth goal in this course, whole: walk an interviewer through glass-lio's tight coupling and
+<p class="lede">This capstone brings the course together: walk an interviewer through glass-lio's tight coupling and
 justify every term. Nothing here is new. It's lessons 1–8 put in the order the code runs them. By the end you should be
 able to narrate one scan from raw points to an updated map, and say for each weight what glass-lio measured when it was
 set wrong.</p>
@@ -122,12 +122,11 @@ Now close your eyes on the list and rebuild it:</p>
   <tr><th>Block</th><th>Weight</th><th>Set wrong, glass-lio measured…</th></tr>
   <tr><td>LiDAR</td><td>\(1/\sigma^2\), \(\sigma = 0.02\)&nbsp;m (a Livox's real noise)</td><td>at 0.05, the IMU over-integrated velocity to ~40&nbsp;m/s; drift fell from 1,339&nbsp;m to 429&nbsp;m once calibrated</td></tr>
   <tr><td>IMU</td><td>\(\Sigma_{\text{eff}}^{-1}\), \(\Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\)</td><td>with \(\mathbf{x}_i\) treated as exact, the IMU's information overruled the LiDAR and pinned the pose ("the FREEZE")</td></tr>
-  <tr><td>Bias prior</td><td>the carried bias covariance</td><td>a random-walk constant alone can't say how wrong the bias was <em>to begin with</em>, so the accel bias would stay frozen</td></tr>
+  <tr><td>Bias prior</td><td>\(P_b^{-1}\), the inverse carried bias covariance</td><td>a random-walk constant alone can't say how wrong the bias was <em>to begin with</em>, so the accel bias would stay frozen</td></tr>
   <tr><td>Gravity prior</td><td>\(\mathbf{I}/\sigma_g^2\), \(\sigma_g = 0.05\), anchored to \(\mathbf{g}_{\text{init}}\)</td><td>anchored to its own estimate, \(|\mathbf{g}|\) wandered to ~25 in 200 scans and threw the pose ~500&nbsp;km</td></tr>
 </table>
 
-<p>One structural fact ties them together: a LiDAR row has zeros in the velocity, bias and gravity columns (lesson 6). The IMU couples velocity, biases, and gravity to the pose; the bias and gravity priors also constrain their own variables. That's why the LiDAR's weight, which only reaches velocity through position, is
-what decides whether velocity stays disciplined.</p>
+<p>One structural fact ties them together: a LiDAR row has zeros in the velocity, bias and gravity columns (lesson 6). The IMU couples velocity, biases, and gravity to the pose; the bias and gravity priors also constrain their own variables. LiDAR influences velocity indirectly through the joint IMU constraints, including their orientation and bias couplings. Its weight affects the estimate, but does not alone determine velocity error.</p>
 
 <pre><code>x = boxplus(x, dx.head&lt;kNavDim&gt;());
 g += dx.segment&lt;3&gt;(kIdxGrav);</code></pre>
@@ -156,10 +155,10 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="quiz" data-answer="vel">
   <p class="q">Why does glass-lio run its first 10 scans loose before switching to the tight solve?</p>
   <ol class="options">
-    <li><button class="option" data-key="vel">Velocity is unobservable from IMU init</button></li>
     <li><button class="option" data-key="map">The map has no planes yet</button></li>
     <li><button class="option" data-key="bias">Gyro bias must converge before tight</button></li>
-    <li><button class="option" data-key="noise">The LiDAR noise is still unknown</button></li>
+    <li><button class="option" data-key="noise">A constant-velocity IMU reading uniquely determines speed</button></li>
+    <li><button class="option" data-key="vel">Velocity is unobservable from IMU init</button></li>
   </ol>
   <div class="explain" hidden>
     <p>A static window can't tell rest from constant velocity, and the test bag starts already moving at ~1.5&nbsp;m/s. Seed \(\mathbf{v} = 0\)
@@ -170,10 +169,10 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="quiz" data-answer="over">
   <p class="q">What does \(\Sigma_{\text{eff}} = \Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\) prevent?</p>
   <ol class="options">
+    <li><button class="option" data-key="grav">The separate gravity prior from needing an anchor</button></li>
+    <li><button class="option" data-key="stale">The bias-correction Jacobians from needing a reference bias</button></li>
     <li><button class="option" data-key="over">The IMU overruling the LiDAR</button></li>
-    <li><button class="option" data-key="grav">Gravity wandering off to 25</button></li>
-    <li><button class="option" data-key="stale">The bias going stale mid-solve</button></li>
-    <li><button class="option" data-key="degen">Degenerate LiDAR geometry on roads</button></li>
+    <li><button class="option" data-key="degen">The LiDAR geometry from having a nullspace</button></li>
   </ol>
   <div class="explain" hidden>
     <p>With \(\mathbf{x}_i\) held exact (\(\mathbf{P}_i = 0\)), the IMU's information over 0.1&nbsp;s is enormous and pins the pose. Inflating by
@@ -184,10 +183,10 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="quiz" data-answer="anchor">
   <p class="q">Why is the gravity prior anchored to the initial value, not to the previous scan's estimate?</p>
   <ol class="options">
+    <li><button class="option" data-key="slow">A moving anchor preserves the original prior information</button></li>
+    <li><button class="option" data-key="exact">Any fixed anchor makes the estimated gravity exact</button></li>
+    <li><button class="option" data-key="imu">The gravity prior also fixes the accelerometer bias exactly</button></li>
     <li><button class="option" data-key="anchor">Otherwise nothing pulls it back</button></li>
-    <li><button class="option" data-key="slow">Gravity changes slowly over time</button></li>
-    <li><button class="option" data-key="exact">Init is always exactly correct</button></li>
-    <li><button class="option" data-key="imu">The IMU cannot measure gravity</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Gravity is nearly unobservable over one 0.1&nbsp;s scan. An anchor that chases the estimate has no restoring force, so every small pose
@@ -198,13 +197,13 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="quiz" data-answer="vel">
   <p class="q">In the historical experiment described above, what happened when <code>lidar_sigma</code> was 0.05 instead of 0.02?</p>
   <ol class="options">
-    <li><button class="option" data-key="vel">The IMU over-integrates the velocity</button></li>
     <li><button class="option" data-key="lidar">The LiDAR overrules the IMU</button></li>
-    <li><button class="option" data-key="cancel">Nothing, it cancels in H</button></li>
-    <li><button class="option" data-key="planes">Planes fail the planarity gate</button></li>
+    <li><button class="option" data-key="cancel">Its scale cancels even when the IMU shares the objective</button></li>
+    <li><button class="option" data-key="planes">It directly changes the map voxel eigenvalues</button></li>
+    <li><button class="option" data-key="vel">The IMU over-integrates the velocity</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>A bigger \(\sigma\) trusts the LiDAR less. It reaches velocity only through position, so the IMU's integration runs unchecked: ~40&nbsp;m/s
+    <p>A bigger \(\sigma\) trusts the LiDAR less. In that experiment, reducing LiDAR's influence on the joint IMU constraints allowed velocity to drift: ~40&nbsp;m/s
     on a bland stretch. A global scale only cancels in the LiDAR-only loose path, never once a second sensor shares \(\mathbf{H}\).</p>
   </div>
 </div>
@@ -212,9 +211,9 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="quiz" data-answer="rot">
   <p class="q">After an accepted tight solve, when does glass-lio <em>skip</em> resyncing deskew's gyro bias?</p>
   <ol class="options">
-    <li><button class="option" data-key="rot">When LiDAR barely constrains the rotation</button></li>
     <li><button class="option" data-key="cov">When the bias covariance is large</button></li>
     <li><button class="option" data-key="short">When the IMU interval is short</button></li>
+    <li><button class="option" data-key="rot">When LiDAR barely constrains the rotation</button></li>
     <li><button class="option" data-key="grav">When gravity differs from its init</button></li>
   </ol>
   <div class="explain" hidden>
@@ -226,8 +225,8 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="quiz" data-answer="sf">
   <p class="q"><em>From lesson 1.</em> What does the accelerometer in this whole pipeline actually measure?</p>
   <ol class="options">
-    <li><button class="option" data-key="sf">Acceleration minus gravity, body frame</button></li>
     <li><button class="option" data-key="plus">Acceleration plus gravity, world frame</button></li>
+    <li><button class="option" data-key="sf">Acceleration minus gravity, body frame</button></li>
     <li><button class="option" data-key="acc">Acceleration alone, in body frame</button></li>
     <li><button class="option" data-key="g">Gravity alone, in world frame</button></li>
   </ol>
@@ -239,19 +238,21 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <div class="recall">
   <p class="q"><strong>From memory:</strong> name the four blocks of the tight solve, what each one's weight is, and one thing that went wrong
   when glass-lio set it badly. Then distinguish direct LiDAR constraints from the IMU couplings and the bias/gravity priors.</p>
-  <textarea style="min-height: 9.5rem" placeholder="LiDAR: ...&#10;IMU: ...&#10;bias: ...&#10;gravity: ...&#10;only the IMU constrains: ..."></textarea>
+  <textarea style="min-height: 9.5rem" placeholder="LiDAR: ...&#10;IMU: ...&#10;bias: ...&#10;gravity: ...&#10;direct LiDAR columns vs IMU couplings and priors: ..."></textarea>
   <button class="action reveal">Check against the answer</button>
   <div class="answer" hidden>
     <ul class="checklist">
       <li>LiDAR: \(1/\sigma^2\) per point, \(\sigma = 0.02\)&nbsp;m, Huber; at 0.05 velocity ran away</li>
       <li>IMU: \(\Sigma_{\text{eff}}^{-1} = (\Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top})^{-1}\); without the inflation, the freeze</li>
-      <li>Bias prior: the carried bias marginal covariance, extracted from the full inverse information matrix</li>
+      <li>Bias prior: inverse of the carried bias marginal covariance; update that covariance from the bias block of \(H_{\rm total}^{-1}\) after the solve</li>
       <li>Gravity prior: anchored to \(\mathbf{g}_{\text{init}}\), \(\sigma_g = 0.05\); anchored to itself, \(|\mathbf{g}|\to 25\)</li>
       <li>Velocity, both biases and gravity: the LiDAR's columns there are zero</li>
     </ul>
     <p>That's the whole solve in five lines. Try this box again after a night's sleep; it's the best single check that the course has stuck.</p>
   </div>
 </div>
+
+<p><strong>Apply it:</strong> complete the <a href="../exercises.html#noise">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>

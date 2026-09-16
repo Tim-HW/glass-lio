@@ -43,8 +43,7 @@
   smaller than the middle one, it's a blob, a corner or a line, so there's no plane. For the whole scan,
   \(\mathbf{H}\)'s translation block is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\); its smallest-eigenvalue eigenvector is the
   direction no plane constrains, and when that eigenvalue is a tiny fraction of the trace, like floor plus one wall,
-  the pose can slide along it with a perfectly healthy RMSE. glass-lio refuses those scans at a ratio of 0.05 and lets
-  the IMU carry that direction; Zhang et al. instead solve only the well-conditioned directions."</p>
+  the pose can slide along it with a perfectly healthy RMSE. glass-lio's loose path refuses scans below 0.05; the tight path can use IMU information along the weak direction; Zhang et al. instead solve only the well-conditioned directions."</p>
 </div>
 
 </article>

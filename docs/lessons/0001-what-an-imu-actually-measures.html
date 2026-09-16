@@ -140,8 +140,8 @@ stick.</p>
   <p class="q">A level IMU sits still on a table, with its \(z\) axis pointing up. Ignoring bias
   and noise, what does the accelerometer's \(z\) axis read?</p>
   <ol class="options">
-    <li><button class="option" data-key="up">+9.81 m/s²</button></li>
     <li><button class="option" data-key="down">−9.81 m/s²</button></li>
+    <li><button class="option" data-key="up">+9.81 m/s²</button></li>
     <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
     <li><button class="option" data-key="double">+19.6 m/s²</button></li>
   </ol>
@@ -156,8 +156,8 @@ stick.</p>
   <p class="q">The same IMU is dropped and is now in free fall. What does its \(z\) axis read?</p>
   <ol class="options">
     <li><button class="option" data-key="up">+9.81 m/s²</button></li>
-    <li><button class="option" data-key="down">−9.81 m/s²</button></li>
     <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
+    <li><button class="option" data-key="down">−9.81 m/s²</button></li>
     <li><button class="option" data-key="double">+19.6 m/s²</button></li>
   </ol>
   <div class="explain" hidden>
@@ -185,9 +185,9 @@ stick.</p>
   gravity from \(\mathbf{b}^{a}\)?</p>
   <ol class="options">
     <li><button class="option" data-key="sum">Only their sum is observed</button></li>
-    <li><button class="option" data-key="short">The window is too short</button></li>
-    <li><button class="option" data-key="noise">Bias noise swamps the gravity</button></li>
-    <li><button class="option" data-key="gyro">The gyroscope bias hides both</button></li>
+    <li><button class="option" data-key="short">More samples reveal each term separately</button></li>
+    <li><button class="option" data-key="noise">Known gravity magnitude determines all three bias components</button></li>
+    <li><button class="option" data-key="gyro">Averaging removes the constant bias</button></li>
   </ol>
   <div class="explain" hidden>
     <p>Every sample gives the same \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\). More samples

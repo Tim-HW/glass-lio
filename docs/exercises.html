@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practical worksheet · glass-lio course</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="assets/course.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="assets/course.js"></script>
+</head>
+<body><main>
+<header class="page"><p class="kicker">Five exercises · 60–90 minutes</p><h1>Practical worksheet</h1></header>
+<article>
+
+<p class="lede">Use these tasks to check whether you can apply the ideas to new inputs. Work on paper or in your own short program before opening a solution. Allow 60–90 minutes for all five tasks.</p>
+<p>Python 3 is enough: no ROS, bag, or numerical package is needed. A <a href="exercises.py" download>runnable worked solution</a> checks the numerical examples. Run <code>python3 docs/exercises.py</code> from the repository root after attempting them. It is an answer key, not an automatic grader for your code.</p>
+<h2 id="imu">1 · Integrate two samples (after lessons 2–3)</h2>
+<p>Start at \(R=I,v=p=0\), with \(g=[0,0,-9.81]\), zero biases, and two identical samples of duration 0.1 s.
+Each reports \(\tilde a=[1,0,9.81]\) m/s² and \(\tilde\omega=[0,0,5\pi]\) rad/s.
+Use lesson 2's discrete update. These deliberately large rotations make update-order errors obvious;
+this is a test of that discrete model, not an accurate approximation to continuously rotating acceleration.</p>
+<ol><li>Calculate world acceleration, position, velocity, and rotation after each step.</li>
+<li>Repeat using gravity-free preintegrated deltas, then restore gravity with <code>predictState</code>'s equations.</li>
+<li>Move the rotation update first and explain the changed trajectory.</li></ol>
+<details><summary>Hint</summary><p>The old R rotates the acceleration in each step. The first force points along world +x, the second along world +y. Position uses the old velocity.</p></details>
+<details><summary>Worked solution and checks</summary>
+<table><tr><th>Step</th><th>p (m)</th><th>v (m/s)</th><th>Yaw</th></tr>
+<tr><td>1</td><td>(0.005, 0, 0)</td><td>(0.1, 0, 0)</td><td>90°</td></tr>
+<tr><td>2</td><td>(0.015, 0.005, 0)</td><td>(0.1, 0.1, 0)</td><td>180°</td></tr></table>
+<p>The preintegrated deltas are \(\Delta v=(0.1,0.1,1.962)\), \(\Delta p=(0.015,0.005,0.1962)\).
+The gravity terms cancel their z components. Updating rotation first instead produces \(p=(-0.005,0.015,0)\).
+You should reproduce both integration routes and explain why the incorrect order changes the horizontal direction.</p></details>
+<h2 id="jacobian">2 · Check a Jacobian numerically (after lesson 6)</h2>
+<p>Use \(p=(2,1,0.5)\), \(R=R_z(90°)\), \(t=(0.5,-0.25,1)\), \(n=(0,1,0)\), and \(c=0\).
+Implement \(r=n^\top(Rp+t-c)\). Compute all six Jacobian columns using central differences with ε=10⁻⁵, 10⁻⁶, and 10⁻⁷.</p>
+<ol><li>For a left SE(3) update, compare against \([n^\top,(q\times n)^\top]\), ordered translation then rotation.</li>
+<li>For a right rotation and additive world translation, compare the rotation columns against \(-n^\top Rp^\wedge\).</li>
+<li>Swap the cross-product order in the analytic left Jacobian. Your check must fail.</li></ol>
+<details><summary>Hint</summary><p>For each left rotational column, rotate the whole world point q by ±ε. For each right rotational column, rotate p first, then apply R and add t. Do not perturb matrix entries directly.</p></details>
+<details><summary>Worked solution and checks</summary>
+<p>\(q=(-0.5,1.75,1.5)\), \(r=1.75\). The left Jacobian is \([0,1,0,-1.5,0,-0.5]\).
+The right rotation block is \([0,0.5,-1]\); its world-translation block remains \([0,1,0]\).
+Maximum absolute error should be below 10⁻⁷ for these inputs in double precision.
+The wrong left cross product differs by 3 in its first rotational column.</p></details>
+<h2 id="degeneracy">3 · Find an invisible motion (after lesson 7)</h2>
+<p>With unit weights, suppose 40 correspondences have normal x, 60 have normal y, and 100 have normal z.
+Compute \(H_t\), its smallest-eigenvalue/trace ratio, and the result of the 0.05 loose translation gate.</p>
+<p>Now suppose every world point lies on a sphere centered at the origin, and its matched tangent-plane normal is
+\(n_i=q_i/\|q_i\|\). Assume the normals still span all three axes. Can you certify the full pose from the positive translation ratio?</p>
+<details><summary>Hint</summary><p>Inspect the rotational part \(q_i\times n_i\) of each Jacobian. Give a nonzero pose increment whose linearized residual change is zero.</p></details>
+<details><summary>Worked solution and checks</summary>
+<p>\(H_t=\operatorname{diag}(40,60,100)\), ratio \(40/200=0.2\): the translation gate passes.
+On the sphere, \(q_i\times n_i=0\), so every rotational column vanishes. Any pure small rotation is a null direction even though translation is constrained.
+This is local, first-order degeneracy; with fixed correspondences finite rotations can produce second-order residuals. Passing a 3×3 translation test cannot certify a 6-DoF pose.</p></details>
+<h2 id="covariance">4 · Distinguish marginal from conditional (after lesson 8)</h2>
+<p>Let the total information for two scalar errors be \(H=\begin{bmatrix}4&amp;2\\2&amp;3\end{bmatrix}\).
+Assume it already includes the prior. Find the first variable's marginal variance by inverting the whole matrix and by eliminating the second variable.</p>
+<p>Then take a scalar unit prior and no new measurement information. What variance results from counting the prior once? What happens if you add the prior again?</p>
+<details><summary>Worked solution and checks</summary>
+<p>\(H^{-1}=\tfrac18\begin{bmatrix}3&amp;-2\\-2&amp;4\end{bmatrix}\), so the marginal variance is 3/8.
+Eliminating the second variable gives \(4-2(1/3)2=8/3\) information, whose inverse is 3/8.
+The conditional variance with the second variable fixed is 1/4. For the scalar unit prior, the correct variance is 1; counting it twice gives 1/2 despite no new data.</p>
+<p>Explain the order of operations in words: invert the full information, then select a covariance block. This is the principle tested in <a href="https://github.com/Tim-HW/glass-lio/blob/HEAD/test/test_tight.cpp">test_tight.cpp</a>.</p></details>
+<h2 id="noise">5 · Test a claim about uncertainty (after lessons 5 and 9)</h2>
+<p>Let \(P=\operatorname{diag}(4,1)\), \(A=R(90°)\), and independent process noise \(Q=0.1I\).
+Compute \(P'=APA^\top+Q\). Is \(P'-P\) positive semidefinite? Has every directional variance grown?</p>
+<p>Separately, an experiment increases LiDAR σ from 0.02 to 0.05 m. By what factor does LiDAR information change? Does this alone predict the resulting velocity error?</p>
+<details><summary>Worked solution and checks</summary>
+<p>\(P'=\operatorname{diag}(1.1,4.1)\), so \(P'-P=\operatorname{diag}(-2.9,3.1)\) is indefinite.
+Fresh noise is positive semidefinite, but propagation changed the directions of the old uncertainty.</p>
+<p>LiDAR information scales by \((0.02/0.05)^2=0.16\): it is 6.25 times weaker. Actual velocity error also depends on motion, geometry, IMU errors, and priors. The historical 40 m/s result is a measured case, not a theorem about this parameter.</p></details>
+<h2>Check your understanding</h2>
+<p>For each exercise award one point for the numerical result, one for the derivation or independent numerical check,
+and one for explaining the failure or assumption. A copied answer earns no derivation point. Revisit any exercise below 3/3 after a gap, with changed inputs. A perfect multiple-choice score is not a substitute for these checks.</p>
+
+</article>
+<nav class="course"><a href="index.html">Course home</a><a href="lessons/0009-the-tight-solve-end-to-end.html">Return to the capstone</a></nav>
+</main></body></html>

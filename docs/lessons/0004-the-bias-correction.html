@@ -157,9 +157,9 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
   <p class="q">Why doesn't glass-core simply re-integrate the deltas whenever the bias estimate changes?</p>
   <ol class="options">
     <li><button class="option" data-key="iter">It changes every solver iteration</button></li>
-    <li><button class="option" data-key="never">The bias is never estimated</button></li>
-    <li><button class="option" data-key="noisy">IMU samples are too noisy</button></li>
-    <li><button class="option" data-key="grav">Gravity must be re-estimated first</button></li>
+    <li><button class="option" data-key="never">Bias correction is independent of the integration bias</button></li>
+    <li><button class="option" data-key="noisy">Re-integration cannot change a cached rotation delta</button></li>
+    <li><button class="option" data-key="grav">The accelerometer-bias correction requires a new gravity estimate</button></li>
   </ol>
   <div class="explain" hidden>
     <p>The bias is a state, so every Gauss-Newton iteration can move it by \(\delta\mathbf{b}\).
@@ -171,10 +171,10 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
   <p class="q">Why is \(\Delta\tilde{\mathbf{R}}_{ij}\) corrected as \(\Delta\tilde{\mathbf{R}}_{ij}\,\mathrm{Exp}(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g})\)
   and not as \(\Delta\tilde{\mathbf{R}}_{ij} + \mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g}\)?</p>
   <ol class="options">
+    <li><button class="option" data-key="cheap">An additive correction is exact if the matrix is small</button></li>
+    <li><button class="option" data-key="rot">The correction is expressed in world coordinates</button></li>
     <li><button class="option" data-key="add">Rotations cannot be added directly</button></li>
-    <li><button class="option" data-key="cheap">Exp is cheaper to compute</button></li>
-    <li><button class="option" data-key="rot">The gyro bias is a rotation</button></li>
-    <li><button class="option" data-key="double">Addition would double the correction</button></li>
+    <li><button class="option" data-key="double">The Jacobian already contains the finite rotation</button></li>
   </ol>
   <div class="explain" hidden>
     <p>A rotation plus a small matrix isn't a rotation. The correction is a small rotation vector in the
@@ -186,10 +186,10 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
   <p class="q">Differentiate \(\Delta\bar{\mathbf{v}}_{ij} = \sum_k \Delta\bar{\mathbf{R}}_{ik}(\tilde{\mathbf{a}}_k - \mathbf{b}^{a})\,\Delta t\)
   with respect to \(\mathbf{b}^{a}\). What is \(\mathbf{J}^{v}_{a}\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="minus">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\Delta t\)</button></li>
     <li><button class="option" data-key="plus">\(+\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\Delta t\)</button></li>
     <li><button class="option" data-key="trans">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}^{\top}\,\Delta t\)</button></li>
     <li><button class="option" data-key="bias">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\mathbf{b}^{a}\,\Delta t\)</button></li>
+    <li><button class="option" data-key="minus">\(-\sum_k \Delta\bar{\mathbf{R}}_{ik}\,\Delta t\)</button></li>
   </ol>
   <div class="explain" hidden>
     <p>\(\mathbf{b}^{a}\) enters linearly with coefficient \(-\Delta\bar{\mathbf{R}}_{ik}\,\Delta t\), and
@@ -200,10 +200,10 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
 <div class="quiz" data-answer="offset">
   <p class="q">In glass-core's residual, what is the <code>dbg</code> passed to <code>dR_corrected()</code>?</p>
   <ol class="options">
-    <li><button class="option" data-key="offset">the offset from the integration bias</button></li>
     <li><button class="option" data-key="new">the new gyro bias estimate itself</button></li>
     <li><button class="option" data-key="step">the change since the last iteration</button></li>
     <li><button class="option" data-key="rw">the bias random walk per scan</button></li>
+    <li><button class="option" data-key="offset">the offset from the integration bias</button></li>
   </ol>
   <div class="explain" hidden>
     <p><code>dbg = xj.bg - pre.bias_gyro()</code>: the current estimate minus the bias the deltas were
@@ -214,9 +214,9 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
 <div class="quiz" data-answer="rot">
   <p class="q"><em>From lesson 3.</em> Which preintegrated delta corresponds to a true physical quantity?</p>
   <ol class="options">
-    <li><button class="option" data-key="rot">the rotation delta</button></li>
     <li><button class="option" data-key="vel">the velocity delta</button></li>
     <li><button class="option" data-key="pos">the position delta</button></li>
+    <li><button class="option" data-key="rot">the rotation delta</button></li>
     <li><button class="option" data-key="all">all three deltas</button></li>
   </ol>
   <div class="explain" hidden>
