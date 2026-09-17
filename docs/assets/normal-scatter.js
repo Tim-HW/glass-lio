@@ -166,11 +166,11 @@
           ratioLine.className = 'verdict bad';
           ratioLine.textContent =
             `λ₀ / trace = ${ratio.toFixed(3)} < ${gate}: degenerate. ` +
-            `The scan can slide along ≈ [${dir}] without changing any residual.`;
+            `Translation along ≈ [${dir}] is weakly constrained by these normals (rotation held fixed).`;
         } else {
           ratioLine.className = 'verdict ok';
           ratioLine.textContent =
-            `λ₀ / trace = ${ratio.toFixed(3)} ≥ ${gate}: every translation direction is constrained. ` +
+            `λ₀ / trace = ${ratio.toFixed(3)} ≥ ${gate}: every pure translation direction passes this gate; rotation is held fixed. ` +
             `Weakest direction ≈ [${dir}].`;
         }
       }
