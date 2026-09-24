@@ -160,7 +160,111 @@ are calibration choices for those experiments, not universal constants.</p>
   covariance weights the IMU residual. Dead reckoning generally accumulates uncertainty, but propagation does not guarantee monotonic growth in every direction."</p>
 </div>
 
-<h2>6 · Practice</h2>
+<h2>6 · One scan's covariance, computed</h2>
+
+<p>Run the recursion of section 3 over one real glass-lio interval: 0.1&nbsp;s at 200&nbsp;Hz, 20
+samples, with the Mid-360's configured densities \(\sigma_g = 1.7\times10^{-3}\ \mathrm{rad/s/\sqrt{Hz}}\)
+and \(\sigma_a = 2\times10^{-2}\ \mathrm{m/s^2/\sqrt{Hz}}\), for a level sensor reading
+\(\mathbf{a}_k = [0,0,9.81]\). The standard deviations at the end of the scan are the square roots of
+the diagonal of \(\Sigma_{ij}\):</p>
+
+<table>
+  <tr><th>block</th><th>standard deviation per axis</th><th>in words</th></tr>
+  <tr><td>\(\delta\boldsymbol{\phi}\)</td><td>5.4×10⁻⁴ rad</td><td>0.03°: the gyro alone knows the scan's rotation extremely well</td></tr>
+  <tr><td>\(\delta\mathbf{v}\)</td><td>6.3×10⁻³ m/s</td><td>about 6 mm/s</td></tr>
+  <tr><td>\(\delta\mathbf{p}\)</td><td>3.7×10⁻⁴ m</td><td>a third of a millimetre</td></tr>
+</table>
+
+<p>Each number matches the simple formulas you could derive by hand for a non-rotating sensor:
+\(\sigma_g\sqrt{T}\) for rotation, \(\sigma_a\sqrt{T}\) for velocity, and
+\(\sigma_a T^{3/2}/\sqrt3\) for position. The one coupling the recursion adds, orientation error tilting
+the specific force, is there but small over a tenth of a second: the correlation between a velocity
+axis and the perpendicular rotation axis is only 0.04. Run the same recursion for a second, or for a
+minute, and that coupling becomes the dominant term, which is lesson 2's \(t^3\) drift seen from the
+covariance side.</p>
+
+<h3>A test the recursion must pass: the sampling rate must not matter</h3>
+
+<p>Run the same 0.1&nbsp;s interval at 400&nbsp;Hz instead of 200&nbsp;Hz. Each step's discrete noise
+\(\sigma^2/\Delta t\) doubles, and there are twice as many steps, each weighted by a smaller
+\(\Delta t\) or \(\Delta t^2\) in \(\mathbf{B}_k\). The result:</p>
+
+<table>
+  <tr><th>rate</th><th>σ rotation</th><th>σ velocity</th><th>σ position</th></tr>
+  <tr><td>200 Hz</td><td>5.376×10⁻⁴</td><td>6.331×10⁻³</td><td>3.652×10⁻⁴</td></tr>
+  <tr><td>400 Hz</td><td>5.376×10⁻⁴</td><td>6.332×10⁻³</td><td>3.653×10⁻⁴</td></tr>
+</table>
+
+<p>The same to three or four digits. That is not a coincidence; it is what a noise <em>density</em>
+means. The physical uncertainty after 0.1&nbsp;s cannot depend on how often you happened to sample it.
+This makes an excellent unit test, and it catches the single most common mistake in writing this
+code: multiplying by \(\Delta t\) instead of dividing. With \(\sigma^2\Delta t\), doubling the rate would
+halve the variance, and a faster IMU would appear to make the estimator more certain for free.</p>
+
+<h2>7 · “Who wins”: the arithmetic behind a real calibration fix</h2>
+
+<p>The covariance's inverse is the IMU's information. Per position axis, one scan's IMU factor
+carries about \(1/(3.7\times10^{-4})^2 \approx 7.5\times10^{6}\ \mathrm{m^{-2}}\). Each LiDAR
+point-to-plane correspondence, whitened by <code>lidar_sigma</code>, carries \(1/\sigma^2\) along its
+plane's normal. Set the two against each other, for correspondences whose normals all lie along one
+axis:</p>
+
+<table>
+  <tr><th><code>lidar_sigma</code></th><th>information per correspondence</th><th>correspondences to match the IMU on one axis</th></tr>
+  <tr><td>0.05 m</td><td>400 m⁻²</td><td>about 18,700</td></tr>
+  <tr><td>0.02 m</td><td>2,500 m⁻²</td><td>about 3,000</td></tr>
+</table>
+
+<p>Treat these as orders of magnitude, not exact budgets. Real normals spread over three axes, which
+roughly triples the counts, and glass-lio inflates the IMU factor by the previous state's own
+uncertainty, which lowers its information. But the <em>ratio</em> between the rows is exact:
+\((0.05/0.02)^2 = 6.25\). Changing that one number hands the LiDAR six times more say in every
+argument.</p>
+
+<p>This is not hypothetical. With <code>lidar_sigma</code> at 0.05&nbsp;m, when the Livox's real
+point-to-plane noise is about 2&nbsp;cm, glass-lio's tight coupling let the IMU win arguments it should
+have lost. The point-to-plane residual has no velocity columns, so position is the only channel that
+disciplines velocity; with position under-trusted, the IMU over-integrated velocity to about
+42&nbsp;m/s and the trajectory drifted to 1,339&nbsp;m. Setting <code>lidar_sigma</code> to the
+sensor's actual 0.02&nbsp;m brought it to 429&nbsp;m, level with the loosely coupled baseline, with
+velocities back near 7&nbsp;m/s.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a>,
+§12.5, “The last drift — an under-trusted LiDAR”, and the table under it.</span></p>
+
+<div class="callout">
+  <p class="label">The lesson in one line</p>
+  <p>In a fused solve, a noise parameter is not a tuning knob for one sensor; it is a vote on which
+  sensor is right. Set it to the physical truth, measured, and let the covariances argue. When the
+  output looks wrong, check the votes before touching the model.</p>
+</div>
+
+<h2>8 · What this covariance does not contain</h2>
+
+<p>Section 3 already warned that \(\Sigma_{ij}\) is conditioned on the integration biases. It is worth
+listing everything it leaves out, because each omission is handled somewhere else, and forgetting
+where is how covariances become over-confident.</p>
+
+<ul>
+  <li><strong>Bias uncertainty.</strong> Handled by the bias states and their random-walk prior, not
+  by \(\Sigma_{ij}\). The bias Jacobians of lesson 4 are how bias uncertainty reaches the residual.</li>
+  <li><strong>Uncertainty in the starting state \(\mathbf{x}_i\).</strong> Handled in glass-lio by the
+  inflation \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) from section 1, or in a window by estimating
+  \(\mathbf{x}_i\) jointly. Leaving it out is exactly the “infinitely certain \(\mathbf{x}_i\)” failure
+  lesson 3 ended on.</li>
+  <li><strong>Non-white noise.</strong> Vibration from motors or wheels is correlated in time, not
+  white. The recursion assumes independence between samples, so a vibrating platform needs larger
+  effective densities than the datasheet lists, measured on the platform.</li>
+  <li><strong>Discretisation error.</strong> Lesson 2's “hold everything constant” error is
+  systematic, not random, so no covariance models it. At 200&nbsp;Hz it is small enough not to matter;
+  on a slow IMU it would silently bias the estimate while the covariance claimed confidence.</li>
+</ul>
+
+<details><summary>Try it: a platform vibrates so its accelerometer noise is correlated over about 10 samples. Should you raise or lower σ<sub>a</sub>?</summary>
+<p>Raise it. Correlated noise does not average down as fast as white noise: ten correlated samples
+carry roughly the information of one. Treating them as independent would claim about three times
+(\(\sqrt{10}\)) too small a standard deviation for integrated quantities. Inflating the density is the
+standard, honest fix when you cannot model the correlation.</p></details>
+
+<h2>9 · Practice</h2>
 
 <p>From memory, no scrolling. The last question comes from lesson 4.</p>
 <p class="score"></p>
@@ -235,6 +339,53 @@ are calibration choices for those experiments, not universal constants.</p>
   <div class="explain" hidden>
     <p>Rotations don't add: \(\Delta\tilde{\mathbf{R}}_{ij}\,\mathrm{Exp}(\mathbf{J}^{R}_{g}\,\delta\mathbf{b}^{g})\),
     applied on the right. Velocity and position live in \(\mathbb{R}^3\) and just add.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="same">
+  <p class="q">You rerun the same 0.1&nbsp;s interval with the IMU at 400&nbsp;Hz instead of 200&nbsp;Hz.
+  With the discrete noise set correctly, the final \(\Sigma_{ij}\)…</p>
+  <ol class="options">
+    <li><button class="option" data-key="half">halves: more samples, more certainty</button></li>
+    <li><button class="option" data-key="same">stays essentially the same</button></li>
+    <li><button class="option" data-key="double">doubles: each sample is noisier</button></li>
+    <li><button class="option" data-key="quarter">falls by four</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A density describes physical noise per unit bandwidth, so the uncertainty after 0.1&nbsp;s cannot
+    depend on the sampling rate. If yours changes with the rate, you probably multiplied by \(\Delta t\)
+    instead of dividing.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="six">
+  <p class="q">Changing <code>lidar_sigma</code> from 0.05&nbsp;m to 0.02&nbsp;m multiplies the LiDAR's
+  information in the solve by about…</p>
+  <ol class="options">
+    <li><button class="option" data-key="two">2.5</button></li>
+    <li><button class="option" data-key="six">6.25</button></li>
+    <li><button class="option" data-key="none">1: a scale on all residuals cancels</button></li>
+    <li><button class="option" data-key="forty">40</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Information is \(1/\sigma^2\), so \((0.05/0.02)^2 = 6.25\). A global scale cancels only when one
+    sensor is alone in the solve; once the IMU shares the normal equations, it decides who wins.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="raise">
+  <p class="q">Motor vibration makes a platform's accelerometer noise correlated across samples. The
+  honest fix, if you cannot model the correlation, is to…</p>
+  <ol class="options">
+    <li><button class="option" data-key="lower">lower \(\sigma_a\): the samples agree with each other</button></li>
+    <li><button class="option" data-key="keep">keep the datasheet \(\sigma_a\)</button></li>
+    <li><button class="option" data-key="raise">raise \(\sigma_a\), measured on the platform</button></li>
+    <li><button class="option" data-key="weight">set <code>imu_prior_weight</code> above 1</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The recursion assumes independent samples. Correlated noise averages down more slowly, so the
+    real uncertainty is larger than the model says. Inflating the density fixes the physics; raising a
+    weight above 1 makes the IMU more confident, the wrong direction entirely.</p>
   </div>
 </div>
 

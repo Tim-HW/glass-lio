@@ -148,7 +148,147 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
   re-integrate."</p>
 </div>
 
-<h2>6 · Practice</h2>
+<h2>6 · The hard one: how the gyro bias moves \(\Delta\mathbf{R}_{ij}\)</h2>
+
+<p>Section 4 was easy because \(\mathbf{b}^{a}\) enters linearly and outside every rotation. The
+gyro bias is the opposite: it sits inside every factor of a product of exponentials,</p>
+
+<div class="eq">$$ \Delta\mathbf{R}_{ij}(\mathbf{b}^g) = \prod_{k=i}^{j-1}\mathrm{Exp}\big((\tilde{\boldsymbol{\omega}}_k - \bar{\mathbf{b}}^g - \delta\mathbf{b}^g)\,\Delta t\big). $$</div>
+
+<p>Two tools from the toolkit take it apart. First, the right Jacobian splits each factor into the
+nominal step and a small correction: with \(\boldsymbol{\phi}_k = (\tilde{\boldsymbol{\omega}}_k - \bar{\mathbf{b}}^g)\,\Delta t\)
+and \(\mathbf{J}_r^k = \mathbf{J}_r(\boldsymbol{\phi}_k)\),</p>
+
+<div class="eq">$$ \mathrm{Exp}(\boldsymbol{\phi}_k - \delta\mathbf{b}^g\Delta t) \approx \mathrm{Exp}(\boldsymbol{\phi}_k)\,\mathrm{Exp}\big(-\mathbf{J}_r^k\,\delta\mathbf{b}^g\,\Delta t\big). $$</div>
+
+<p>Now the product is a chain of big rotations with small ones wedged between them. Second, the
+adjoint rule \(\mathrm{Exp}(\mathbf{x})\,\mathbf{R} = \mathbf{R}\,\mathrm{Exp}(\mathbf{R}^\top\mathbf{x})\) lets you
+slide every small rotation to the far right of the product. Sliding the correction born at step
+\(k\) past all the later steps rotates it by their combined rotation \(\Delta\bar{\mathbf{R}}_{k+1,j}\).
+Collect them, keep first order, and</p>
+
+<div class="eq">$$ \Delta\mathbf{R}_{ij}(\mathbf{b}^g) \approx \Delta\bar{\mathbf{R}}_{ij}\,\mathrm{Exp}\big(\mathbf{J}^R_g\,\delta\mathbf{b}^g\big),
+\qquad \mathbf{J}^R_g = -\sum_{k=i}^{j-1}\Delta\bar{\mathbf{R}}_{k+1,j}^\top\,\mathbf{J}_r^k\,\Delta t. $$</div>
+
+<p>Each sample's bias error is weighted by how much rotation happened <em>after</em> it, which is why
+the formula cannot be a simple sum of \(-\Delta t\) terms. Written as a running update, adding one
+sample at a time, it becomes a recursion that needs no stored history:</p>
+
+<div class="eq">$$ \mathbf{J}^R_{g,\,i,k+1} = \mathrm{Exp}(\boldsymbol{\phi}_k)^\top\,\mathbf{J}^R_{g,\,i,k} - \mathbf{J}_r^k\,\Delta t, $$</div>
+
+<p>which is exactly glass-core's line <code>dR_dbg_ = dRk.matrix().transpose() * dR_dbg_ - Jr * dt;</code>.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L82"><code>preintegration.cpp</code>, line 82</a>.
+The block comment above it (<a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L71-L75">lines 71–75</a>)
+states the order trap.</span> The velocity and position gyro Jacobians use the <em>old</em>
+\(\mathbf{J}^R_g\) at each step, because the bias reaches velocity only through the rotation that
+was current when that sample's specific force was applied. So the rotation Jacobian must be
+advanced last. Advance it first and every velocity and position Jacobian silently uses the rotation
+error of the wrong step: no crash, and a bias correction that is subtly wrong.</p>
+
+<details><summary>Try it: what is \(\mathbf{J}^R_g\) when the sensor does not rotate at all?</summary>
+<p>With \(\boldsymbol{\phi}_k = 0\), every \(\mathbf{J}_r^k = \mathbf{I}\) and every
+\(\Delta\bar{\mathbf{R}} = \mathbf{I}\), so \(\mathbf{J}^R_g = -\Delta t_{ij}\,\mathbf{I}\). A gyro bias
+error \(\delta\mathbf{b}^g\) held for \(\Delta t_{ij}\) seconds produces a rotation error of
+\(-\delta\mathbf{b}^g\,\Delta t_{ij}\): rate times time, as it should be.</p></details>
+
+<h2>7 · How good is first order? Measured, in glass-lio's regime</h2>
+
+<p>Forster's claim that the first-order errors are “negligible” deserves a check at the interval
+lengths glass-lio actually uses. The test: integrate a realistic motion (level-ish, turning,
+gently accelerating) at 200&nbsp;Hz, perturb both biases, and compare eq.&nbsp;(44) against a full
+re-integration at the new bias. Errors are the gap between the two.</p>
+
+<table>
+  <tr><th>interval</th><th>gyro / accel bias offset</th><th>rotation error</th><th>velocity error (of the change)</th></tr>
+  <tr><td>0.1 s (one scan)</td><td>0.001 rad/s / 0.01 m/s²</td><td>6.7×10⁻⁹ °</td><td>8.6×10⁻⁸ m/s (of 1.4×10⁻³)</td></tr>
+  <tr><td>0.1 s</td><td>0.01 / 0.1</td><td>6.7×10⁻⁷ °</td><td>8.6×10⁻⁶ m/s (of 1.4×10⁻²)</td></tr>
+  <tr><td>0.1 s</td><td>0.2 / 1.0</td><td>2.7×10⁻⁴ °</td><td>1.7×10⁻³ m/s (of 0.13)</td></tr>
+  <tr><td>1.0 s</td><td>0.01 / 0.1</td><td>5.6×10⁻⁴ °</td><td>7.2×10⁻⁴ m/s (of 0.099)</td></tr>
+  <tr><td>1.0 s</td><td>0.05 / 0.5</td><td>1.4×10⁻² °</td><td>1.8×10⁻² m/s (of 0.50)</td></tr>
+  <tr><td>1.0 s</td><td>0.2 / 1.0</td><td>0.23 °</td><td>0.12 m/s (of 0.87)</td></tr>
+</table>
+
+<p>Three readings of the table:</p>
+
+<ul>
+  <li><strong>The error is quadratic in the offset.</strong> Ten times the offset, a hundred times the
+  error (the first two rows). That is the signature of a correct first-order expansion, and it is also
+  the best test for your own Jacobians: if the leftover error shrinks only linearly as the offset
+  shrinks, a Jacobian is wrong, because a wrong Jacobian leaves a first-order error behind.</li>
+  <li><strong>For glass-lio it is negligible by many orders of magnitude.</strong> One scan spans
+  0.1&nbsp;s, and the bias random walk lets the bias move by only about \(3\times10^{-5}\)&nbsp;rad/s and
+  \(3\times10^{-4}\)&nbsp;m/s² between scans. Even the third row, a gyro offset forty times the Mid-360's
+  entire bias, leaves the velocity correction 99% right.</li>
+  <li><strong>Long intervals and large corrections are where it breaks.</strong> Over one second with
+  a large offset, first order misses 14% of the velocity change. A sliding window whose early bias
+  estimate is poor can land there, and that is exactly the case glass-core's rule is for: re-integrate
+  rather than add higher-order terms.</li>
+</ul>
+
+<h2>8 · Why expand around \(\bar{\mathbf{b}}\), and when \(\bar{\mathbf{b}}\) is reset</h2>
+
+<p>A natural question: why expand around the bias the deltas were <em>integrated</em> with, rather
+than around the solver's current estimate? Because the Jacobians are only known at \(\bar{\mathbf{b}}\).
+They were accumulated during the same pass that built the deltas, with every \(\mathbf{J}_r^k\) and
+every \(\Delta\bar{\mathbf{R}}_{ik}\) evaluated at \(\bar{\mathbf{b}}\). Expanding around any other point
+would need Jacobians at that point, which means another pass over the samples: exactly the
+re-integration eq.&nbsp;(44) exists to avoid. So \(\bar{\mathbf{b}}\) is fixed for the life of one
+preintegration, and \(\delta\mathbf{b}\) is always measured from it.</p>
+
+<p>How large can \(\delta\mathbf{b}\) grow? That depends on how long a preintegration lives, and here
+glass-lio makes a choice that keeps it tiny. Each scan's preintegration is built fresh, at the bias
+estimate the state holds <em>at that scan</em>:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L253"><code>lio_estimator.cpp</code>, line 253</a>:
+<code>ImuPreintegration pre(state_.bg, state_.ba, ...)</code>.</span></p>
+
+<pre><code>ImuPreintegration pre(state_.bg, state_.ba, p_.gyro_noise, p_.accel_noise);</code></pre>
+
+<p>So \(\bar{\mathbf{b}}\) is effectively reset every 0.1&nbsp;s, and \(\delta\mathbf{b}\) only accumulates
+across the Gauss-Newton iterations of a single scan's solve. In steady state that is bounded by what
+the bias random walk and one scan of evidence allow: tiny, deep in the regime where section 7's
+table shows errors of \(10^{-9}\) or less. The correction is still necessary, because the solver
+does move the bias within a scan and the deltas must follow it consistently, but it is never at
+risk of being inaccurate.</p>
+
+<p>A sliding window has no such luxury. A factor built once lives through many solves while the
+bias estimate keeps refining, sometimes by a lot early on. Windowed estimators therefore watch
+\(|\delta\mathbf{b}|\) and re-integrate the factor, resetting \(\bar{\mathbf{b}}\), when it grows past a
+threshold. Both designs follow the same rule; they differ only in how often the rule has to fire.</p>
+
+<details><summary>Try it: why is a stale \(\bar{\mathbf{b}}\) harmless to the residual's value but not to its accuracy?</summary>
+<p>The residual always uses \(\bar{\mathbf{b}} + \delta\mathbf{b}\), the solver's current bias, so it
+evaluates at the right bias whatever \(\bar{\mathbf{b}}\) is. What degrades with a large offset is the
+first-order approximation of the deltas at that bias. The answer is correct in form and increasingly
+wrong in detail, which is exactly why the drift is silent.</p></details>
+
+<h2>9 · What the bias Jacobians say about observability</h2>
+
+<p>The Jacobians are not just a computational shortcut; they are a statement of how visible each bias
+is. For short intervals with little rotation, both reduce to “rate times time”:</p>
+
+<div class="eq">$$ \mathbf{J}^R_g \approx -\Delta t_{ij}\,\mathbf{I},\qquad \mathbf{J}^v_a \approx -\Delta t_{ij}\,\mathbf{I}. $$</div>
+
+<p><strong>The gyro bias is easy to see.</strong> A gyro-bias error rotates the prediction by
+\(\delta\mathbf{b}^g\,\Delta t_{ij}\), and the LiDAR measures rotation directly, every scan. So the solver
+can check the gyro bias against geometry ten times a second, which is why glass-lio's gyro-bias
+estimate is trusted enough to be fed back into deskewing when the scene constrains rotation.</p>
+
+<p><strong>The accelerometer bias is hard to see.</strong> An accelerometer-bias error shifts the
+predicted velocity by \(-\mathbf{R}_i\,\delta\mathbf{b}^a\,\Delta t_{ij}\). But a small tilt of gravity by
+an angle \(\theta\) shifts it by \(g\,\theta\,\Delta t_{ij}\) sideways, which has exactly the same shape.
+A 0.05&nbsp;m/s² bias is indistinguishable, over one interval, from a gravity tilt of
+\(0.05/9.81\) rad, about 0.29°. The only thing that separates them is lesson 1's observation: the bias
+turns with the body and gravity does not. So the accelerometer bias becomes observable only across
+intervals with <em>different</em> orientations, and only as fast as the platform turns. On a robot
+driving straight down a corridor, it barely is.</p>
+
+<div class="callout">
+  <p class="label">Why this matters in glass-lio</p>
+  <p>This is why glass-lio starts the accelerometer bias <em>uncertain</em> (σ = 0.3&nbsp;m/s²) and lets
+  the data reveal it slowly, and why a random-walk prior stops it from absorbing whatever else is
+  wrong. A free, weakly observable bias is a magnet for errors that belong elsewhere; the project's
+  tight-coupling post-mortem records a bias that did exactly that when it was loosened too far.</p>
+</div>
+
+<h2>10 · Practice</h2>
 
 <p>From memory, no scrolling. The last question comes from lesson 3.</p>
 <p class="score"></p>
@@ -223,6 +363,52 @@ blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
     <p>\(\Delta\mathbf{R}_{ij} = \mathbf{R}_i^{\top}\mathbf{R}_j\) is the actual relative rotation. Forster:
     "neither \(\Delta\mathbf{v}_{ij}\) nor \(\Delta\mathbf{p}_{ij}\) correspond to the true physical change in
     velocity and position", because gravity and \(\mathbf{v}_i\) have been moved to the state side.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="quad">
+  <p class="q">You halve the bias offset and the gap between eq.&nbsp;(44) and a full re-integration
+  halves too. What does that tell you?</p>
+  <ol class="options">
+    <li><button class="option" data-key="fine">first order is working as intended</button></li>
+    <li><button class="option" data-key="quad">a bias Jacobian is wrong: the error should quarter</button></li>
+    <li><button class="option" data-key="noise">the noise densities are too large</button></li>
+    <li><button class="option" data-key="reint">the interval is too long; re-integrate</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A correct first-order correction leaves only second-order error, which quarters when the offset
+    halves. An error that scales linearly means a first-order term is missing or wrong: a Jacobian bug.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="last">
+  <p class="q">In glass-core's accumulation loop, when must the rotation's gyro-bias Jacobian
+  <code>dR_dbg_</code> be advanced?</p>
+  <ol class="options">
+    <li><button class="option" data-key="first">first, before the velocity and position Jacobians</button></li>
+    <li><button class="option" data-key="last">last: the other Jacobians use its old value</button></li>
+    <li><button class="option" data-key="any">in any order; they are independent</button></li>
+    <li><button class="option" data-key="end">once, at the end of the interval</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The bias reaches this sample's velocity through the rotation that was current when it was
+    applied, the old one. Advancing <code>dR_dbg_</code> first makes every later Jacobian use the wrong
+    step's rotation error, silently.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="turn">
+  <p class="q">What makes the accelerometer bias separable from a small tilt of gravity?</p>
+  <ol class="options">
+    <li><button class="option" data-key="avg">averaging more samples at one attitude</button></li>
+    <li><button class="option" data-key="turn">intervals at different orientations: the bias turns, gravity does not</button></li>
+    <li><button class="option" data-key="gyro">a better gyro</button></li>
+    <li><button class="option" data-key="jac">a more accurate \(\mathbf{J}^v_a\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Over one interval, \(\delta\mathbf{b}^a\) and a tilt of \(\delta b^a/g\) radians shift the
+    velocity the same way. Only rotation changes their relative direction, so the bias is observable
+    only as fast as the platform turns.</p>
   </div>
 </div>
 

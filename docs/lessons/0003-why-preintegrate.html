@@ -146,7 +146,73 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
   bias. So it's integrated once, and the residual just compares it with the states."</p>
 </div>
 
-<h2>6 · The deltas, computed by hand</h2>
+<h2>6 · Where \(\mathbf{v}_i\,\Delta t_{ij}\) and \(\tfrac12\mathbf{g}\,\Delta t_{ij}^2\) come from</h2>
+
+<p>The velocity line was one substitution. The position line takes two more steps, and it is the
+line people most often get wrong at a whiteboard, so derive it once. Iterate the position line of
+eq.&nbsp;(31) from \(i\) to \(j\), over \(n\) steps of length \(\Delta t\):</p>
+
+<div class="eq">$$ \mathbf{p}_j = \mathbf{p}_i + \sum_{k=i}^{j-1}\Big[\mathbf{v}_k\,\Delta t + \tfrac12\mathbf{g}\,\Delta t^2 + \tfrac12\mathbf{R}_k(\tilde{\mathbf{a}}_k-\mathbf{b}^a)\,\Delta t^2\Big]. $$</div>
+
+<p>The velocity \(\mathbf{v}_k\) inside the sum is itself built from \(\mathbf{v}_i\). By the
+velocity line you already derived, with \(\Delta t_{ik} = (k-i)\,\Delta t\) the time elapsed since \(i\),</p>
+
+<div class="eq">$$ \mathbf{v}_k = \mathbf{v}_i + \mathbf{g}\,\Delta t_{ik} + \mathbf{R}_i\,\Delta\mathbf{v}_{ik}. $$</div>
+
+<p>Substitute it, and sort every term by what it contains:</p>
+
+<ul>
+  <li><strong>\(\mathbf{v}_i\) terms:</strong> \(\sum_k \mathbf{v}_i\,\Delta t = \mathbf{v}_i\,\Delta t_{ij}\). That is
+  the first mystery term: the distance you would cover coasting at the start velocity.</li>
+  <li><strong>Gravity terms:</strong> \(\mathbf{g}\sum_k\big(\Delta t_{ik}\,\Delta t + \tfrac12\Delta t^2\big)\).
+  With \(\Delta t_{ik} = m\,\Delta t\) for \(m = 0,\dots,n-1\), the bracket sums to
+  \(\Delta t^2\big(\tfrac{n(n-1)}{2} + \tfrac{n}{2}\big) = \tfrac12 n^2\Delta t^2 = \tfrac12\Delta t_{ij}^2\).
+  The per-step gravity terms add up to exactly the free-fall distance over the whole interval, which
+  is the second mystery term.</li>
+  <li><strong>Everything else</strong> contains \(\mathbf{R}_i\) times a measurement-only quantity:
+  \(\mathbf{R}_i\sum_k\big[\Delta\mathbf{v}_{ik}\,\Delta t + \tfrac12\Delta\mathbf{R}_{ik}(\tilde{\mathbf{a}}_k-\mathbf{b}^a)\,\Delta t^2\big]\).</li>
+</ul>
+
+<p>Move the first two groups to the left and multiply by \(\mathbf{R}_i^\top\):</p>
+
+<div class="eq">$$ \mathbf{R}_i^\top\big(\mathbf{p}_j - \mathbf{p}_i - \mathbf{v}_i\,\Delta t_{ij} - \tfrac12\mathbf{g}\,\Delta t_{ij}^2\big)
+= \sum_{k=i}^{j-1}\Big[\Delta\mathbf{v}_{ik}\,\Delta t + \tfrac12\Delta\mathbf{R}_{ik}(\tilde{\mathbf{a}}_k-\mathbf{b}^a)\,\Delta t^2\Big], $$</div>
+
+<p>which is the third line of eq.&nbsp;(33). Nothing in the derivation was clever: the only idea is
+“expand everything built on \(\mathbf{v}_i\) and \(\mathbf{R}_i\) and push it to the state side”. If you
+can reproduce the gravity-sum identity, you can reproduce the whole line.</p>
+
+<details><summary>Try it: check the gravity identity for \(n = 3\).</summary>
+<p>\(\sum_{m=0}^{2}(m + \tfrac12)\,\Delta t^2 = (0.5 + 1.5 + 2.5)\,\Delta t^2 = 4.5\,\Delta t^2\),
+and \(\tfrac12(3\Delta t)^2 = 4.5\,\Delta t^2\). Equal, as promised.</p></details>
+
+<h2>7 · Who preintegrates, and who does not need to</h2>
+
+<p>Preintegration is not the only way to use an IMU, and knowing the alternatives tells you when it
+is the right tool.</p>
+
+<ul>
+  <li><strong>Lupton and Sukkarieh (2012)</strong> introduced the idea of summarising the IMU between
+  two poses in the start pose's frame, with rotations parametrised by Euler angles.</li>
+  <li><strong>Forster et al. (2015, 2017)</strong>, the paper this course follows, moved it onto the
+  rotation manifold, which removed the singularities of Euler angles and gave the clean bias
+  correction and covariance of lessons 4 and 5.</li>
+  <li><strong>Optimisation-based VIO systems</strong>, VINS-Mono among them, build their IMU factors
+  this way. VINS-Mono discretises the deltas with a midpoint rule instead of eq.&nbsp;(31), the
+  higher-order choice lesson 2 discussed.</li>
+  <li><strong>Filter-based systems</strong>, such as FAST-LIO2's iterated Kalman filter, propagate the
+  state and covariance forward sample by sample, once, and then correct at the LiDAR scan. They never
+  re-linearise a past state, so there is nothing to re-integrate, and they have no need for
+  preintegration at all.</li>
+</ul>
+
+<p>The dividing line is simple. <strong>If your estimator revisits past states</strong>, as windows
+and smoothers do, preintegration saves you from re-integrating every time it does. <strong>If it
+never looks back</strong>, forward propagation is simpler and just as exact. glass-lio sits in
+between: it builds a preintegrated factor per scan, and lesson 8 explains why that hybrid is a
+deliberate stepping stone rather than an accident.</p>
+
+<h2>8 · The deltas, computed by hand</h2>
 
 <p>Take two IMU samples 5&nbsp;ms apart from the robot of lesson 2: level, yawing at
 0.5&nbsp;rad/s, reading \(\tilde{\mathbf{a}} = [0.1,\,0,\,9.81]\) with zero bias. Accumulate
@@ -184,7 +250,7 @@ were never touched again. Also notice the \(z\) row: \(\Delta\mathbf{v}_{ij}\) h
 \(+0.0981\) component, which the state side's \(\mathbf{g}\,\Delta t_{ij}\) cancels precisely. That
 leads straight to the most common confusion about these deltas.</p>
 
-<h2>7 · A stationary sensor with a “velocity change” of 0.98&nbsp;m/s</h2>
+<h2>9 · A stationary sensor with a “velocity change” of 0.98&nbsp;m/s</h2>
 
 <p>Forster warns that \(\Delta\mathbf{v}_{ij}\) and \(\Delta\mathbf{p}_{ij}\) are not physical changes.
 The cleanest way to believe him is to preintegrate a sensor that does not move at all. A level
@@ -211,7 +277,7 @@ log \(\Delta\mathbf{v}_{ij}\) and read it as how fast the robot went.</p>
   rest encodes exactly the misreading this section is about, and it will fail on correct code.</p>
 </div>
 
-<h2>8 · How much it saves, counted</h2>
+<h2>10 · How much it saves, counted</h2>
 
 <p>“Ruinous” deserves a number, and the honest number depends on how the deltas are used.</p>
 
@@ -234,7 +300,7 @@ Jacobians, which would otherwise be rebuilt just as often. The longer a factor l
 optimiser, the more preintegration pays. That is why it is the standard building block of
 sliding-window and smoothing estimators.</p>
 
-<h2>9 · What moving \(\mathbf{R}_i\) still costs: a Jacobian, in closed form</h2>
+<h2>11 · What moving \(\mathbf{R}_i\) still costs: a Jacobian, in closed form</h2>
 
 <p>Preintegration does not make \(\mathbf{R}_i\) disappear from the problem; it moves it to the
 state side, where it appears exactly once per line, in \(\mathbf{R}_i^\top(\cdot)\). That is what
@@ -258,7 +324,7 @@ outvote every other measurement.<span class="sidenote"><a href="https://github.c
 \(\mathbf{x}_i\) as uncertain, which needs exactly the cheap Jacobian above. Lesson 8 takes this idea
 to its conclusion: filters, windows and factors differ mainly in how they treat the state at \(i\).</p>
 
-<h2>10 · Practice</h2>
+<h2>12 · Practice</h2>
 
 <p>From memory, no scrolling. The last two questions come from lessons 2 and 1.</p>
 <p class="score"></p>
@@ -335,6 +401,53 @@ to its conclusion: filters, windows and factors differ mainly in how they treat 
   <div class="explain" hidden>
     <p>At rest it reads \(-\mathbf{R}^{\top}\mathbf{g}\): +9.81 along whichever
     <a href="../glossary.html#body-frame">body-frame</a> axis points up, here \(y\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="large">
+  <p class="q">A level IMU sits still for 0.1&nbsp;s. What is its preintegrated \(\Delta\mathbf{v}_{ij}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="zero">\([0,0,0]\): it never moved</button></li>
+    <li><button class="option" data-key="large">\([0,0,+0.981]\) m/s</button></li>
+    <li><button class="option" data-key="neg">\([0,0,-0.981]\) m/s</button></li>
+    <li><button class="option" data-key="g">\([0,0,9.81]\) m/s</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\Delta\mathbf{v}\) integrates specific force only: \(9.81 \times 0.1 = 0.981\) up. The state
+    side supplies \(-\mathbf{g}\,\Delta t_{ij}\), also \(+0.981\), so the residual is zero. The delta is
+    not a physical velocity change.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="reuse">
+  <p class="q">The solver tries a new \(\mathbf{R}_i\) rotated 90° from the last one. What happens to
+  \(\Delta\mathbf{v}_{ij}\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="rotate">it must be rotated by 90° and re-summed</button></li>
+    <li><button class="option" data-key="reuse">nothing: it is reused; only the state side changes</button></li>
+    <li><button class="option" data-key="redo">every IMU sample is re-integrated</button></li>
+    <li><button class="option" data-key="bias">it changes because the bias changed</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\Delta\mathbf{v}_{ij}\) contains no \(\mathbf{R}_i\). The prediction
+    \(\mathbf{v}_j = \mathbf{v}_i + \mathbf{g}\Delta t_{ij} + \mathbf{R}_i\Delta\mathbf{v}_{ij}\) changes;
+    the delta does not. That is the whole point of preintegration.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="fixed">
+  <p class="q">Why did an IMU factor with only a Jacobian for \(\mathbf{x}_j\) let the IMU outvote 135
+  well-observed landmarks?</p>
+  <ol class="options">
+    <li><button class="option" data-key="noise">the IMU noise densities were wrong</button></li>
+    <li><button class="option" data-key="fixed">holding \(\mathbf{x}_i\) fixed claims it is perfectly known</button></li>
+    <li><button class="option" data-key="gravity">gravity was integrated into the deltas</button></li>
+    <li><button class="option" data-key="bias">the bias correction was missing</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A constant \(\mathbf{x}_i\) is an assertion of zero uncertainty. The IMU's information over a
+    short interval is large and, combined with a perfect start, it overrules everything else.
+    Treating \(\mathbf{x}_i\) as uncertain needs the Jacobian with respect to it.</p>
   </div>
 </div>
 

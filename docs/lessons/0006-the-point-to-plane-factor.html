@@ -170,7 +170,100 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
   right perturbation, whitens it by the LiDAR's noise, and its velocity and bias columns are zero."</p>
 </div>
 
-<h2>6 · Practice</h2>
+<h2>6 · Two correspondences, by hand</h2>
+
+<p>Put numbers through the Jacobian before trusting it. The sensor sits at the origin with
+\(\mathbf{T} = \mathbf{I}\), facing a wall. The map's plane for that wall has normal
+\(\mathbf{n} = [1,0,0]\) and centroid \(\mathbf{c} = [10.05,\,0,\,0]\): the wall is 10.05&nbsp;m ahead.
+Two returns land on it:</p>
+
+<table>
+  <tr><th>point \(\mathbf{q}\)</th><th>residual \(r\)</th><th>\(\mathbf{J} = [\mathbf{n}^\top,\ (\mathbf{q}\times\mathbf{n})^\top]\)</th></tr>
+  <tr><td>\([10,\ 2,\ 0.5]\)</td><td>−0.05 m</td><td>\([1,0,0,\ \ 0,\ 0.5,\ -2]\)</td></tr>
+  <tr><td>\([10,\ -8,\ 0.5]\)</td><td>−0.05 m</td><td>\([1,0,0,\ \ 0,\ 0.5,\ 8]\)</td></tr>
+</table>
+
+<p>Both points say the same thing about translation: they sit 5&nbsp;cm short of the wall, so the
+sensor should move 5&nbsp;cm further along \(x\). The rotation columns carry the geometry.</p>
+
+<ul>
+  <li><strong>Roll (rotation about \(x\)) has a zero column.</strong> Spinning about the wall's own
+  normal slides points across the wall, never towards it. A single wall cannot see roll at all.</li>
+  <li><strong>Pitch (about \(y\)) has a lever arm of 0.5</strong>, the points' height: tilting forward
+  pushes the points at 0.5&nbsp;m up into the wall only slightly.</li>
+  <li><strong>Yaw (about \(z\)) has lever arms of −2 and +8</strong>, opposite in sign because the
+  points are on opposite sides of the sensor's heading. Yaw moves one point into the wall and the other
+  away, so together they pin yaw far better than either alone, and the far one (8&nbsp;m to the side)
+  pins it four times harder.</li>
+</ul>
+
+<p>Add both \(\mathbf{J}^\top\mathbf{J}\) terms and \(\mathbf{H}\) has nonzero entries only in the
+\(x\)-translation, pitch and yaw rows. The other three directions, sideways (\(y\)), vertical (\(z\)) and
+roll, get <em>nothing</em> from this wall, however many points land on it. A single plane constrains
+at most three of the six degrees of freedom. That is the whole reason lesson 7 exists: the solve
+needs planes facing in different directions, and it needs a way to <em>detect</em> when it does not
+have them.</p>
+
+<details><summary>Try it: add a floor return \(\mathbf{q} = [5,\,1,\,0]\) on the plane \(\mathbf{n} = [0,0,1]\). Which new directions does it constrain?</summary>
+<p>\(\mathbf{q}\times\mathbf{n} = [1\cdot1 - 0\cdot0,\ 0\cdot0 - 5\cdot1,\ 0] = [1,\,-5,\,0]\), so
+\(\mathbf{J} = [0,0,1,\ 1,-5,0]\). It adds vertical translation, roll (lever 1) and pitch (lever −5).
+The floor and the wall together cover \(x\), \(z\), roll, pitch and yaw. Sideways \(y\) is still
+unconstrained: you are in a corridor.</p></details>
+
+<h2>7 · Finding the plane: association</h2>
+
+<p>The derivation assumed each point came with its plane. Finding that plane is association, and
+it is where most real-world failures of ICP start. glass-lio's map is a voxel hash with a plane cached
+per voxel (lesson 7 explains the planes). For each point it looks at the 27 voxels around the point's
+own voxel, fits any plane that is stale, and keeps the plane whose <em>centroid</em> is closest, provided
+it is within <code>max_correspondence_distance</code> (1&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L138-L172"><code>local_map.cpp</code>, lines 138–172</a>;
+the centroid distance is line 162.</span></p>
+
+<p>Two properties of that rule are worth understanding, because each explains a parameter.</p>
+
+<ul>
+  <li><strong>The search radius is also a basin of attraction.</strong> A point whose true surface is
+  more than about a metre away at the current guess finds the <em>wrong</em> plane, or none. ICP is a local
+  method: it converges when the initial guess is already close, and confidently locks onto the wrong wall
+  when it is not. This is why glass-lio feeds the solver an IMU prediction rather than the previous pose.
+  The 27-cell search only covers the radius when <code>map.voxel_size</code> is at least
+  <code>max_correspondence_distance</code>, which is why the configuration couples them.</li>
+  <li><strong>Closest centroid is not closest surface.</strong> A point near the edge of a big voxel
+  can be closer to a neighbouring voxel's centroid than to its own surface. The residual is still the
+  distance to whichever plane was chosen, so an occasional wrong pick produces a large residual rather than a
+  silent error, and that is exactly the case robust weighting is for.</li>
+</ul>
+
+<p>Association is also why the build is iterated. After each solve the pose moves, points fall into
+different voxels, and some pick different planes. Re-associating every iteration is not an optimisation
+detail; it is what makes this ICP rather than a single least-squares fit.</p>
+
+<h2>8 · Robust weights, on a fit you can do by hand</h2>
+
+<p>Section 4 introduced the Huber weight. Its effect is easiest to see in one dimension. Estimate a
+single translation \(x\) from ten residuals \(r_i = x - z_i\): nine measurements say \(z = 0\), and one
+outlier, a moving car perhaps, says \(z = 2\).</p>
+
+<ul>
+  <li><strong>Plain least squares</strong> gives the mean, \(x = 0.20\): one bad point in ten drags the
+  answer 20&nbsp;cm.</li>
+  <li><strong>Huber with \(\delta = 0.2\)</strong>, glass-lio's <code>huber_delta</code>, solved by
+  reweighting and re-solving, settles at \(x = 0.022\) after seven iterations. The outlier's weight has
+  fallen to 0.10, and its pull on the answer is capped.</li>
+</ul>
+
+<p>The mechanism is the influence, the weight times the residual. Without robust weighting a residual
+of 1&nbsp;m pulls with strength 1; with Huber it pulls with strength \(\delta = 0.2\), and a residual of
+10&nbsp;m still pulls with only 0.2. Good correspondences, below \(\delta\), are treated exactly as in
+ordinary least squares, so nothing is lost when there are no outliers.</p>
+
+<p>Two limits keep this honest. Huber reduces an outlier's influence but does not remove it: the 2.2&nbsp;cm
+left in the answer above is that residual influence. And it helps only when outliers are a minority: if
+half the correspondences come from a moving truck, no weighting scheme can tell which half is the world.
+That is why glass-lio also refuses a solve whose final RMSE is too large, rather than trusting any answer the
+weighting produces.</p>
+
+<h2>9 · Practice</h2>
 
 <p>From memory, no scrolling. The last question comes from lesson 5.</p>
 <p class="score"></p>
@@ -258,6 +351,50 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
   <div class="explain" hidden>
     <p>\(\Sigma_{ij}^{-1}\) is the information matrix on the IMU residual, passed to <code>addBlock</code>. Each LiDAR point
     gets \(1/\sigma^{2}\) from <code>lidar_sigma</code> instead, and the two meet in the same \(\mathbf{H}\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="roll">
+  <p class="q">Many returns land on one wall with normal \(\mathbf{n} = [1,0,0]\). Which rotation can they
+  never constrain?</p>
+  <ol class="options">
+    <li><button class="option" data-key="roll">rotation about \(x\), the wall's normal</button></li>
+    <li><button class="option" data-key="pitch">rotation about \(y\)</button></li>
+    <li><button class="option" data-key="yaw">rotation about \(z\)</button></li>
+    <li><button class="option" data-key="none">none, given enough points</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\((\mathbf{q}\times\mathbf{n})\) is always perpendicular to \(\mathbf{n}\), so its \(x\) component is zero for
+    every point. Rotating about the normal slides points across the wall and never changes a residual.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="guess">
+  <p class="q">Why does glass-lio hand ICP an IMU prediction instead of simply starting from the last pose?</p>
+  <ol class="options">
+    <li><button class="option" data-key="speed">the IMU prediction makes each iteration cheaper</button></li>
+    <li><button class="option" data-key="guess">association only finds the right plane within about a metre</button></li>
+    <li><button class="option" data-key="huber">Huber weighting needs a prior</button></li>
+    <li><button class="option" data-key="none">it does not matter where ICP starts</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Points search for planes within <code>max_correspondence_distance</code>. Start too far from the truth and
+    they pair with the wrong surfaces, and Gauss-Newton converges confidently to the wrong answer.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="cap">
+  <p class="q">With Huber weighting at \(\delta = 0.2\), how hard does a correspondence with a 10&nbsp;m residual
+  pull on the solution, compared with plain least squares?</p>
+  <ol class="options">
+    <li><button class="option" data-key="zero">not at all: it is discarded</button></li>
+    <li><button class="option" data-key="cap">with strength 0.2 instead of 10</button></li>
+    <li><button class="option" data-key="same">just as hard</button></li>
+    <li><button class="option" data-key="more">harder, to correct it faster</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The influence \(w\,r\) saturates at \(\delta\). The outlier still pulls, a little; it is limited, not
+    removed. That is why a single bad point can still shift a Huber fit slightly.</p>
   </div>
 </div>
 

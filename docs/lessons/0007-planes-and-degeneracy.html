@@ -158,7 +158,109 @@ an interview.</p>
   the pose can slide along it with a perfectly healthy RMSE. glass-lio's loose path refuses scans below 0.05; the tight path can use IMU information along the weak direction; Zhang et al. instead solve only the well-conditioned directions."</p>
 </div>
 
-<h2>5 · Practice</h2>
+<h2>5 · The eigenvalues of real shapes, in a 1&nbsp;m voxel</h2>
+
+<p>“Small compared with the middle one” becomes concrete once you know what the eigenvalues of common
+shapes actually are. In glass-lio's 1&nbsp;m map voxels, a surface patch spanning the voxel has an in-plane
+variance of about \(L^2/12 = 0.083\ \mathrm{m^2}\) along each of its two directions (the variance of a
+uniform spread over 1&nbsp;m).</p>
+
+<table>
+  <tr><th>shape in the voxel</th><th>\(\lambda_0,\ \lambda_1,\ \lambda_2\) (m²)</th><th>\(\lambda_0/\lambda_1\)</th><th>gate at 0.1</th></tr>
+  <tr><td>flat wall, 1 cm noise</td><td>1.0×10⁻⁴, 0.083, 0.083</td><td>0.0012</td><td>accept</td></tr>
+  <tr><td>flat wall, 2 cm noise (the Livox)</td><td>4.0×10⁻⁴, 0.083, 0.083</td><td>0.0048</td><td>accept</td></tr>
+  <tr><td>rough wall, 5 cm noise</td><td>2.5×10⁻³, 0.083, 0.083</td><td>0.030</td><td>accept</td></tr>
+  <tr><td>pole, 5 cm radius</td><td>1.3×10⁻³, 1.3×10⁻³, 0.083</td><td>≈ 1</td><td>reject</td></tr>
+  <tr><td>foliage filling the voxel</td><td>0.083, 0.083, 0.083</td><td>≈ 1</td><td>reject</td></tr>
+</table>
+
+<p>Two things follow. First, the gate is <em>generous</em> about thickness: \(0.1\times0.083\) allows a
+thickness variance of 0.0083&nbsp;m², a standard deviation of about 9&nbsp;cm. The Livox's real
+noise sits at a ratio twenty times below the threshold, so the gate is not rejecting noisy surfaces at
+all. It is rejecting <em>shapes</em>: lines, blobs and balanced corners, whose ratio sits near 1. Second,
+the pole row shows why the comparison is with \(\lambda_1\) and not \(\lambda_2\). Against \(\lambda_2\), a pole's
+ratio would be a comfortable 0.015 and it would pass, handing ICP a “normal” pointing in an arbitrary
+direction around the pole.</p>
+
+<h3>How good is a fitted normal?</h3>
+
+<p>With \(n\) points of noise \(\sigma\) spread over a patch whose in-plane standard deviation is
+\(\sqrt{\lambda_1}\), the normal's angular error is roughly \(\sigma/(\sqrt{\lambda_1}\sqrt{n})\). For the
+Livox's 2&nbsp;cm noise over a full voxel, that is about 0.9° with the voxel's cap of 20 points, and 1.8°
+at the minimum of 5. That is why the cap is not arbitrary: more points buy a better normal, until the
+cost of storing and refitting them outweighs the gain. It is also why the reservoir sampling of the
+map matters, since the formula assumes the points really are spread over the patch.</p>
+
+<details><summary>Try it: a patch only 20&nbsp;cm across fills part of a voxel. What happens to the normal's accuracy?</summary>
+<p>The in-plane variance falls to \(0.2^2/12 = 0.0033\), so \(\sqrt{\lambda_1}\) drops fivefold and the
+angular error grows fivefold, to about 4.5° with 20 points. Small patches give poorly determined
+normals, one reason thin structures help more with <em>translation</em> constraints than with precise
+orientation.</p></details>
+
+<h2>6 · How little geometry rescues a degenerate scan</h2>
+
+<p>The quiz's floor-plus-one-wall scan has a ratio of exactly zero. Add correspondences on a second,
+perpendicular wall, \(k\) of them, and \(\mathbf{H}_t = \mathrm{diag}(100, k, 100)\), so the ratio is
+\(k/(200+k)\):</p>
+
+<table>
+  <tr><th>points on the second wall</th><th>ratio</th><th>verdict at 0.05</th></tr>
+  <tr><td>0</td><td>0.000</td><td>reject</td></tr>
+  <tr><td>5</td><td>0.024</td><td>reject</td></tr>
+  <tr><td>10</td><td>0.048</td><td>reject</td></tr>
+  <tr><td>11</td><td>0.052</td><td>accept</td></tr>
+  <tr><td>25</td><td>0.111</td><td>accept</td></tr>
+</table>
+
+<p>Eleven points out of about 210 move the scan across the gate. Put differently, the gate asks for
+roughly 5% of the scan's constraint to lie along its weakest direction. That seems small until you
+remember what the ratio measures: those eleven points pin the direction along which the other two
+hundred say nothing at all. It also shows why the threshold needs data behind it, as glass-lio's did
+(0.117 at the 5th percentile indoors, at most 0.034 during the Outdoor01 divergence). A gate at 0.02
+would accept the five-point scan; one at 0.1 would reject the eleven-point scan. Neither choice can be
+argued from first principles.</p>
+
+<h2>7 · Rotation has degeneracies too, and \(\mathbf{H}_t\) cannot see them</h2>
+
+<p>Section 4's callout warned that \(\mathbf{H}_t\) tests translation only. The rotation columns of lesson
+6's Jacobian, \(\mathbf{q}\times\mathbf{n}\), make the rotational version just as easy to read. Take points on a
+flat floor, \(\mathbf{n} = [0,0,1]\):</p>
+
+<div class="eq">$$ \mathbf{q}\times\mathbf{n} = \begin{bmatrix}q_y\\ -q_x\\ 0\end{bmatrix}. $$</div>
+
+<p>The yaw component is zero for every floor point, wherever it lies. Spinning about the vertical axis
+slides every floor point across the floor and never changes a residual. So a scan of an open, flat car
+park, with nothing vertical in range, loses <em>three</em> degrees of freedom at once: both horizontal
+translations and yaw. \(\mathbf{H}_t\) would report the two missing translations, but not the missing yaw.</p>
+
+<p>A few shapes to recognise on sight:</p>
+
+<table>
+  <tr><th>scene</th><th>free directions</th></tr>
+  <tr><td>open flat ground</td><td>\(x\), \(y\), yaw</td></tr>
+  <tr><td>straight corridor (floor and two parallel walls)</td><td>translation along the corridor</td></tr>
+  <tr><td>smooth circular tunnel</td><td>translation along the axis, and roll about it</td></tr>
+  <tr><td>a single wall in front</td><td>sideways, vertical, and roll about the wall's normal</td></tr>
+</table>
+
+<p>glass-lio does compute a rotational counterpart: the same smallest-eigenvalue-over-trace ratio, taken
+on the LiDAR-only rotation block of the tight solve's \(\mathbf{H}\). It does not reject scans. It decides
+whether this scan's gyro-bias estimate is trustworthy enough to feed back into deskewing, because a
+bias “measured” while the LiDAR barely constrains rotation is mostly IMU dead reckoning, and feeding that
+into the next scan's geometry would corrupt it.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L132-L137"><code>livox_mid_360.yaml</code>, lines 132–137</a>:
+<code>min_rotation_eigenvalue_ratio</code>, built the same way as the translation ratio.</span></p>
+
+<div class="callout">
+  <p class="label">Three remedies, compared</p>
+  <p><strong>Reject</strong> the scan (glass-lio's loose path): safe, but the pose coasts on a prediction
+  with no floor under it, and a long degenerate stretch still drifts. <strong>Solve only the
+  well-conditioned directions</strong> (Zhang et al.): keeps what the scan does know, leaves the rest at
+  the prediction. <strong>Fill the null space with another sensor</strong> (glass-lio's tight path): the
+  IMU's information enters the same \(\mathbf{H}\), so the weak direction is held by physics rather than by a
+  rule. The first two decide what to do without information; the third adds it.</p>
+</div>
+
+<h2>8 · Practice</h2>
 
 <p>From memory, no scrolling. The last question comes from lesson 6.</p>
 <p class="score"></p>
@@ -246,6 +348,51 @@ an interview.</p>
   <div class="explain" hidden>
     <p>\(\mathbf{H} = \sum w\,\mathbf{J}^{\top}\mathbf{J}\), and its top-left 3×3 is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\): the translation
     columns of \(\mathbf{J}\) are just \(\mathbf{n}^{\top}\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="lambda1">
+  <p class="q">A pole of 5&nbsp;cm radius crosses a 1&nbsp;m voxel. Why does glass-lio compare \(\lambda_0\) with \(\lambda_1\)
+  rather than with \(\lambda_2\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="lambda1">against \(\lambda_2\) a line would pass the gate with an arbitrary normal</button></li>
+    <li><button class="option" data-key="speed">\(\lambda_1\) is cheaper to compute</button></li>
+    <li><button class="option" data-key="noise">\(\lambda_2\) is dominated by sensor noise</button></li>
+    <li><button class="option" data-key="same">the two comparisons are equivalent</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A line has \(\lambda_0 \approx \lambda_1 \ll \lambda_2\): about 0.015 against \(\lambda_2\), which would pass, but about 1
+    against \(\lambda_1\). A line has no single normal, and only the \(\lambda_1\) comparison notices.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="eleven">
+  <p class="q">A scan has 100 floor and 100 front-wall correspondences. Roughly how many on a perpendicular side
+  wall bring \(\lambda_{\min}/\mathrm{tr}\) above 0.05?</p>
+  <ol class="options">
+    <li><button class="option" data-key="one">1</button></li>
+    <li><button class="option" data-key="eleven">about 11</button></li>
+    <li><button class="option" data-key="hundred">about 100</button></li>
+    <li><button class="option" data-key="never">none: it can never pass</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The ratio is \(k/(200+k)\), which crosses 0.05 between \(k = 10\) (0.048) and \(k = 11\) (0.052). A few
+    percent of the constraint along the missing direction is enough, because it is the only constraint there.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="yaw">
+  <p class="q">A scan sees only flat ground. Which rotation does it fail to constrain?</p>
+  <ol class="options">
+    <li><button class="option" data-key="roll">roll</button></li>
+    <li><button class="option" data-key="pitch">pitch</button></li>
+    <li><button class="option" data-key="yaw">yaw, about the vertical</button></li>
+    <li><button class="option" data-key="none">none: rotation is always observable</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>For \(\mathbf{n} = [0,0,1]\), \(\mathbf{q}\times\mathbf{n} = [q_y, -q_x, 0]\): the yaw column is zero for every point.
+    Together with the two horizontal translations, open ground loses three degrees of freedom, and the
+    translation-only \(\mathbf{H}_t\) test cannot see the yaw.</p>
   </div>
 </div>
 

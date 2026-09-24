@@ -140,7 +140,117 @@ if (r.posteriorCovariance(posterior)) {
 <a href="https://github.com/Tim-HW/glass-lio/blob/HEAD/src/lio/lio_estimator.cpp">caller</a>; older commit-pinned links elsewhere document the historical implementation.</p>
 <p>This is still a local covariance estimate at the last linearization and robust weights, not a complete Bayesian filter. The estimator carries selected blocks, uses a fixed gravity prior, and separately approximates previous-state and bias uncertainty; cross-factor correlations are not all preserved. Correct block extraction fixes these two algebraic errors, not every possible source of inconsistency.</p>
 
-<h2>4 · So which?</h2>
+<h2>4 · Two shapes of marginalization: a chain and a landmark</h2>
+
+<p>The 2×2 example proved marginalization exact. Two slightly bigger examples show the property that
+decides whether it is <em>cheap</em>: what happens to the sparsity of \(\mathbf{H}\).</p>
+
+<h3>A chain stays a chain</h3>
+
+<p>Take three 1-D poses linked like a trajectory: a prior on \(x_0\) with information 1, and odometry
+factors \(x_0\!\to\!x_1\) and \(x_1\!\to\!x_2\), each with information 4. The information matrix is
+tridiagonal:</p>
+
+<div class="eq">$$ \mathbf{H} = \begin{bmatrix}5 & -4 & 0\\ -4 & 8 & -4\\ 0 & -4 & 4\end{bmatrix}
+\quad\xrightarrow{\ \text{marginalize } x_0\ }\quad
+\mathbf{H}' = \begin{bmatrix}4.8 & -4\\ -4 & 4\end{bmatrix}. $$</div>
+
+<p>Only the \(x_1\) entry changed, from 8 to 4.8; the \(x_2\) row is untouched. Subtract the 4 that
+still belongs to the remaining odometry factor, and what is left is a new prior on \(x_1\) with
+information 0.8. That number has a physical reading: a variance of 1 (the prior) plus a variance of
+0.25 (the odometry) is 1.25, and \(1/1.25 = 0.8\). <strong>Marginalizing the start of a chain is just
+combining uncertainties in series.</strong> The chain stays a chain, and the cost stays constant however
+long the trajectory gets. A filter is exactly this, applied every step.</p>
+
+<h3>A landmark fills in</h3>
+
+<p>Now marginalize a landmark \(l\) observed from three poses, each observation with information 1.
+The landmark's row connects it to all three poses, and the Schur complement adds
+\(-\mathbf{H}_{xl}\mathbf{H}_{ll}^{-1}\mathbf{H}_{lx}\) to the pose block:</p>
+
+<div class="eq">$$ \Delta\mathbf{H}_{xx} = \begin{bmatrix}\tfrac23 & -\tfrac13 & -\tfrac13\\ -\tfrac13 & \tfrac23 & -\tfrac13\\ -\tfrac13 & -\tfrac13 & \tfrac23\end{bmatrix}. $$</div>
+
+<p>Every pose is now coupled to every other, including pairs that never shared a factor. This is
+<strong>fill-in</strong>: the removed variable's connections become a dense clique among its neighbours.
+Marginalize a few hundred landmarks from a window of ten keyframes and the keyframes' prior becomes one
+dense block, which is why VINS-Mono's marginalization is its most expensive and most delicate step, and
+why glass-vio's plan calls it “the hard, essential part” and says not to start there.</p>
+
+<details><summary>Try it: why do windowed estimators usually marginalize landmarks <em>before</em> the oldest keyframe?</summary>
+<p>A landmark seen only by the oldest keyframe can be marginalized with the keyframe at little cost. But
+landmarks seen by several keyframes cause fill-in among all of them. Removing them first, or dropping
+their measurements entirely, keeps the resulting prior on the survivors small and structured. The choice of
+<em>what</em> to marginalize, and in which order, is a sparsity decision as much as a statistical one.</p></details>
+
+<h2>5 · glass-lio's inflation is a marginalization</h2>
+
+<p>Lesson 5 showed glass-lio inflating the IMU factor's covariance by the previous state's own
+uncertainty, \(\Sigma_{\text{eff}} = \Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\). The Schur complement
+explains what that line really is. Take the simplest version: \(x_j = x_i + d\), with measurement noise
+variance \(\sigma^2\) and a prior on \(x_i\) with variance \(p\). The joint information on
+\([x_i;\ x_j]\) and its marginal on \(x_j\) are</p>
+
+<div class="eq">$$ \mathbf{H} = \begin{bmatrix}\tfrac1p + \tfrac1{\sigma^2} & -\tfrac1{\sigma^2}\\ -\tfrac1{\sigma^2} & \tfrac1{\sigma^2}\end{bmatrix}
+\quad\Rightarrow\quad H' = \frac1{\sigma^2} - \frac{1/\sigma^4}{1/p + 1/\sigma^2} = \frac{1}{p + \sigma^2}. $$</div>
+
+<p>With \(p = 0.04\) and \(\sigma^2 = 0.01\), the marginal information is exactly \(20 = 1/0.05\): the
+variances add. That is the inflation, derived. <strong>Adding \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to the
+factor's covariance is marginalizing a Gaussian \(\mathbf{x}_i\) out of this one factor.</strong> It is why
+glass-lio is best described not as “a factor, not a filter” but as a one-step marginalization: it removes
+\(\mathbf{x}_i\) correctly for the IMU factor, and carries forward only the covariance blocks it keeps.</p>
+
+<h3>What it would take to become a full filter</h3>
+
+<p>Compare that with the filter row of section 3. Three things separate the two:</p>
+
+<ul>
+  <li><strong>Propagating the full state covariance across the interval</strong>,
+  \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^\top + \mathbf{G}\mathbf{Q}\mathbf{G}^\top\). glass-core already computes the
+  state-transition Jacobian \(\mathbf{F}\) (<code>imuStateTransition</code>); what a filter needs is a caller that
+  applies it every scan to the whole state.</li>
+  <li><strong>Keeping every cross-correlation.</strong> glass-lio carries selected blocks. A filter carries
+  the full \(\mathbf{P}\), including how position errors correlate with bias errors, and that correlation is
+  exactly how a filter learns the accelerometer bias from position corrections.</li>
+  <li><strong>Iterating the update's linearization</strong>, as FAST-LIO2's iterated EKF does, which
+  glass-lio's Gauss-Newton loop already approximates.</li>
+</ul>
+
+<p>None of these requires a new mathematical tool. Each is the same Schur complement from section 2,
+applied more completely. The difference between glass-lio and a filter is how much of the joint
+distribution it chooses to keep, not a different theory.</p>
+
+<h2>6 · Why a wrong marginalization injects information</h2>
+
+<p>Glass-vio's warning that “a wrong marginalization injects spurious information” sounds paradoxical:
+removing a variable should only lose information. The resolution is the phrase in section 2: the
+summary is exact <em>for the chosen linearization</em>.</p>
+
+<p>When a state is marginalized, its prior \(\mathbf{H}'\) is frozen with Jacobians evaluated at the estimate
+held at that moment. The surviving states keep being re-linearized at newer, better estimates. Now the
+problem contains Jacobians of the same variables evaluated at two different points. For a linear problem
+that does not matter. For rotations it does: some directions that should be unobservable, such as the
+global yaw of the whole trajectory, which no local measurement can fix, get a little information from the
+mismatch between the two linearizations. The estimator starts to believe it knows something nothing
+measured. It becomes overconfident, and an overconfident estimator weighs new measurements too
+lightly and drifts while reporting a small covariance.</p>
+
+<p>The standard remedy is <strong>first-estimate Jacobians</strong> (FEJ): evaluate every Jacobian that
+touches a marginalized state at that state's <em>first</em> estimate, so all factors agree on the
+linearization point and the unobservable directions stay unobservable. Filter-based VIO systems such as
+OpenVINS turn it on; you will even find <code>use_fej: true</code> in an OpenVINS configuration file that
+sits, unused, in glass-vio's <code>config/</code> folder. It trades a little accuracy per step for a covariance that tells the
+truth.</p>
+
+<div class="callout">
+  <p class="label">The consistency test</p>
+  <p>An estimator is consistent if its errors, measured against ground truth, are about as large as its
+  own covariance claims. The usual check is the normalised estimation error squared (NEES): average
+  \(\mathbf{e}^\top\mathbf{P}^{-1}\mathbf{e}\) over many runs and compare it with the state dimension. Far above it means
+  overconfident, which is the signature of injected information. It is the one test that catches
+  this class of bug, because every other check looks fine.</p>
+</div>
+
+<h2>7 · So which?</h2>
 
 <p>For visual SLAM, Strasdat et al. conclude that "keyframe bundle adjustment outperforms filtering, since it gives the
 most accuracy per unit of computing time", because "it is usually more profitable to increase the number of features
@@ -160,7 +270,7 @@ uncertain states you remove should be marginalized if you intend to preserve the
   VINS-Mono is a marginalizing window."</p>
 </div>
 
-<h2>5 · Practice</h2>
+<h2>8 · Practice</h2>
 
 <p>From memory, no scrolling. The last question comes from lesson 3.</p>
 <p class="score"></p>
@@ -245,6 +355,51 @@ uncertain states you remove should be marginalized if you intend to preserve the
   <div class="explain" hidden>
     <p>Each sample is rotated into the world by \(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\). That's the same "re-linearise the past"
     cost this lesson is about, and preintegration is how a window avoids paying it per sample.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="series">
+  <p class="q">In a 1-D chain, \(x_0\) has a prior of information 1 and an odometry factor of information 4 to \(x_1\).
+  Marginalizing \(x_0\) leaves a prior on \(x_1\) of information…</p>
+  <ol class="options">
+    <li><button class="option" data-key="five">5: the informations add</button></li>
+    <li><button class="option" data-key="series">0.8: the variances add</button></li>
+    <li><button class="option" data-key="four">4: the prior is lost</button></li>
+    <li><button class="option" data-key="one">1: the odometry is lost</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>In series, variances add: \(1 + 0.25 = 1.25\), so the information is 0.8. Information adds only for
+    measurements of the <em>same</em> variable, in parallel.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="clique">
+  <p class="q">A landmark seen from three poses is marginalized. What happens to the poses' information matrix?</p>
+  <ol class="options">
+    <li><button class="option" data-key="nothing">nothing: the landmark's information is simply lost</button></li>
+    <li><button class="option" data-key="diag">only the diagonal changes</button></li>
+    <li><button class="option" data-key="clique">all three poses become coupled to each other: fill-in</button></li>
+    <li><button class="option" data-key="oldest">only the oldest pose is affected</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The Schur complement adds \(-\mathbf{H}_{xl}\mathbf{H}_{ll}^{-1}\mathbf{H}_{lx}\), a dense block over every pose that saw the
+    landmark. Pairs that never shared a factor now share one. That density is what makes window marginalization expensive.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="marg">
+  <p class="q">glass-lio adds \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to the IMU factor's covariance. In the language of this lesson,
+  that line is…</p>
+  <ol class="options">
+    <li><button class="option" data-key="fix">holding \(\mathbf{x}_i\) fixed</button></li>
+    <li><button class="option" data-key="marg">marginalizing a Gaussian \(\mathbf{x}_i\) out of that one factor</button></li>
+    <li><button class="option" data-key="drop">dropping \(\mathbf{x}_i\)'s measurements</button></li>
+    <li><button class="option" data-key="fej">a first-estimate Jacobian</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>For \(x_j = x_i + d\) with prior variance \(p\) and noise \(\sigma^2\), the Schur complement gives a marginal
+    variance of exactly \(p + \sigma^2\): the inflation. glass-lio marginalizes \(\mathbf{x}_i\) correctly for this factor and carries
+    forward selected covariance blocks.</p>
   </div>
 </div>
 
