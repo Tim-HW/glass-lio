@@ -146,7 +146,119 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
   bias. So it's integrated once, and the residual just compares it with the states."</p>
 </div>
 
-<h2>6 · Practice</h2>
+<h2>6 · The deltas, computed by hand</h2>
+
+<p>Take two IMU samples 5&nbsp;ms apart from the robot of lesson 2: level, yawing at
+0.5&nbsp;rad/s, reading \(\tilde{\mathbf{a}} = [0.1,\,0,\,9.81]\) with zero bias. Accumulate
+eq.&nbsp;(33) one sample at a time, updating in the order lesson 2 insisted on: position, then
+velocity, rotation last.</p>
+
+<ul>
+  <li><strong>Sample 0.</strong> \(\Delta\mathbf{R}_{i,i} = \mathbf{I}\), so the specific force is used
+  as read: \(\Delta\mathbf{v} = [0.0005,\ 0,\ 0.04905]\), \(\Delta\mathbf{p} = \tfrac12\tilde{\mathbf{a}}\Delta t^2\),
+  and the rotation advances by 0.0025&nbsp;rad about \(z\).</li>
+  <li><strong>Sample 1.</strong> The same reading is now rotated by that 0.0025&nbsp;rad before being
+  added. Its tiny sideways component is the only trace of the turn.</li>
+</ul>
+
+<p>After both samples:</p>
+
+<div class="eq">$$ \Delta\mathbf{R}_{ij} = \mathrm{Exp}([0,0,0.005]),\qquad
+\Delta\mathbf{v}_{ij} = \begin{bmatrix}0.001000\\0.000001\\0.098100\end{bmatrix}\mathrm{m/s},\qquad
+\Delta\mathbf{p}_{ij} = \begin{bmatrix}0.0000050\\0\\0.0004905\end{bmatrix}\mathrm{m}. $$</div>
+
+<p>Now the payoff. Suppose the solver is unsure which way the robot faced at keyframe \(i\) and
+tries two very different answers, with \(\mathbf{v}_i = [1.5,\,0,\,0]\) in both. Predicting
+\(\mathbf{v}_j\) from the state side of eq.&nbsp;(33),
+\(\mathbf{v}_j = \mathbf{v}_i + \mathbf{g}\,\Delta t_{ij} + \mathbf{R}_i\,\Delta\mathbf{v}_{ij}\):</p>
+
+<table>
+  <tr><th>trial \(\mathbf{R}_i\)</th><th>predicted \(\mathbf{v}_j\) (m/s)</th><th>IMU samples re-integrated</th></tr>
+  <tr><td>\(\mathbf{I}\), facing \(+x\)</td><td>[1.501000, 0.000001, 0]</td><td>none</td></tr>
+  <tr><td>90° about \(z\), facing \(+y\)</td><td>[1.499999, 0.001000, 0]</td><td>none</td></tr>
+</table>
+
+<p>The same three deltas served both trials. The small forward acceleration lands along \(x\) in
+one case and along \(y\) in the other, exactly as the rotation says it should, and the IMU samples
+were never touched again. Also notice the \(z\) row: \(\Delta\mathbf{v}_{ij}\) has a large
+\(+0.0981\) component, which the state side's \(\mathbf{g}\,\Delta t_{ij}\) cancels precisely. That
+leads straight to the most common confusion about these deltas.</p>
+
+<h2>7 · A stationary sensor with a “velocity change” of 0.98&nbsp;m/s</h2>
+
+<p>Forster warns that \(\Delta\mathbf{v}_{ij}\) and \(\Delta\mathbf{p}_{ij}\) are not physical changes.
+The cleanest way to believe him is to preintegrate a sensor that does not move at all. A level
+IMU at rest reads \([0,0,9.81]\) every sample. Over one 0.1&nbsp;s LiDAR interval:</p>
+
+<div class="eq">$$ \Delta\mathbf{v}_{ij} = \sum_k \tilde{\mathbf{a}}_k\,\Delta t = \begin{bmatrix}0\\0\\0.981\end{bmatrix}\mathrm{m/s},
+\qquad \Delta\mathbf{p}_{ij} = \begin{bmatrix}0\\0\\0.0491\end{bmatrix}\mathrm{m}. $$</div>
+
+<p>Nearly a metre per second of “velocity change” for a sensor that never moved. Now evaluate the
+state side with the true states, \(\mathbf{v}_i = \mathbf{v}_j = 0\), \(\mathbf{R}_i = \mathbf{I}\):</p>
+
+<div class="eq">$$ \mathbf{R}_i^\top(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) = -\mathbf{g}\,\Delta t_{ij} = \begin{bmatrix}0\\0\\0.981\end{bmatrix}. $$</div>
+
+<p>The two sides agree exactly and the residual is zero, which is what it should be for a
+correct state. The deltas are best read as <em>what a falling observer would have seen</em>: the
+change in velocity the specific force alone would produce, with gravity left for the state side
+to supply. That is why a residual can be zero while a delta is large, and why you should never
+log \(\Delta\mathbf{v}_{ij}\) and read it as how fast the robot went.</p>
+
+<div class="callout">
+  <p class="label">A test worth writing</p>
+  <p>Preintegrate a synthetic stationary sensor for 0.1&nbsp;s and assert that the residual against
+  a stationary state is zero, not that the deltas are. A test that asserts \(\Delta\mathbf{v}=0\) at
+  rest encodes exactly the misreading this section is about, and it will fail on correct code.</p>
+</div>
+
+<h2>8 · How much it saves, counted</h2>
+
+<p>“Ruinous” deserves a number, and the honest number depends on how the deltas are used.</p>
+
+<p><strong>In glass-lio's own tight solve</strong>, one IMU factor spans one 0.1&nbsp;s scan, about 20
+samples at 200&nbsp;Hz. Without preintegration each solver iteration would re-integrate those 20
+samples. That is real work but not catastrophic; the bigger wins here are the two things the
+next lessons build on the deltas: a first-order bias correction (lesson 4) and a covariance
+computed once (lesson 5), neither of which would be possible if the deltas were rebuilt from
+scratch at every iteration.</p>
+
+<p><strong>In a window</strong>, the saving becomes dramatic. glass-core also serves a sibling
+project, glass-vio, whose keyframe window keeps 10 keyframes about 0.2&nbsp;s apart and runs 8
+iterations per solve. Each IMU factor therefore spans about 40 samples and stays in the window
+for 10 solves:</p>
+
+<div class="eq">$$ \underbrace{10 \times 8}_{\text{re-linearisations}} \times \underbrace{40}_{\text{samples}} = 3200 \text{ sample integrations per factor, versus } 40 \text{ with preintegration.} $$</div>
+
+<p>An 80-fold saving on every factor, and that is before counting the covariance and the bias
+Jacobians, which would otherwise be rebuilt just as often. The longer a factor lives inside an
+optimiser, the more preintegration pays. That is why it is the standard building block of
+sliding-window and smoothing estimators.</p>
+
+<h2>9 · What moving \(\mathbf{R}_i\) still costs: a Jacobian, in closed form</h2>
+
+<p>Preintegration does not make \(\mathbf{R}_i\) disappear from the problem; it moves it to the
+state side, where it appears exactly once per line, in \(\mathbf{R}_i^\top(\cdot)\). That is what
+makes the residual's derivatives with respect to the <em>starting</em> state cheap closed forms
+instead of sums over samples. For the velocity line, perturbing \(\mathbf{R}_i\) on the right and
+using the toolkit's hat rules gives</p>
+
+<div class="eq">$$ \frac{\partial\,\mathbf{r}_{\Delta v}}{\partial\,\delta\boldsymbol{\phi}_i} = \big(\mathbf{R}_i^\top(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij})\big)^{\wedge},
+\qquad \frac{\partial\,\mathbf{r}_{\Delta v}}{\partial\,\delta\mathbf{v}_i} = -\mathbf{R}_i^\top . $$</div>
+
+<p>Three multiplications, independent of how many samples the interval held.</p>
+
+<p>glass-core computes these as <code>imuJacobianI</code>, and its header records a lesson that is
+worth knowing before you ever write an estimator. For a long time only the Jacobian with respect to
+the <em>end</em> state existed, because both front-ends solved for \(\mathbf{x}_j\) with
+\(\mathbf{x}_i\) held fixed. Holding \(\mathbf{x}_i\) fixed asserts that it is perfectly known. Over a
+short interval the IMU's information is enormous, so a perfectly known start let the IMU factor
+outvote every other measurement.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L209-L233"><code>nav_residual.hpp</code>, lines 209–233</a>:
+“Measured on EuRoC V1_01: with this missing, reprojection error grew monotonically to 643 px while
+135 landmarks sat in view, unrejected and simply outvoted.”</span> The cure is to treat
+\(\mathbf{x}_i\) as uncertain, which needs exactly the cheap Jacobian above. Lesson 8 takes this idea
+to its conclusion: filters, windows and factors differ mainly in how they treat the state at \(i\).</p>
+
+<h2>10 · Practice</h2>
 
 <p>From memory, no scrolling. The last two questions come from lessons 2 and 1.</p>
 <p class="score"></p>
