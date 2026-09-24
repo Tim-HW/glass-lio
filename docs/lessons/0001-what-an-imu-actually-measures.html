@@ -37,6 +37,25 @@ with Z falling about 380&nbsp;m in a minute.<span class="sidenote">The post-mort
 where the fix lives: <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/glasslio_node.cpp#L349-L358"><code>glasslio_node.cpp</code>,
 lines 349–358</a>.</span> Nothing crashed and nothing reported an error. One equation explains it.</p>
 
+<p>Before the equation, extract everything the symptom already tells you. A <em>quadratic</em>
+fall means a constant acceleration: \(z = \tfrac12 a t^2\). Solving with 380&nbsp;m over 60&nbsp;s
+gives</p>
+
+<div class="eq">$$ a = \frac{2 \times 380}{60^2} \approx 0.21\ \mathrm{m/s^2} \approx 2\%\ \text{of } g . $$</div>
+
+<p>That size is diagnostic. It is far too large to be gyro bias or round-off, and far too small to
+be a units mistake (that would be 9.81× off, lesson section 3). It is, however, exactly the size
+of a cheap MEMS accelerometer's bias. So before reading any code you can already guess that some
+accelerometer bias ended up being treated as a real acceleration. The rest of this lesson shows
+precisely how.</p>
+
+<div class="callout">
+  <p class="label">A habit worth keeping</p>
+  <p>Turn every symptom into a number with units before you debug it. “It drifts” is not
+  actionable. “It accelerates at 0.21&nbsp;m/s², constantly” rules out most suspects in one
+  line of arithmetic.</p>
+</div>
+
 <h2>2 · The two equations</h2>
 
 <p>This is how Forster et al. write the IMU model:<span class="sidenote">Forster, Carlone,
@@ -61,6 +80,28 @@ This page uses their notation.</span></p>
 behaviour is in the accelerometer.<span class="sidenote">Forster also neglects the Earth's
 rotation, which amounts to treating \(W\) as an inertial frame (§V).</span></p>
 
+<h3>What each term looks like on glass-lio's sensor</h3>
+
+<p>Equations stay abstract until you put the real sensor into them. These are the Mid-360's
+numbers, as measured on the project's test bag or as configured:</p>
+
+<table>
+  <tr><th>Term</th><th>Size on the Mid-360</th><th>What it does if you ignore it</th></tr>
+  <tr><td>gyro bias \(\mathbf{b}^{g}\)</td><td>\([-0.0026, -0.0004, -0.0043]\) rad/s, so \(|\mathbf{b}^g| \approx 0.29^\circ\)/s</td><td>0.03° per 0.1&nbsp;s scan, invisible; 17° per minute, fatal</td></tr>
+  <tr><td>accel bias \(\mathbf{b}^{a}\)</td><td>not observable at rest; configured prior σ 0.3 m/s²</td><td>a fake acceleration of its own size (section 4)</td></tr>
+  <tr><td>gyro white noise</td><td>density \(1.7\times10^{-3}\) rad/s/√Hz</td><td>averages down: ~0.1° after 1&nbsp;s</td></tr>
+  <tr><td>accel white noise</td><td>density \(2\times10^{-2}\) m/s²/√Hz</td><td>~0.02 m/s of velocity after 1&nbsp;s</td></tr>
+  <tr><td>gravity \(\mathbf{g}\)</td><td>measured \(|\tilde{\mathbf a}|\) = 9.781 at rest</td><td>9.81 m/s² of acceleration, in some direction</td></tr>
+</table>
+
+<p>The gyro row carries the most important lesson in the table: a bias can be <em>negligible
+per step and fatal per minute</em>. Over one scan the gyro bias rotates the estimate by 0.03°, far
+below anything the LiDAR could notice. Integrated for a minute without correction it is 17°, and a
+map built at a 17° heading error is not a map. This is why glass-lio subtracts the bias at the
+source, before any integration, even though no single scan would show the difference.<span class="sidenote">The
+measured init values and the 0.03°-per-scan figure are in
+<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/1-imu-init.md"><code>doc/1-imu-init.md</code></a>, §1 and §5.</span></p>
+
 <h2>3 · The sign that matters: specific force</h2>
 
 <p>An accelerometer doesn't measure acceleration \(\mathbf{a}\). It measures
@@ -79,6 +120,24 @@ lines 73–79</a>. Strictly, by eq.&nbsp;(28) that mean is \(-\mathbf{R}_{WB}^{\
 specific force, not gravity. The variable name is loose, but the maths is consistent.</span>
 The node then seeds the estimator's gravity pointing <em>down</em>, as \([0,\,0,\,-9.81]\).</p>
 
+<h3>Three more cases, each a real situation</h3>
+
+<ul>
+  <li><strong>An elevator starting upward at 1 m/s².</strong> \(\mathbf{a} = [0,0,1]\), so the
+  vertical reading is \(1 - (-9.81) = 10.81\). You feel heavier because the sensor genuinely
+  reads more.</li>
+  <li><strong>A tilted sensor at rest.</strong> glass-lio's Mid-360 sits 7.33° off vertical, so
+  the “up” reading is shared between axes: about 0.128 of it on the body \(x\) axis. None of that
+  is motion; all of it is the frame. (The toolkit works this example in full.)</li>
+  <li><strong>A car accelerating forward at 2 m/s².</strong> The reading is gravity's upward
+  9.81 plus a forward 2. Its direction is tilted \(\arctan(2/9.81) \approx 11.5^\circ\) from
+  vertical, and from inside the car that is indistinguishable from parking on a slope.</li>
+</ul>
+
+<p>The last case is the reason the accelerometer cannot, by itself, tell tilt from acceleration,
+and it is why an initialisation that assumes “the mean reading is gravity” must first check
+that the platform is not accelerating. Section 5 shows how glass-lio checks.</p>
+
 <div class="callout">
   <p class="label">Units trap</p>
   <p>The Livox reports specific force in <em>g</em>, not m/s², so at rest it reads about 1.0,
@@ -86,6 +145,21 @@ The node then seeds the estimator's gravity pointing <em>down</em>, as \([0,\,0,
   accelerometer sample by <code>accel_scale</code> before integrating.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L270-L275"><code>lio_estimator.cpp</code>,
   lines 270–275</a>.</span></p>
 </div>
+
+<p>The units trap deserves a second look, because of <em>how quietly</em> it fails. Forget the
+scaling and three things still work perfectly. Deskewing uses only the gyro, so it is untouched.
+Initialisation takes only the <em>direction</em> of the mean reading, and scaling a vector does
+not rotate it, so the world frame is still levelled correctly. Loosely coupled odometry never
+integrates acceleration at all. The system looks healthy. Then tight coupling integrates
+acceleration for the first time, every acceleration is 9.81× too small, and the estimator falls
+apart in a way that looks like a deep modelling bug.</p>
+
+<p>glass-lio therefore checks the one quantity that <em>does</em> expose the mistake: the
+magnitude. After scaling, the mean reading at rest must be within 1&nbsp;m/s² of 9.80665, or the
+node logs an error that names the setting to fix.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/glasslio_node.cpp#L375-L379"><code>glasslio_node.cpp</code>, lines 375–379</a>.
+On the test bag the raw reading is 0.997 <em>g</em>, which scales to 9.78 m/s², inside the band.</span>
+A check like this costs one line and turns a mystery into an error message. Write one for every
+unit conversion you depend on.</p>
 
 <h2>4 · The bug, explained</h2>
 
@@ -110,6 +184,37 @@ twice into position. The fix was to seed gravity at its known magnitude and esti
 <em>when</em> the two become separable: once \(\mathbf{R}_{WB}\) changes, the gravity term moves
 and the bias doesn't. Suitable changes of orientation, together with motion constraints from other measurements, can separate the terms. Pure yaw about gravity leaves the gravity reading unchanged and is not sufficient.</span></p>
 
+<h3>The error, written down exactly</h3>
+
+<p>You can derive the fake acceleration in four lines, and it is worth doing once. Call the
+attitude at initialisation \(\mathbf{R}_0\). The faulty initialisation sets its gravity estimate
+from the mean reading,</p>
+
+<div class="eq">$$ \hat{\mathbf{g}} = -\mathbf{R}_0\,\tilde{\mathbf{a}}_0 = \mathbf{g} - \mathbf{R}_0\,\mathbf{b}^{a}. $$</div>
+
+<p>Later, at attitude \(\mathbf{R}(t)\), the estimator inverts eq.&nbsp;(28) assuming no bias:
+\(\hat{\mathbf{a}} = \mathbf{R}(t)\,\tilde{\mathbf{a}} + \hat{\mathbf{g}}\). Substitute the true
+reading and simplify:</p>
+
+<div class="eq">$$ \hat{\mathbf{a}} = \mathbf{R}(t)\big[\mathbf{R}(t)^{\top}(\mathbf{a}-\mathbf{g}) + \mathbf{b}^{a}\big] + \mathbf{g} - \mathbf{R}_0\,\mathbf{b}^{a}
+= \mathbf{a} + \big(\mathbf{R}(t) - \mathbf{R}_0\big)\,\mathbf{b}^{a}. $$</div>
+
+<p>Every property of the bug is visible in that last term:</p>
+
+<ul>
+  <li>It is <strong>zero at the initial attitude</strong>, so the estimator behaves perfectly
+  until the first turn. Short straight tests pass.</li>
+  <li>After a <strong>90° turn</strong> its size is \(\sqrt2\,|\mathbf{b}^{a}|\); after a
+  <strong>half-turn</strong>, \(2|\mathbf{b}^{a}|\). With a bias of 0.2&nbsp;m/s², a half-turn
+  produces 0.4&nbsp;m/s² of fake acceleration, and ten seconds of that is
+  \(\tfrac12 \times 0.4 \times 10^2 = 20\)&nbsp;m.</li>
+  <li>Its <strong>direction depends on the path</strong>, which is why it looked like drift in an
+  arbitrary direction rather than an obvious offset.</li>
+</ul>
+
+<p>Seed gravity at its true magnitude, carry \(\mathbf{b}^{a}\) as a body-frame state, and the
+term disappears, because the bias is then subtracted in the frame where it actually lives.</p>
+
 <div class="callout interview">
   <p class="label">Say it at a whiteboard</p>
   <p>“An accelerometer measures specific force, \(\mathbf{a} - \mathbf{g}\), in the body frame.
@@ -117,7 +222,134 @@ and the bias doesn't. Suitable changes of orientation, together with motion cons
   static initialisation can't separate gravity from the accelerometer bias. You constrain gravity's magnitude and use sufficiently varied motion and external motion measurements to separate bias from gravity and attitude.”</p>
 </div>
 
-<h2>5 · Where this lives in the code</h2>
+<h2>5 · What a static window can and cannot give you</h2>
+
+<p>glass-lio initialises from about one second of IMU data (200 samples at 200&nbsp;Hz) during
+which the platform is assumed still. Apply the two equations with \(\boldsymbol{\omega} = 0\)
+and \(\mathbf{a} = 0\) and you get, averaged over the window:</p>
+
+<div class="eq">$$ \overline{\tilde{\boldsymbol{\omega}}} = \mathbf{b}^{g}, \qquad
+\overline{\tilde{\mathbf{a}}} = -\mathbf{R}_{WB}^{\top}\mathbf{g} + \mathbf{b}^{a}. $$</div>
+
+<p>The first average <em>is</em> the gyro bias: nothing else survives. The second is the sum from
+section 4. glass-lio uses its <em>direction</em> to level the world, rotating it onto \(+Z\),
+and ignores its measured magnitude in favour of the standard 9.80665&nbsp;m/s². Here is the
+complete inventory of what the window delivers:</p>
+
+<table>
+  <tr><th>Quantity</th><th>From a static window?</th><th>Why</th></tr>
+  <tr><td>gyro bias</td><td>yes</td><td>true rate is zero, so the mean is the bias</td></tr>
+  <tr><td>roll and pitch</td><td>yes, approximately</td><td>the direction of the mean specific force, tilted slightly by \(\mathbf{b}^{a}\)</td></tr>
+  <tr><td>yaw</td><td>no</td><td>rotating about gravity changes no reading; it is set to zero</td></tr>
+  <tr><td>accel bias</td><td>no</td><td>only its sum with gravity is visible</td></tr>
+  <tr><td>velocity</td><td>no</td><td>see “rest versus constant velocity” below</td></tr>
+</table>
+
+<p>The yaw row is not a shortcut. Gravity is a single vector, so it pins down two of the three
+rotational degrees of freedom and says nothing about heading. Choosing zero yaw and saying so is
+the honest response to an unobservable quantity.</p>
+
+<h3>Two checks, and why the second one exists</h3>
+
+<p>The averages above are only valid if the platform really was still. glass-lio refuses a
+window unless both of these hold:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/imu_init.cpp#L46-L71"><code>imu_init.cpp</code>, lines 46–71</a>,
+with the thresholds in <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L259-L265"><code>livox_mid_360.yaml</code>, lines 259–265</a>.</span></p>
+
+<ul>
+  <li><strong>no sample rotates faster than 0.1 rad/s</strong>, measured as the maximum gyro norm
+  (static windows on the test bag peak near 0.04; a turn reaches 0.4);</li>
+  <li><strong>no axis of the accelerometer varies by more than 0.5 m/s²</strong> in standard
+  deviation.</li>
+</ul>
+
+<p>The gyro check alone is the obvious one, and it is not enough. Recall the accelerating car from
+section 3: a platform pushed in a straight line has zero rotation rate, passes a gyro-only test,
+and has its forward acceleration averaged into “gravity”, tilting the whole world frame. At the
+0.5&nbsp;m/s² scale of the accelerometer gate, a steady push of that size would tilt the world
+by about 2.9°. The second check exists to catch exactly what the first cannot.</p>
+
+<p>When a window fails, it slides forward by one sample rather than being discarded wholesale.
+That detail matters more than it looks: clearing the buffer only ever tests non-overlapping
+one-second blocks, so a genuine rest that straddles a block boundary is rejected by both halves.
+On three handheld recordings the clearing version initialised on one; the sliding version found a
+rest in all three.</p>
+
+<h3>Rest versus constant velocity</h3>
+
+<p>Neither check can tell <em>rest</em> from <em>constant velocity</em>. Both give zero rotation
+and zero acceleration, because that is what “not accelerating” means, and eq.&nbsp;(28) contains
+no velocity at all. glass-lio's test bag begins with the robot already cruising at about
+1.5&nbsp;m/s. The window passes, correctly: gravity is uncorrupted when acceleration is zero. But
+the estimator is seeded with zero velocity, which is wrong, and the tightly coupled solver needs a
+correct velocity to start. glass-lio solves this by running the loosely coupled LiDAR odometry for
+ten scans, which <em>measures</em> the velocity, before switching the IMU in.</p>
+
+<div class="callout">
+  <p class="label">Read the log carefully</p>
+  <p>“Static window detected” does not mean “the robot is stopped”. It means “the robot is not
+  accelerating”. The project lost real time reading it the first way.</p>
+</div>
+
+<h2>6 · What the model leaves out</h2>
+
+<p>Eqs.&nbsp;(27)–(28) are a model, and every model is a list of things deliberately ignored.
+Knowing the list tells you when the model stops being good enough.</p>
+
+<h3>The Earth's rotation</h3>
+<p>A perfect gyro at rest on the ground reads the Earth's rotation, about
+\(7.3\times10^{-5}\) rad/s. Next to the Mid-360's gyro bias of \(5\times10^{-3}\) rad/s that
+is under 1.5%, far inside the bias uncertainty, so treating the world frame as non-rotating costs
+nothing measurable. For a navigation-grade gyro, whose bias can be a thousand times smaller, the
+Earth's rotation is the biggest signal in the reading and has to be modelled. The same equation,
+different sensor, different verdict.</p>
+
+<h3>The lever arm</h3>
+<p>The accelerometer measures the specific force at <em>its own</em> location. If the body
+rotates, a point at offset \(\mathbf{r}\) from the rotation centre accelerates even when the
+centre does not:</p>
+
+<div class="eq">$$ \mathbf{a}_{\text{sensor}} = \mathbf{a}_{\text{centre}} + \dot{\boldsymbol{\omega}} \times \mathbf{r} + \boldsymbol{\omega} \times (\boldsymbol{\omega} \times \mathbf{r}). $$</div>
+
+<p>Inside the Mid-360 the IMU chip sits about 5&nbsp;cm from the LiDAR's optical origin
+(configured as \([-0.011, -0.023, 0.044]\)&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L281"><code>livox_mid_360.yaml</code>, line 281</a>.</span>
+The centripetal term at 1&nbsp;rad/s is 0.05&nbsp;m/s²; at a brisk 3&nbsp;rad/s it is
+0.46&nbsp;m/s², larger than the accelerometer bias. glass-lio tracks the pose of the IMU body
+itself, so the offset enters only when converting between LiDAR and IMU positions; for a system
+that tracked a different point on the vehicle, this term would be one of the first to show up.</p>
+
+<h3>Scale factor, misalignment, and temperature</h3>
+<p>Real sensors also have a small gain error per axis, axes that are not perfectly orthogonal, and
+biases that drift with temperature. The measured \(|g|\) of 9.781 instead of 9.80665, a 0.26%
+difference, is a mix of exactly these effects and the accelerometer bias. At that level they are
+absorbed by the bias states and the noise model. Estimators for poorer sensors add explicit
+intrinsic-calibration states. glass-lio does not, and the table in section 2 is why it does not
+need to.</p>
+
+<h2>7 · Four noise numbers, and what they mean</h2>
+
+<p>The noise terms \(\boldsymbol{\eta}\) cannot be subtracted, but they can be sized, and the
+sizing decides how much the solver believes the IMU. glass-lio configures four numbers for the
+Mid-360:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L226-L234"><code>livox_mid_360.yaml</code>, lines 226–234</a>.</span></p>
+
+<table>
+  <tr><th>Setting</th><th>Value</th><th>What it describes</th></tr>
+  <tr><td><code>gyro_noise</code></td><td>1.7×10⁻³ rad/s/√Hz</td><td>white noise on each gyro sample</td></tr>
+  <tr><td><code>accel_noise</code></td><td>2.0×10⁻² m/s²/√Hz</td><td>white noise on each accelerometer sample</td></tr>
+  <tr><td><code>bias_rw_gyro</code></td><td>1.0×10⁻⁴</td><td>how fast the gyro bias may wander</td></tr>
+  <tr><td><code>bias_rw_accel</code></td><td>1.0×10⁻³</td><td>how fast the accelerometer bias may wander</td></tr>
+</table>
+
+<p>The first two are <em>densities</em>: they describe noise per root-hertz, so the variance of an
+integrated quantity grows linearly with time (the toolkit's section 5 converts them). The second
+two describe the bias as a random walk: not a constant, but something that drifts slowly, and
+only slowly. That slowness is itself information. Without it, a gyro bias and a genuine slow turn
+would be indistinguishable, and the solver could explain any rotation by adjusting the bias.</p>
+
+<p>These numbers come from the datasheet and are then checked on data. They are physical
+properties of the part, not tuning knobs. Lesson 5 shows how they become the covariance that
+decides, scan by scan, whether the IMU or the LiDAR wins an argument.</p>
+
+<h2>8 · Where this lives in the code</h2>
 
 <p>Every preintegration step in glass-core starts from eqs.&nbsp;(27)–(28) rearranged, by
 subtracting the current bias estimates:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/preintegration.cpp#L29-L33"><code>preintegration.cpp</code>,
@@ -130,7 +362,7 @@ const Eigen::Vector3d a = accel - bias_accel_;</code></pre>
 <p>Notice what that function <em>doesn't</em> do: it never touches gravity. So where does
 \(\mathbf{g}\) come back in? That's the next lesson.</p>
 
-<h2>6 · Practice</h2>
+<h2>9 · Practice</h2>
 
 <p>Answer from memory, without scrolling back up. Having to work to recall it is what makes it
 stick.</p>
@@ -195,6 +427,70 @@ stick.</p>
   </div>
 </div>
 
+<div class="quiz" data-answer="bias">
+  <p class="q">A tightly coupled estimator falls at a steady 0.21&nbsp;m/s², starting only after the
+  robot's first turn. The most likely cause is…</p>
+  <ol class="options">
+    <li><button class="option" data-key="units">accelerometer units in g instead of m/s²</button></li>
+    <li><button class="option" data-key="bias">accelerometer bias baked into a world-fixed gravity</button></li>
+    <li><button class="option" data-key="gyro">uncorrected gyro bias</button></li>
+    <li><button class="option" data-key="noise">accelerometer white noise</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>0.21&nbsp;m/s² is about 2% of \(g\): the size of a MEMS accelerometer bias. A units error would
+    be 9.81× off. And the error term \((\mathbf{R}(t)-\mathbf{R}_0)\mathbf{b}^{a}\) is zero until the
+    attitude changes, which is why it starts with the first turn.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="half">
+  <p class="q">With gravity estimated as the static mean and \(|\mathbf{b}^{a}| = 0.2\)&nbsp;m/s², how
+  large is the fake acceleration after a half-turn?</p>
+  <ol class="options">
+    <li><button class="option" data-key="none">0 m/s²</button></li>
+    <li><button class="option" data-key="same">0.2 m/s²</button></li>
+    <li><button class="option" data-key="half">0.4 m/s²</button></li>
+    <li><button class="option" data-key="g">9.81 m/s²</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The error is \((\mathbf{R}(t) - \mathbf{R}_0)\,\mathbf{b}^{a}\). A half-turn reverses the
+    bias's world direction, so the difference has twice its length: 0.4&nbsp;m/s², or 20&nbsp;m of
+    position error after ten seconds.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="accel">
+  <p class="q">A robot is pushed in a straight line, accelerating gently, during the one-second
+  initialisation window. Which check stops the bad initialisation?</p>
+  <ol class="options">
+    <li><button class="option" data-key="gyro">the maximum gyro rate</button></li>
+    <li><button class="option" data-key="accel">the accelerometer standard deviation</button></li>
+    <li><button class="option" data-key="mag">the \(|g|\) units guard</button></li>
+    <li><button class="option" data-key="none">none: it initialises correctly</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A straight push has no rotation, so the gyro check passes. Only the accelerometer's
+    variability exposes it; without that check the push would be averaged into “gravity” and tilt
+    the world frame.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="velocity">
+  <p class="q">A static window reports success while the robot cruises at a constant 1.5&nbsp;m/s.
+  Which initial value is now wrong?</p>
+  <ol class="options">
+    <li><button class="option" data-key="gyro">the gyro bias</button></li>
+    <li><button class="option" data-key="tilt">roll and pitch</button></li>
+    <li><button class="option" data-key="velocity">the velocity, seeded as zero</button></li>
+    <li><button class="option" data-key="gravity">the gravity direction</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Constant velocity means zero acceleration and zero rotation, so the gyro bias and the gravity
+    direction are both still valid. Velocity does not appear in either measurement equation, so the
+    window cannot see it. glass-lio measures it with ten scans of LiDAR odometry instead.</p>
+  </div>
+</div>
+
 <div class="recall">
   <p class="q"><strong>From memory:</strong> write both measurement models, gyroscope and
   accelerometer, and label the frame of each term. Then say the whiteboard sentence out loud.</p>
@@ -212,6 +508,25 @@ stick.</p>
     </ul>
     <p>Missed a box? Good: that's the useful kind of mistake. Try this box again tomorrow,
     before rereading anything.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> derive the fake acceleration produced when the static
+  mean is used as gravity, starting from \(\hat{\mathbf{g}} = -\mathbf{R}_0\tilde{\mathbf{a}}_0\). Then
+  list what a static window can and cannot estimate.</p>
+  <textarea placeholder="g_hat = g - R0 b_a, then a_hat = R a~ + g_hat = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ \hat{\mathbf{a}} = \mathbf{a} + \big(\mathbf{R}(t) - \mathbf{R}_0\big)\,\mathbf{b}^{a} $$</div>
+    <ul class="checklist">
+      <li>\(\hat{\mathbf{g}} = \mathbf{g} - \mathbf{R}_0\mathbf{b}^{a}\), with the bias rotated into the world</li>
+      <li>The error vanishes at the initial attitude and grows with the turn</li>
+      <li>Estimable: gyro bias, roll, pitch</li>
+      <li>Not estimable: yaw, accelerometer bias, velocity</li>
+      <li>You mentioned both motion checks, and why the accelerometer one exists</li>
+    </ul>
+    <p>If the derivation stalled, redo section 4's substitution line by line tomorrow.</p>
   </div>
 </div>
 

@@ -11,13 +11,25 @@
 <script defer src="../assets/course.js"></script>
 </head>
 <body><main>
-<header class="page"><p class="kicker">Before lesson 1 · 45–60 minutes</p><h1>The mathematical toolkit</h1></header>
+<header class="page">
+  <p class="kicker">Before lesson 1 · 45–60 minutes</p>
+  <h1>The mathematical toolkit</h1>
+  <p class="subtitle">Six tools, each worked by hand, each tied to a bug it prevents in glass-lio.</p>
+</header>
 <article>
 
 <p class="lede">This course starts from vectors and basic derivatives. This toolkit bridges those ideas to rotations,
 Jacobians, covariance, and least squares. Allow 45–60 minutes with pencil and paper; revisit the relevant section as each lesson needs it.</p>
 <p>You should be able to multiply a matrix by a vector, differentiate a scalar function, and use velocity and acceleration.
 If one of those is unfamiliar, work through its example below before continuing. A glossary definition alone is not a substitute for doing the calculation.</p>
+
+<p><strong>How to use this page.</strong> Each section has three layers. First the idea, stated
+once and exactly. Then a worked example with real numbers, most of them taken from glass-lio's
+own sensor or code. Then the mistake the idea exists to prevent, because every tool here is in
+the course <em>because</em> getting it slightly wrong produces an estimator that still runs and
+is still wrong. Do the “Try it” boxes before opening them. The quizzes at the end are for a
+second sitting, a day later.</p>
+
 <h2 id="frames">1 · Vectors, frames, and transposes</h2>
 <p>A vector's coordinates depend on its frame. In this course \(R_{WB}\) takes body coordinates into world coordinates:
 \(u_W=R_{WB}u_B\). A rotation preserves lengths and angles, so \(R^\top R=I\), \(R^{-1}=R^\top\), and \(\det R=1\).
@@ -28,6 +40,74 @@ R\begin{bmatrix}1\\0\\0\end{bmatrix}=\begin{bmatrix}0\\1\\0\end{bmatrix}. $$</di
 turning about x and then z is different from turning about z and then x.</p>
 <details><summary>Try it: where does body +y go, and how do you recover it?</summary>
 <p>\(R[0,1,0]^\top=[-1,0,0]^\top\). Apply \(R^\top\) to recover \([0,1,0]^\top\).</p></details>
+
+<h3>Reading a subscript</h3>
+<p>The two letters on \(R_{WB}\) are not decoration: read them right to left, “from \(B\) to
+\(W\)”. The payoff is that chains check themselves. Adjacent inner letters must match, and they
+cancel:</p>
+<div class="eq">$$ R_{WL} = R_{WI}\,R_{IL}, \qquad u_W = R_{WI}\,R_{IL}\,u_L . $$</div>
+<p>A LiDAR-frame vector \(u_L\) goes to the IMU frame, then to the world. Write
+\(R_{IL}\,R_{WI}\) instead and the inner letters (\(L\) next to \(W\)) do not match; the
+expression type-checks as matrix algebra but means nothing. This exact product appears in
+glass-lio's initialisation: gravity is measured in the <em>IMU</em> frame, but the pose tracks
+the <em>LiDAR</em>, so the initial attitude is \(R_{WL}=R_{WI}R_{IL}\). On the Mid-360 \(R_{IL}\)
+is the identity, which is precisely why forgetting it would go unnoticed until someone mounts an
+external IMU.<span class="sidenote">The project's own write-up calls this “a bug that only appears
+on someone else's hardware is the worst kind”: <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/1-imu-init.md"><code>doc/1-imu-init.md</code></a>, “Applying the extrinsic”.</span></p>
+
+<h3>What orthogonality buys</h3>
+<p>\(R^\top R = I\) is one equation with three consequences you will use constantly.</p>
+<ul>
+  <li><strong>Lengths survive.</strong> \(\|Ru\|^2 = u^\top R^\top R u = \|u\|^2\). A LiDAR range of
+  40 m is still 40 m after you rotate the point into the world.</li>
+  <li><strong>The inverse is free.</strong> \(R^{-1} = R^\top\): no matrix inversion, no numerical
+  error, and \(R_{BW} = R_{WB}^\top\) simply swaps the subscripts.</li>
+  <li><strong>The determinant is ±1, and the sign matters.</strong> An orthogonal matrix with
+  \(\det = -1\) is a <em>reflection</em>. It preserves lengths too, which is why it can pass casual
+  checks, but no physical motion produces it. Rotations are the orthogonal matrices with
+  \(\det = +1\), and that is the whole of SO(3).</li>
+</ul>
+
+<h3>A worked frame change: the tilted Mid-360</h3>
+<p>glass-lio's initialisation measured the sensor mounted <strong>7.33°</strong> off vertical.
+Suppose the tilt is about the body \(y\) axis. At rest the accelerometer reads specific force
+pointing <em>up</em> (lesson 1 explains why up), and in the body frame “up” is the world \(+z\)
+rotated back through the tilt:</p>
+<div class="eq">$$ \frac{\tilde{a}_B}{\|\tilde{a}_B\|} = R_{WB}^\top\begin{bmatrix}0\\0\\1\end{bmatrix}
+\approx \begin{bmatrix}0.1276\\0\\0.9918\end{bmatrix}, \qquad
+\sin 7.33^\circ = 0.1276,\ \ \cos 7.33^\circ = 0.9918. $$</div>
+<p>So about 12.8% of gravity lands on the body \(x\) axis: with the measured
+\(|\tilde a| = 9.781\,\mathrm{m/s^2}\) that is 1.25 m/s² of reading that is not motion. A pipeline
+that forgot the frame change would read it as a forward acceleration and integrate it into
+metres within seconds. Initialisation exists to find this rotation and remove it.</p>
+
+<h3>Poses: composing and inverting</h3>
+<p>A pose \(T=(R,t)\) maps points by \(q=Rp+t\). Two rules follow directly from that one
+equation, and both are worth deriving rather than memorising:</p>
+<div class="eq">$$ T_{AC} = T_{AB}\,T_{BC} = \big(R_{AB}R_{BC},\ R_{AB}t_{BC} + t_{AB}\big), \qquad
+T^{-1} = \big(R^\top,\ -R^\top t\big). $$</div>
+<p>For the inverse, solve \(q=Rp+t\) for \(p\): \(p = R^\top(q-t) = R^\top q - R^\top t\). The
+inverse translation is <em>not</em> \(-t\); it is \(-t\) expressed in the other frame. A worked
+check, with the 90° rotation above and \(t=[1,2,0]^\top\):</p>
+<div class="eq">$$ p=\begin{bmatrix}1\\0\\0\end{bmatrix} \;\mapsto\; q=Rp+t=\begin{bmatrix}1\\3\\0\end{bmatrix},
+\qquad -R^\top t = \begin{bmatrix}-2\\1\\0\end{bmatrix},
+\qquad R^\top q - R^\top t = \begin{bmatrix}3\\-1\\0\end{bmatrix}+\begin{bmatrix}-2\\1\\0\end{bmatrix}=\begin{bmatrix}1\\0\\0\end{bmatrix}. $$</div>
+<p>Software usually packs \((R,t)\) into a 4×4 homogeneous matrix so composition becomes one matrix
+product. glass-lio does this when it moves a scan into the world before inserting it into the map
+(<code>pcl::transformPointCloud(*deskewed, *scan_world, pose_.matrix())</code>). The algebra is the
+same; the 4×4 form is bookkeeping.</p>
+
+<table>
+  <tr><th>Mistake</th><th>What you see</th><th>Why it survives testing</th></tr>
+  <tr><td>\(R\) where \(R^\top\) was meant</td><td>Corrections applied the wrong way round</td><td>Invisible whenever the rotation is near identity, as it is in most unit tests</td></tr>
+  <tr><td>Inverting a pose as \((R^\top,-t)\)</td><td>Translation errors that grow with the rotation angle</td><td>Exact when \(R=I\)</td></tr>
+  <tr><td>Chaining in the wrong order</td><td>A trajectory tilted or skewed by a mount angle</td><td>Exact when the extrinsic is identity, as on the Mid-360</td></tr>
+  <tr><td>Accepting \(\det R=-1\)</td><td>A mirrored map</td><td>Lengths and angles still check out</td></tr>
+</table>
+
+<details><summary>Try it: with the same \(R\) and \(t=[1,2,0]^\top\), where does \(q=[0,0,5]^\top\) come from?</summary>
+<p>\(p = R^\top(q-t) = R^\top[-1,-2,5]^\top = [-2,1,5]^\top\). Check: \(Rp+t = [-1,-2,5]^\top+[1,2,0]^\top = [0,0,5]^\top\).</p></details>
+
 <h2 id="rotations">2 · Cross products, Exp, and local coordinates</h2>
 <p>The hat operator turns a vector into a matrix that computes a cross product:</p>
 <div class="eq">$$ \phi^\wedge=\begin{bmatrix}0&-\phi_z&\phi_y\\\phi_z&0&-\phi_x\\-\phi_y&\phi_x&0\end{bmatrix},
@@ -46,6 +126,74 @@ Log maps a rotation back to local coordinates; a unique smooth inverse requires 
 <details><summary>Try it: use the first-order formula to rotate +x by a small positive z angle ε.</summary>
 <p>\([1,0,0]^\top+ [0,0,\epsilon]^\top\times[1,0,0]^\top=[1,\epsilon,0]^\top\).
 The exact result is \([\cos\epsilon,\sin\epsilon,0]^\top\).</p></details>
+
+<h3>Four properties of the hat you will lean on</h3>
+<p>Every rotation Jacobian in the later lessons is two or three applications of these, and nothing
+else:</p>
+<div class="eq">$$ (a^\wedge)^\top = -a^\wedge, \qquad a^\wedge a = 0, \qquad a^\wedge b = -\,b^\wedge a, \qquad R\,a^\wedge R^\top = (Ra)^\wedge . $$</div>
+<ul>
+  <li><strong>Skew symmetry</strong> is why \(u^\top a^\wedge u = 0\): a cross product is always
+  perpendicular to its inputs.</li>
+  <li><strong>\(a^\wedge a=0\)</strong> says rotating a vector about itself does nothing. Lesson 7
+  meets its consequence: a point lying on a rotation axis gives no information about rotation
+  about that axis.</li>
+  <li><strong>The swap \(a^\wedge b = -b^\wedge a\)</strong> is how you move the unknown to the
+  right of a product so it can be factored out. It is the single most used move in
+  differentiating rotated points (§3).</li>
+  <li><strong>The conjugation rule</strong> says that re-expressing a cross product in a rotated
+  frame is the cross product of the rotated vector. It is where the frame-change rule
+  \(\delta\phi_W = R\,\delta\phi_B\) above comes from.</li>
+</ul>
+
+<h3>How good is “first order”?</h3>
+<p>Rotating \(+x\) about \(z\) by ε, the first-order result \([1,\epsilon,0]\) misses the exact
+\([\cos\epsilon,\sin\epsilon,0]\) by about \(\epsilon^2/2\):</p>
+<table>
+  <tr><th>ε (rad)</th><th>ε (deg)</th><th>error of \(I+\epsilon^\wedge\)</th><th>where you meet an angle this size</th></tr>
+  <tr><td>0.01</td><td>0.57°</td><td>5.0×10⁻⁵</td><td>a gyro step at 2 rad/s over 5 ms</td></tr>
+  <tr><td>0.05</td><td>2.9°</td><td>1.25×10⁻³</td><td>one Livox scan during a turn (lesson 9 measures 2.8°)</td></tr>
+  <tr><td>0.1</td><td>5.7°</td><td>5.0×10⁻³</td><td>a fast turn over one scan</td></tr>
+  <tr><td>0.5</td><td>29°</td><td>0.124</td><td>never, as a <em>single</em> increment</td></tr>
+</table>
+<p>The lesson is not “first order is bad”. It is the opposite: over the increments an estimator
+actually takes, first order is excellent for <em>derivatives</em>, and that is the only job it is
+given. The state itself is always updated with the exact Exp, so the small error in the
+linearisation is corrected at the next iteration rather than accumulated.</p>
+
+<h3>Composing, not adding</h3>
+<p>Why not keep three angles and add increments to them? Because rotations about different axes
+do not commute. Rotate +90° about \(x\) then +90° about \(z\), and the other order, and the object
+ends up in different places. Adding angle increments silently assumes that order does not
+matter. It is only true when every increment shares one axis, which is exactly the special case
+most hand examples use, so the mistake survives the examples.</p>
+<p>Composition gets it right by construction. glass-lio's gyro integrator does exactly this for
+every IMU sample during a scan: \(R_k = R_{k-1}\operatorname{Exp}(\Delta\theta_k)\), with the
+increment on the right because a gyro measures rotation in its own, body, frame. Lesson 2 builds
+this step by step.</p>
+
+<h3>Left, right, and the adjoint</h3>
+<p>The two retractions above are both correct; they differ in <em>which frame the increment is
+written in</em>. Conjugation converts one into the other:</p>
+<div class="eq">$$ R\,\operatorname{Exp}(\delta\phi_B) = \operatorname{Exp}(R\,\delta\phi_B)\,R . $$</div>
+<p>glass-lio uses both, deliberately. Its SE(3) Gauss-Newton solver writes corrections in the
+world frame and composes on the left; its 18-dimensional inertial state composes on the right,
+because the IMU equations are naturally body-frame. Neither is a mistake. Mixing them is: hand a
+right-perturbation Jacobian to a left-perturbation solver and the estimator still converges, to
+the wrong answer.<span class="sidenote">The project records the convention per component in a
+table: <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/gauss-newton.md"><code>doc/gauss-newton.md</code></a>, §6 “The perturbation convention”.</span></p>
+
+<h3>Log, and the half-turn</h3>
+<p>\(\operatorname{Log}\) returns the rotation vector of a rotation. It is well defined for angles
+below π, and that is all an estimator ever asks of it: the rotations it takes a Log of are
+<em>differences</em> between nearby estimates, or single IMU steps, a few degrees at most. At
+exactly π the answer stops being unique, since a half-turn about \(a\) and about \(-a\) are the same
+rotation. Keep that in mind when you meet \(J_r^{-1}\) in §4: its formula divides by \(\sin\theta\)
+for precisely this reason.</p>
+
+<details><summary>Try it: show that \(\operatorname{Exp}(\phi)\) maps the axis \(a\) to itself.</summary>
+<p>\(\phi^\wedge a = \theta\,a^\wedge a = 0\), so both correction terms of Rodrigues' formula vanish
+on \(a\) and \(\operatorname{Exp}(\phi)\,a = a\). A rotation fixes its own axis.</p></details>
+
 <h2 id="jacobians">3 · A Jacobian is a local prediction</h2>
 <p>For a vector residual \(r(x)\), the Jacobian gives \(r(x+\delta x)\approx r(x)+J\delta x\).
 It has one row per residual and one column per state coordinate. A scalar example makes the idea concrete:</p>
@@ -57,6 +205,65 @@ The exact answer is 6.9801; the omitted term is quadratic.</p>
 <em>same retraction</em> as the solver:</p>
 <div class="eq">$$ J_{:,j}\approx\frac{r(x\boxplus\epsilon e_j)-r(x\boxplus(-\epsilon e_j))}{2\epsilon}. $$</div>
 <p>Try several small ε values: too large gives truncation error; too small gives round-off error. Lesson 6 and the worksheet apply this to an actual point-to-plane residual.</p>
+
+<h3>Units: every column has its own</h3>
+<p>A Jacobian entry has units of <em>residual per state coordinate</em>. For a point-to-plane
+residual in metres and a state of translation (m) and rotation (rad), the translation columns are
+dimensionless and the rotation columns are metres per radian: a lever arm. That is not pedantry.
+It is why a point 40 m away pulls on rotation forty times harder than a point 1 m away, and why
+the far points in a LiDAR scan are the ones that pin down heading.</p>
+
+<h3>The chain rule, which is most of the work</h3>
+<p>Real residuals are compositions: transform a point, then project it, then compare. The chain
+rule multiplies the pieces' Jacobians, innermost last:</p>
+<div class="eq">$$ r(x) = f\big(g(x)\big) \;\Rightarrow\; J_r = \frac{\partial f}{\partial g}\,\frac{\partial g}{\partial x}. $$</div>
+<p>The shapes have to chain: a 1×3 times a 3×6 gives the 1×6 row a point-to-plane residual
+contributes. If the shapes do not chain, the derivation is wrong before any number is checked, which
+makes shape-checking the cheapest test there is.</p>
+
+<h3>Differentiating a rotated point</h3>
+<p>Take \(q = Rp\) and perturb \(R\) on the right, \(R\operatorname{Exp}(\delta\phi)\). Using
+\(\operatorname{Exp}(\delta\phi)\approx I+\delta\phi^\wedge\) and then the swap from §2:</p>
+<div class="eq">$$ R(I+\delta\phi^\wedge)p = Rp + R\,\delta\phi^\wedge p = Rp - R\,p^\wedge\,\delta\phi
+\quad\Rightarrow\quad \frac{\partial q}{\partial\delta\phi}\bigg|_{\text{right}} = -R\,p^\wedge . $$</div>
+<p>Perturb on the left instead, \(\operatorname{Exp}(\delta\phi)R\), and the same steps give
+\(-(Rp)^\wedge\). A worked case shows the two are genuinely different matrices. With the 90°
+rotation of §1 and \(p=[1,0,0]^\top\), so \(q=[0,1,0]^\top\):</p>
+<div class="eq">$$ -R\,p^\wedge=\begin{bmatrix}0&0&-1\\0&0&0\\0&-1&0\end{bmatrix},\qquad
+-(Rp)^\wedge=\begin{bmatrix}0&0&-1\\0&0&0\\1&0&0\end{bmatrix}. $$</div>
+<p>Read the first columns. Under the right perturbation, column 0 is rotation about the
+<em>body</em> x axis, and the point lies on that axis, so it does not move: the column is zero. Under
+the left perturbation, column 0 is rotation about the <em>world</em> x axis, and the point, now at
+world \([0,1,0]\), swings towards \(+z\). Same point, same “axis 0”, different physics. A central
+difference with ε = 10⁻⁶ reproduces the right-perturbation columns to six decimal places, which is
+the check you should always run.</p>
+
+<h3>Finite differences, done properly</h3>
+<p>The numerical Jacobian is your oracle, so it pays to know how accurate it is. Central
+differences of \(\sin\) at \(x=1\), against the true derivative \(\cos 1\):</p>
+<table>
+  <tr><th>step ε</th><th>error</th><th>dominated by</th></tr>
+  <tr><td>10⁻¹</td><td>9.0×10⁻⁴</td><td>truncation, ∝ ε²</td></tr>
+  <tr><td>10⁻³</td><td>9.0×10⁻⁸</td><td>truncation</td></tr>
+  <tr><td>10⁻⁵</td><td>1.1×10⁻¹¹</td><td>the sweet spot</td></tr>
+  <tr><td>10⁻⁸</td><td>2.6×10⁻⁹</td><td>round-off, ∝ 1/ε</td></tr>
+  <tr><td>10⁻¹²</td><td>1.2×10⁻⁵</td><td>round-off</td></tr>
+</table>
+<p>The error has a floor, and pushing ε smaller makes it <em>worse</em>. Two practical rules
+follow. Compare analytic and numerical Jacobians with a tolerance near the floor (10⁻⁶ relative is a
+safe choice), not with exact equality. And perturb through the solver's own retraction: an
+analytic Jacobian derived for a right perturbation will disagree with a numerical one taken by
+adding to matrix entries, and the disagreement is a bug in the <em>test</em>, not the code.</p>
+<div class="callout">
+  <p class="label">What glass-lio pins</p>
+  <p>Every Jacobian in the project is checked against finite differences, and the tests also
+  check that the check has teeth: a deliberately swapped cross product must be <em>caught</em>. A
+  numerical Jacobian that agrees with a wrong analytic one proves nothing, so the test proves it
+  disagrees.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/test/test_jacobian.cpp"><code>test_jacobian.cpp</code></a>,
+  tests 1–3: the Jacobian against finite differences, the swapped \(n\times q\) caught, and left
+  and right perturbations shown to differ.</span></p>
+</div>
+
 <h2 id="right-jacobian">4 · Why a right Jacobian appears</h2>
 <p>Adding to a rotation vector and composing rotations are different operations. The right Jacobian converts between them locally:</p>
 <div class="eq">$$ \operatorname{Exp}(\phi+\delta\phi)\approx\operatorname{Exp}(\phi)
@@ -67,6 +274,56 @@ The exact answer is 6.9801; the omitted term is quadratic.</p>
 In lesson 5 the noisy gyro changes the vector inside Exp, so \(J_r\) maps that noise to a right rotation error.
 You need the meaning and the zero limit before memorizing the formula.
 The inverse map appears when differentiating Log: \(\operatorname{Log}(\operatorname{Exp}(\phi)\operatorname{Exp}(\delta))\approx\phi+J_r^{-1}(\phi)\delta\).</p>
+
+<h3>What it corrects for</h3>
+<p>If rotations commuted, \(\operatorname{Exp}(\phi+\delta\phi)\) would simply equal
+\(\operatorname{Exp}(\phi)\operatorname{Exp}(\delta\phi)\) and \(J_r\) would be the identity.
+They do not, and \(J_r\) is exactly the first-order bill for that: it tells you which small
+<em>composed</em> rotation has the same effect as a small <em>added</em> change to the rotation
+vector. The size of the correction grows with \(\theta\). At zero there is nothing to correct,
+which is the \(J_r(0)=I\) above.</p>
+
+<h3>A case you can check by hand</h3>
+<p>Perturb along the rotation's own axis, \(\delta\phi \parallel \phi\). Then \(\phi^\wedge\delta\phi = 0\), both
+correction terms vanish, and \(J_r(\phi)\,\delta\phi = \delta\phi\). That is right: two rotations
+about the same axis <em>do</em> commute, and their angles simply add. Only the components of
+\(\delta\phi\) perpendicular to the axis are bent by the manifold's curvature. When you implement
+\(J_r\), this is the first check to write, because it needs no reference values at all.</p>
+
+<h3>The inverse is not the sign-flipped Jacobian</h3>
+<p>The inverse has its own closed form, and its small-angle limit is a common trap:</p>
+<div class="eq">$$ J_r^{-1}(\phi)=I+\tfrac12\phi^\wedge+\Big(\frac{1}{\theta^2}-\frac{1+\cos\theta}{2\theta\sin\theta}\Big)(\phi^\wedge)^2
+\;\approx\; I+\tfrac12\phi^\wedge+\tfrac{1}{12}(\phi^\wedge)^2 . $$</div>
+<p>The second-order coefficient is \(\tfrac1{12}\), not \(\tfrac16\) with a flipped sign. The
+denominator \(\sin\theta\) is the half-turn singularity from §2 showing up in algebra: at
+\(\theta=\pi\) the Log is not unique, so its derivative cannot exist.</p>
+
+<h3>The numerical cliff: when the correct formula is the wrong code</h3>
+<p>The closed form above is exact, and in floating point it is dangerous at small angles, which
+are the most common angles of all: a gyro at rest over a 5 ms step. The culprit is
+\(1-\cos\theta\), a subtraction of two nearly equal numbers:</p>
+<table>
+  <tr><th>θ</th><th>closed-form \((1-\cos\theta)/\theta^2\)</th><th>true value ≈ 0.5</th></tr>
+  <tr><td>10⁻²</td><td>0.4999958</td><td>correct to 8 digits</td></tr>
+  <tr><td>10⁻⁴</td><td>0.49999999703</td><td>still excellent</td></tr>
+  <tr><td>10⁻⁶</td><td>0.50004445</td><td>relative error ~10⁻⁴</td></tr>
+  <tr><td>10⁻⁸</td><td><strong>0.0</strong></td><td>\(\cos(10^{-8})\) rounds to exactly 1.0</td></tr>
+</table>
+<p>No division by zero ever happens here; the formula simply goes quietly wrong long before
+\(\theta=0\). glass-core's implementation therefore switches to the Taylor series below
+\(\theta = 10^{-4}\), where the closed form is still accurate, so that both branches agree in the
+overlap.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/so3_jacobian.hpp#L41-L59"><code>so3_jacobian.hpp</code>, lines 41–59</a>
+explains the threshold; <a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/so3_jacobian.hpp#L64-L81">lines 64–81</a>
+implement \(J_r\), and <a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/so3_jacobian.hpp#L97-L111">lines 97–111</a>
+its inverse, with the \(\tfrac1{12}\).</span> The general lesson outlives this formula: a branch
+that looks like it guards against 0/0 is usually guarding against cancellation, and its threshold
+should be chosen where the exact formula is still good, not as small as possible.</p>
+
+<details><summary>Try it: why does the Taylor branch not suffer the same cancellation?</summary>
+<p>It never subtracts nearly equal numbers. \(I - \tfrac12\phi^\wedge + \tfrac16(\phi^\wedge)^2\)
+multiplies small numbers by fixed coefficients; its error is the next Taylor term,
+about \(\theta^3\approx10^{-12}\) at the threshold.</p></details>
+
 <h2 id="uncertainty">5 · Covariance, eigenvalues, and information</h2>
 <p>For an error \(e\) with zero mean, \(P=E[ee^\top]\). Diagonal entries are variances (squared units);
 off-diagonal entries encode correlations. In direction \(u\) of unit length, variance is \(u^\top Pu\).
@@ -77,6 +334,54 @@ Its inverse \(P^{-1}=\operatorname{diag}(1/4,1)\) m⁻² is information: an equa
 <div class="eq">$$ P'=APA^\top+Q,\qquad Q=E[nn^\top]. $$</div>
 <p>Expand \((Ae+n)(Ae+n)^\top\); the cross terms vanish by independence and zero means.
 For scalar \(A=2,P=3,Q=1\), this gives \(P'=13\), not 7. With correlated noise the cross terms must be included.</p>
+
+<h3>A correlated example, worked</h3>
+<div class="eq">$$ P=\begin{bmatrix}3&1\\1&3\end{bmatrix}\mathrm{m^2},\qquad
+\lambda_1 = 4 \text{ along } \tfrac{1}{\sqrt2}\begin{bmatrix}1\\1\end{bmatrix},\qquad
+\lambda_2 = 2 \text{ along } \tfrac{1}{\sqrt2}\begin{bmatrix}1\\-1\end{bmatrix}. $$</div>
+<p>The variance along \(x\) is still the diagonal entry, 3 m². But the <em>largest</em>
+uncertainty, 4 m² (2 m standard deviation), is along the diagonal: errors in \(x\) and \(y\) tend
+to have the same sign. The correlation coefficient is \(1/\sqrt{3\cdot3} = 1/3\). If you drew only
+the diagonal, you would draw an axis-aligned ellipse and miss both the direction and the size of
+the worst error. Lesson 7's degeneracy test is exactly this computation, applied to a matrix of
+plane normals instead of a covariance.</p>
+
+<h3>Information adds</h3>
+<p>Two independent measurements of the same quantity, \(z_1=10\) with variance 4 and \(z_2=12\) with
+variance 1, fuse by adding information:</p>
+<div class="eq">$$ P^{-1} = \tfrac14 + \tfrac11 = 1.25 \Rightarrow P = 0.8,\qquad
+\hat z = P\Big(\tfrac{10}{4}+\tfrac{12}{1}\Big) = 11.6 . $$</div>
+<p>The fused estimate sits closer to the better measurement, and it is more certain than either
+alone. This is the scalar version of the whole course. glass-lio's tight solve adds LiDAR
+information, IMU information and prior information into one matrix, and the sum decides, direction
+by direction, which sensor wins.</p>
+
+<h3>Through a nonlinear map</h3>
+<p>Most maps are nonlinear, so an estimator linearises them and propagates with the Jacobian:
+\(P' \approx J P J^\top\). A one-line example: a heading error \(\delta\psi\) moves a point 10 m ahead
+sideways by \(10\,\delta\psi\), so \(J=10\) m/rad and a 1° standard deviation in heading becomes
+\(10 \times 0.01745 = 0.17\) m of lateral position uncertainty. Double the range and it doubles.
+That is §3's lever arm again, now seen through covariance.</p>
+
+<h3>From a noise density to a variance</h3>
+<p>IMU datasheets give noise as a <em>density</em>, in units per \(\sqrt{\mathrm{Hz}}\). Two
+conversions cover almost every use:</p>
+<ul>
+  <li>the standard deviation of one sample at rate \(1/\Delta t\) is \(\sigma_c/\sqrt{\Delta t}\);</li>
+  <li>integrated white noise grows as a random walk, with variance \(\sigma_c^2\,t\) after time \(t\).</li>
+</ul>
+<p>With glass-lio's configured gyro density \(1.7\times10^{-3}\ \mathrm{rad/s/\sqrt{Hz}}\) at
+200 Hz, a single sample has a standard deviation of 0.024 rad/s, which sounds large, yet the integrated
+angle after one second has a standard deviation of only \(1.7\times10^{-3}\) rad, about 0.1°. The
+accelerometer's \(2\times10^{-2}\ \mathrm{m/s^2/\sqrt{Hz}}\) becomes 0.28 m/s² per sample and
+0.02 m/s of velocity uncertainty after one second. Averaging is why integration is so much better
+than any single sample suggests. Lesson 5 does this properly, with the full 9×9 covariance.</p>
+
+<details><summary>Try it: what is the angle uncertainty after 4 s of integrating the same gyro?</summary>
+<p>Variance grows linearly in time, so the standard deviation grows with \(\sqrt t\):
+\(1.7\times10^{-3}\times\sqrt4 = 3.4\times10^{-3}\) rad, about 0.19°. Twice the time, not four times
+the error. That holds for the noise part only; bias, which does not average out, grows linearly.</p></details>
+
 <h2 id="least-squares">6 · From residuals to a linear solve</h2>
 <p>For Gaussian measurement errors, a weighted least-squares cost is
 \(\tfrac12\sum r^\top\Sigma^{-1}r\). This course writes \(\|r\|_\Sigma^2=r^\top\Sigma^{-1}r\).
@@ -89,9 +394,214 @@ For correlated residuals, use a matrix square root of the information.</p>
 <p>\(r=-2,J=1,H=1/4,b=1/2\), so \(\delta x=2\) and the new estimate is 3.</p></details>
 <p>A singular H means at least one local direction is unconstrained. Adding a small diagonal can make a linear system solvable,
 but it does not turn missing measurements into real information. Lesson 7 explores this distinction.</p>
+
+<h3>A worked fit: a line through three points</h3>
+<p>Fit \(y = a + bx\) to \((0,1)\), \((1,3)\), \((2,4)\) with unit weights. Each residual is
+\(r_i = a + b x_i - y_i\) with Jacobian \([1,\ x_i]\). Starting from \(a=b=0\), where \(r_i=-y_i\):</p>
+<div class="eq">$$ H=\sum\begin{bmatrix}1\\x_i\end{bmatrix}\begin{bmatrix}1&x_i\end{bmatrix}=\begin{bmatrix}3&3\\3&5\end{bmatrix},\qquad
+b=\sum\begin{bmatrix}1\\x_i\end{bmatrix}y_i=\begin{bmatrix}8\\11\end{bmatrix},\qquad
+\begin{bmatrix}a\\b\end{bmatrix}=H^{-1}b=\begin{bmatrix}1.1667\\1.5\end{bmatrix}. $$</div>
+<p>The residuals at the solution, \(y_i - (a+bx_i)\), are \(-0.167,\ 0.333,\ -0.167\). No line
+passes through all three points, so least squares spreads the misfit. The problem is linear, so one
+step lands exactly on the minimum; a second step would compute \(b=0\).</p>
+<p>Now say the middle point is twice as precise (σ halved, so weight 4). The weighted
+normal equations become \(H=\begin{bmatrix}6&6\\6&8\end{bmatrix}\),
+\(b=\begin{bmatrix}17\\20\end{bmatrix}\), and the fit moves to \(a=1.333,\ b=1.5\): the middle
+residual shrinks from 0.333 to 0.167 and the outer two grow. Weights are not a tuning knob; they
+are the claim you make about each measurement's precision, and the answer follows the claim.</p>
+
+<h3>Nonlinear problems: iterate the same step</h3>
+<p>When \(r\) is nonlinear, Gauss-Newton linearises at the current estimate, solves the linear
+problem, updates, and repeats. For \(r(x) = x^2 - 2\) from \(x=1\), the step is
+\(\delta x = -r/J = -(x^2-2)/(2x)\):</p>
+<table>
+  <tr><th>iteration</th><th>x</th><th>error from √2</th></tr>
+  <tr><td>1</td><td>1.5</td><td>8.6×10⁻²</td></tr>
+  <tr><td>2</td><td>1.416667</td><td>2.5×10⁻³</td></tr>
+  <tr><td>3</td><td>1.4142157</td><td>2.1×10⁻⁶</td></tr>
+  <tr><td>4</td><td>1.414213562375</td><td>1.6×10⁻¹²</td></tr>
+</table>
+<p>The number of correct digits roughly doubles every step. That is quadratic convergence, and it
+is what Gauss-Newton delivers <em>near</em> a solution where residuals are small. Far away there is
+no such promise, which is why glass-lio always hands its solver a good starting guess from the IMU
+and refuses a result instead of thrashing when the guess was not good enough.</p>
+
+<h3>Robust weights: when one residual lies</h3>
+<p>A squared cost lets one residual ten times too large pull a hundred times too hard. The Huber
+weight keeps small residuals quadratic and makes large ones linear, so an outlier's influence
+saturates instead of growing. In glass-lio every LiDAR residual is Huber-weighted with a 0.2 m
+threshold: a moving car or a mis-associated wall can shift the fit a little but cannot take it
+over. The IMU factor is not Huber-weighted, because a preintegrated IMU delta is not an outlier
+candidate the way a single laser return is.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/gauss_newton.hpp#L31-L38"><code>gauss_newton.hpp</code>, lines 31–38</a>:
+the Huber weight.</span></p>
+
+<h3>A singular H, and what damping does not fix</h3>
+<p>Fit the line to a <em>single</em> point \((1,3)\). Then \(H=\begin{bmatrix}1&1\\1&1\end{bmatrix}\),
+whose determinant is zero. The direction \([1,-1]^\top\) is its null space: raise the intercept and
+lower the slope by the same amount and the line still passes through the point. The data genuinely
+cannot choose between those lines.</p>
+<p>Adding \(\lambda I\) to \(H\) (Levenberg–Marquardt damping) makes the system solvable, and it
+returns one particular line. It chose that line because of λ, not because of any measurement. In a
+long corridor the same thing happens to translation along the corridor, and the correct remedy is
+not a bigger λ but another sensor whose information fills the null space. Lesson 7 builds the test
+that detects the situation; lesson 9 shows the IMU filling it.</p>
+
+<h2>7 · Practice</h2>
+<p>Answer from memory, ideally a day after reading. Having to work to recall it is what makes it
+stick.</p>
+<p class="score"></p>
+
+<div class="quiz" data-answer="rt">
+  <p class="q">\(q = Rp + t\). Which expression recovers \(p\) from \(q\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="neg">\(R^\top q - t\)</button></li>
+    <li><button class="option" data-key="rt">\(R^\top (q - t)\)</button></li>
+    <li><button class="option" data-key="r">\(R\,(q - t)\)</button></li>
+    <li><button class="option" data-key="inv">\(R^\top q + R^\top t\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Subtract \(t\) first, then undo the rotation with \(R^\top\). The pose inverse's translation
+    is \(-R^\top t\), not \(-t\); the two agree only when \(R = I\), which is why the wrong one passes
+    identity-rotation tests.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="chain">
+  <p class="q">Which product is a valid rotation from the LiDAR frame \(L\) to the world \(W\)?</p>
+  <ol class="options">
+    <li><button class="option" data-key="chain">\(R_{WI}\,R_{IL}\)</button></li>
+    <li><button class="option" data-key="rev">\(R_{IL}\,R_{WI}\)</button></li>
+    <li><button class="option" data-key="tr">\(R_{WI}^\top\,R_{IL}\)</button></li>
+    <li><button class="option" data-key="lw">\(R_{LI}\,R_{IW}\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Read subscripts right to left: \(L\to I\), then \(I\to W\), and the inner \(I\)s cancel.
+    \(R_{LI}R_{IW}\) is a valid chain too, but it goes the other way, from \(W\) to \(L\).</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="swap">
+  <p class="q">Deriving \(\partial(R\operatorname{Exp}(\delta\phi)p)/\partial\delta\phi\), which step
+  moves \(\delta\phi\) to the right so it can be factored out?</p>
+  <ol class="options">
+    <li><button class="option" data-key="skew">\((a^\wedge)^\top = -a^\wedge\)</button></li>
+    <li><button class="option" data-key="self">\(a^\wedge a = 0\)</button></li>
+    <li><button class="option" data-key="swap">\(a^\wedge b = -\,b^\wedge a\)</button></li>
+    <li><button class="option" data-key="conj">\(R a^\wedge R^\top = (Ra)^\wedge\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\delta\phi^\wedge p = -p^\wedge\delta\phi\): the cross product's antisymmetry. The result is
+    \(-R\,p^\wedge\) for a right perturbation.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="floor">
+  <p class="q">You shrink the finite-difference step from 10⁻⁵ to 10⁻¹² to get a “more exact”
+  numerical Jacobian. What happens?</p>
+  <ol class="options">
+    <li><button class="option" data-key="better">It gets more accurate</button></li>
+    <li><button class="option" data-key="floor">It gets less accurate: round-off takes over</button></li>
+    <li><button class="option" data-key="same">Nothing changes</button></li>
+    <li><button class="option" data-key="nan">It always returns NaN</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Central differences have an error floor. For \(\sin\) at 1 the error goes from 1.1×10⁻¹¹ at
+    10⁻⁵ to 1.2×10⁻⁵ at 10⁻¹², six orders of magnitude worse, because the difference of two nearly
+    equal numbers is dominated by rounding.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="cancel">
+  <p class="q">glass-core switches \(J_r\) to its Taylor series below \(\theta = 10^{-4}\). What is
+  the branch really protecting against?</p>
+  <ol class="options">
+    <li><button class="option" data-key="div">Division by exactly zero</button></li>
+    <li><button class="option" data-key="cancel">Catastrophic cancellation in \(1-\cos\theta\)</button></li>
+    <li><button class="option" data-key="speed">The cost of calling cos and sin</button></li>
+    <li><button class="option" data-key="pi">The half-turn singularity</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>At \(\theta = 10^{-8}\), \(\cos\theta\) rounds to exactly 1.0 and the closed form returns 0
+    instead of 0.5. The formula goes wrong long before it goes undefined, so the crossover sits where
+    it is still accurate.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="axis">
+  <p class="q">\(J_r(\phi)\,\delta\phi\) for a perturbation \(\delta\phi\) parallel to \(\phi\) equals…</p>
+  <ol class="options">
+    <li><button class="option" data-key="axis">\(\delta\phi\) exactly</button></li>
+    <li><button class="option" data-key="half">\(\tfrac12\,\delta\phi\)</button></li>
+    <li><button class="option" data-key="zero">zero</button></li>
+    <li><button class="option" data-key="neg">\(-\delta\phi\)</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>\(\phi^\wedge\delta\phi = 0\) for parallel vectors, so only the identity term survives.
+    Rotations about one axis commute and their angles add.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="p8">
+  <p class="q">Independent measurements 10 (variance 4) and 12 (variance 1) are fused. The fused
+  variance is…</p>
+  <ol class="options">
+    <li><button class="option" data-key="p25">2.5</button></li>
+    <li><button class="option" data-key="p1">1.0</button></li>
+    <li><button class="option" data-key="p8">0.8</button></li>
+    <li><button class="option" data-key="p5">5.0</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Information adds: \(\tfrac14 + 1 = 1.25\), so the variance is 0.8. It is smaller than
+    either input, which is the point of fusing.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="lambda">
+  <p class="q">\(H\) is singular because a corridor leaves translation along its axis
+  unconstrained. You add \(\lambda I\) and the solve succeeds. What determined the position along
+  the corridor?</p>
+  <ol class="options">
+    <li><button class="option" data-key="lidar">The LiDAR points</button></li>
+    <li><button class="option" data-key="lambda">The damping λ, not a measurement</button></li>
+    <li><button class="option" data-key="huber">The Huber weights</button></li>
+    <li><button class="option" data-key="truth">The true position</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>Damping makes the system solvable without adding information. The answer along the null
+    space is an artefact of λ. Real information, such as the IMU's, has to fill that direction.</p>
+  </div>
+</div>
+
+<div class="recall">
+  <p class="q"><strong>From memory:</strong> write the pose inverse, the right-perturbation
+  derivative of \(Rp\), the covariance propagation rule, and the normal equations with the sign of
+  \(b\). Then state, in one sentence each, the mistake each one prevents.</p>
+  <textarea placeholder="Rough is fine: T^-1 = (R^T, -R^T t), d(R Exp(dphi) p)/ddphi = ..."></textarea>
+  <button class="action reveal">Check against the answer</button>
+  <div class="answer" hidden>
+    <div class="eq">$$ T^{-1}=(R^\top,\,-R^\top t),\qquad \frac{\partial\,R\operatorname{Exp}(\delta\phi)p}{\partial\delta\phi}=-R\,p^\wedge, $$</div>
+    <div class="eq">$$ P'=APA^\top+Q,\qquad H\delta x=b,\ \ H=\sum J^\top\Sigma^{-1}J,\ \ b=-\sum J^\top\Sigma^{-1}r. $$</div>
+    <ul class="checklist">
+      <li>Inverse translation is \(-R^\top t\), not \(-t\)</li>
+      <li>The rotated-point Jacobian has \(R\) on the left and \(p^\wedge\) with a minus sign</li>
+      <li>You named which perturbation side you used</li>
+      <li>Covariance gets \(A\) on both sides, plus \(Q\)</li>
+      <li>The minus sign lives in \(b\) under this course's convention</li>
+    </ul>
+    <p>Missed a box? Reread just that section tomorrow, then try the box again before moving on.</p>
+  </div>
+</div>
+
 <aside class="source"><p class="label">Read alongside the examples</p>
 <p><a href="https://arxiv.org/html/1512.02363v3#S3">Forster et al., §III</a> develops the manifold notation and right Jacobian.
 <a href="https://arxiv.org/abs/1812.01537">Solà et al., A micro Lie theory for state estimation in robotics</a> provides a fuller geometric treatment.</p></aside>
+
+<aside class="ask">
+  <p class="label">Stuck, or curious?</p>
+  <p>Ask your teacher, the agent in this workspace. “Why does the inverse translation need \(R^\top\)?”
+  and “which side do I perturb on?” are exactly the questions this page exists to raise. Tell it
+  which Try-it boxes you could not do; that tells it where to start lesson 1.</p>
+</aside>
 
 </article>
 <nav class="course"><a href="../index.html">Course home</a><a href="0001-what-an-imu-actually-measures.html">Start lesson 1 →</a></nav>
