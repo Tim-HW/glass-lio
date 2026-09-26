@@ -147,7 +147,92 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
   gyro bias if the LiDAR constrains rotation, and inserts the scan into the map."</p>
 </div>
 
-<h2>4 · Practice</h2>
+<h2>4 · Who holds what: the information budget of one scan</h2>
+
+<p>Section 3 justified each weight on its own. Put them side by side and you can see which block actually
+determines each part of the state. The table uses glass-lio's configured priors and the preintegration
+covariance of one 0.1&nbsp;s scan from lesson 5, before the previous state's inflation, which only lowers
+the IMU's numbers:</p>
+
+<table class="compact">
+  <tr><th>state</th><th>LiDAR</th><th>IMU factor (one scan)</th><th>prior</th><th>so it is held by…</th></tr>
+  <tr><td>position</td><td>up to ~10⁷ m⁻² in total, along the normals it sees</td><td>7.5×10⁶ m⁻² per axis</td><td>none</td><td>both, and they argue</td></tr>
+  <tr><td>rotation</td><td>strong where points have lever arms</td><td>very strong (0.03° per scan)</td><td>none</td><td>both</td></tr>
+  <tr><td>velocity</td><td><strong>zero</strong></td><td>≈ 2.5×10⁴ (m/s)⁻² per axis</td><td>none</td><td>the IMU, disciplined through position</td></tr>
+  <tr><td>gyro bias</td><td>zero</td><td>through rotation</td><td>10⁴ (rad/s)⁻² initially</td><td>prior, then rotation evidence</td></tr>
+  <tr><td>accel bias</td><td>zero</td><td>weakly, needs turns</td><td>11 (m/s²)⁻² initially</td><td>almost nothing, for a long time</td></tr>
+  <tr><td>gravity</td><td>zero</td><td>weakly, over one scan</td><td>400 (m/s²)⁻² per axis</td><td>the prior, on purpose</td></tr>
+</table>
+
+<p>Read the right-hand column as a list of vulnerabilities. <strong>Velocity</strong> has no direct
+measurement at all: the LiDAR row has zeros there, so velocity is only as good as the IMU's integration,
+checked through the position it produces. That is why an under-trusted LiDAR let velocity run to
+40&nbsp;m/s. <strong>The accelerometer bias</strong> starts with information 11 and gains little per scan
+(lesson 4: only turns reveal it); its random walk adds a variance of just \(10^{-7}\) per scan against a
+prior variance of 0.09, so the prior dominates for a long time. That is the design working as intended:
+a weakly observable state should move slowly. <strong>Gravity</strong> is the one state where the prior is
+meant to win, because over 0.1&nbsp;s nothing else can tell a small gravity tilt from a small velocity or
+bias error. An anchor that followed its own estimate would have given it no restoring force, which is
+exactly the 500&nbsp;km failure.</p>
+
+<h2>5 · A debugging table: symptom, fingerprint, lesson</h2>
+
+<p>glass-lio's hardest bugs were not found by staring at the trajectory. They were found by logging the
+<em>state</em>: velocity, bias, gravity, rejections, scan by scan. Each failure has a fingerprint in
+those numbers that points at one term of this solve.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a>
+§12.4, “Log the state, not the pose”, and the case study around it.</span> Here is every failure this
+course has met, arranged as you would meet them:</p>
+
+<table class="compact">
+  <tr><th>what you see</th><th>fingerprint in the state</th><th>cause</th><th>lesson</th></tr>
+  <tr><td>height falls, quadratically, after the first turn</td><td>constant ~0.2 m/s² fake acceleration, zero before turning</td><td>accelerometer bias baked into a world-fixed gravity</td><td><a href="0001-what-an-imu-actually-measures.html">1</a></td></tr>
+  <tr><td>a stationary sensor drifts</td><td>velocity grows at rest</td><td>specific-force sign, accel units, or rotated gravity</td><td><a href="0001-what-an-imu-actually-measures.html">1</a>, <a href="0002-integrating-one-imu-step.html">2</a></td></tr>
+  <tr><td>accelerates along the direction of travel</td><td>error ∝ speed, ~20% per scan</td><td>preintegration over 0.12&nbsp;s against poses 0.10&nbsp;s apart</td><td><a href="0002-integrating-one-imu-step.html">2</a></td></tr>
+  <tr><td>a snapshot sensor coasts forever</td><td>every IMU window has zero length</td><td>scan duration zero; the interval never advances</td><td><a href="0002-integrating-one-imu-step.html">2</a>, testing §12.6</td></tr>
+  <tr><td>other sensors outvoted, residuals grow unrejected</td><td>IMU information dwarfs everything</td><td>previous state treated as exact</td><td><a href="0003-why-preintegrate.html">3</a>, <a href="0008-filter-window-or-factor.html">8</a></td></tr>
+  <tr><td>rejections rise after “loosening” the bias</td><td>\(|\mathbf{b}^a|\) ramps, absorbing error</td><td>a free bias against an over-certain previous state</td><td><a href="0004-the-bias-correction.html">4</a>, <a href="0008-filter-window-or-factor.html">8</a></td></tr>
+  <tr><td>velocity ramps smoothly on bland stretches</td><td>\(|\mathbf{v}|\) to ~40 m/s, biases sane</td><td><code>lidar_sigma</code> larger than the real noise</td><td><a href="0005-the-noise-preintegration-carries.html">5</a></td></tr>
+  <tr><td>trajectory far too long, RMSE healthy</td><td>small eigen-ratio of \(\mathbf{H}_t\)</td><td>degenerate geometry</td><td><a href="0007-planes-and-degeneracy.html">7</a></td></tr>
+  <tr><td>the pose leaves the planet</td><td>\(\mathbf{g}\) drifts off \([0,0,-9.8]\), \(|\mathbf{g}|\to 25\)</td><td>gravity prior anchored to its own estimate</td><td>this lesson, §3</td></tr>
+</table>
+
+<p>Notice what the second column has in common: every fingerprint is a <em>state</em> quantity, and
+almost none is visible in the pose alone. A pose that runs away looks the same whatever the cause; the
+velocity, the bias and the gravity vector each break in their own way. When you build an estimator of
+your own, log every state variable from the first day, not only the trajectory.</p>
+
+<h2>6 · What this solve still leaves out</h2>
+
+<p>An honest capstone ends with the edges. glass-lio's tight solve is a careful, measured design, and it
+is also a deliberately partial one. Each gap below is a real next step, and each connects to a lesson you
+now have:</p>
+
+<ul>
+  <li><strong>No window.</strong> Only the newest state is solved; the previous one is marginalized out of
+  a single factor (lesson 8). A fixed-lag window would let later scans correct earlier states, and it is
+  where preintegration's savings grow largest (lesson 3).</li>
+  <li><strong>Partial covariance.</strong> Selected blocks are carried forward, not the full joint
+  distribution (lesson 8). A full filter would keep the position–bias correlations that let position
+  corrections refine the accelerometer bias faster.</li>
+  <li><strong>A fixed gravity anchor.</strong> Gravity can move only within its prior around the initial
+  value. That is right for odometry; a system that ran for hours might re-level gravity against a longer
+  history.</li>
+  <li><strong>No loop closure.</strong> The map forgets geometry beyond 100&nbsp;m, so revisiting a place
+  corrects nothing. This is odometry, not SLAM, by choice.</li>
+  <li><strong>Consistency is untested.</strong> The covariance has never been checked against ground truth
+  with a statistic like NEES (lesson 8). It is plausible; it is not yet proven honest.</li>
+</ul>
+
+<div class="callout">
+  <p class="label">Where to go next</p>
+  <p>Read FAST-LIO2's iterated Kalman filter to see the full-covariance route to the same problem, and
+  VINS-Mono's marginalizing window to see the other one. Then read glass-lio's
+  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a>
+  §12 end to end. It is the whole of this course happening for real, including the parts where careful
+  reasoning was wrong and a logged number was right.</p>
+</div>
+
+<h2>7 · Practice</h2>
 
 <p>From memory, no scrolling. The last question comes from lesson 1, where this started.</p>
 <p class="score"></p>
@@ -232,6 +317,49 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
   </ol>
   <div class="explain" hidden>
     <p>Specific force, \(\mathbf{R}^{\top}(\mathbf{a} - \mathbf{g})\) plus bias and noise. Every line of this lesson rests on that one equation.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="none">
+  <p class="q">Which block of the tight solve measures velocity <em>directly</em>?</p>
+  <ol class="options">
+    <li><button class="option" data-key="lidar">the LiDAR point-to-plane rows</button></li>
+    <li><button class="option" data-key="none">none: the IMU factor relates it to the poses, and the LiDAR only sees position</button></li>
+    <li><button class="option" data-key="grav">the gravity prior</button></li>
+    <li><button class="option" data-key="bias">the bias prior</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The LiDAR rows have zero velocity columns. Velocity enters only through the IMU factor, which ties it to
+    position and rotation, so it is disciplined indirectly, through the position the LiDAR does measure.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="gravity">
+  <p class="q">In a log you see \(|\mathbf{v}|\) and \(|\mathbf{b}^a|\) behaving sensibly while \(\mathbf{g}\) drifts from \([0,0,-9.8]\)
+  towards a magnitude of 25. Which term do you inspect first?</p>
+  <ol class="options">
+    <li><button class="option" data-key="lidar">the LiDAR noise setting</button></li>
+    <li><button class="option" data-key="gravity">the gravity prior's anchor</button></li>
+    <li><button class="option" data-key="deskew">the deskew units</button></li>
+    <li><button class="option" data-key="degen">the degeneracy gate</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>A gravity vector that wanders while velocity and bias stay sane is the fingerprint of a gravity prior with no
+    restoring force: anchored to its own moving estimate instead of the initial value.</p>
+  </div>
+</div>
+
+<div class="quiz" data-answer="prior">
+  <p class="q">Early in a run, what mostly determines the accelerometer-bias estimate?</p>
+  <ol class="options">
+    <li><button class="option" data-key="lidar">the LiDAR, directly</button></li>
+    <li><button class="option" data-key="prior">its prior: the data reveal it only slowly, through turns</button></li>
+    <li><button class="option" data-key="gyro">the gyro</button></li>
+    <li><button class="option" data-key="gravity">the gravity prior</button></li>
+  </ol>
+  <div class="explain" hidden>
+    <p>The LiDAR has zero columns for it, and over one scan it is indistinguishable from a small gravity tilt (lesson 4).
+    Its prior information (about 11) dominates until enough turns have separated it from gravity.</p>
   </div>
 </div>
 
