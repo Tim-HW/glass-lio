@@ -26,7 +26,7 @@ find_package(pcl_conversions REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 # No `registration` component: PCL's GICP is gone, replaced by our own
-# point-to-plane ICP over the voxel map (see doc/pipeline.md).
+# point-to-plane ICP over the voxel map (see docs/implementation/pipeline.md).
 find_package(PCL REQUIRED COMPONENTS common io filters)
 
 include_directories(

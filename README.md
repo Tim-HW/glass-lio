@@ -36,7 +36,7 @@ Start with [this primer on Lie algebra](https://aalok.uk/projects/lietheory/).
 > trajectory that is quietly, confidently wrong.
 >
 > That single fact dictates the architecture, the tests, and the docs. See
-> **[doc/testing.md](doc/testing.md)**.
+> **[docs/implementation/testing.md](docs/implementation/testing.md)**.
 
 ---
 
@@ -74,7 +74,7 @@ which is both the reason it works and its central hazard.
 - **No Ceres, no GTSAM, no g2o** — the manifold least-squares solver is under 200 lines of
   Eigen and you are meant to read it ([`gauss_newton.hpp`](glass_core/include/glass_core/gauss_newton.hpp)).
 - **The tests are oracles, not smoke tests** — finite differences pin every Jacobian; mutation
-  testing checks that the tests would actually notice ([doc/testing.md](doc/testing.md)).
+  testing checks that the tests would actually notice ([docs/implementation/testing.md](docs/implementation/testing.md)).
 - **One command to a running node** — Dockerfile + devcontainer pinned to Jazzy, and a
   checksum-verified test bag ([Quickstart](#quickstart)).
 
@@ -178,7 +178,7 @@ cmake -S glass_core -B build/glass_core && cmake --build build/glass_core
 ctest --test-dir build/glass_core --output-on-failure   # the tests ARE the tutorial
 ```
 
-Read [gauss-newton.md](doc/gauss-newton.md) alongside `gauss_newton.hpp`, then step through
+Read [gauss-newton.md](docs/implementation/gauss-newton.md) alongside `gauss_newton.hpp`, then step through
 the checks this build runs — `test_nav_residual` (the IMU factor's Jacobians vs finite
 differences), `test_preintegration`, `test_marginalization`. The SE(3) Gauss-Newton oracle
 itself (`test_jacobian`) rides along with the full ROS build above. Either way, that is the
@@ -226,33 +226,37 @@ this only detonates when something integrates acceleration.
 internal IMU axes are aligned with the lidar frame) — **that is genuinely correct here, not a
 placeholder.** On an Avia, or with an external IMU, it is not identity, and a wrong value does
 not obviously break: it **tilts** the deskew rather than disabling it, so the cloud still looks
-deskewed. See [3-deskew.md §5](doc/3-deskew.md).
+deskewed. See [3-deskew.md §5](docs/implementation/3-deskew.md).
 
 The rest (`voxel_leaf_size`, `map.voxel_size`, `registration.max_correspondence_distance`) is
 tuning, and every one of them is commented where it is set.
 
 ## Documentation
 
-The docs are the point. Start with **[doc/pipeline.md](doc/pipeline.md)** — the spine — and
-follow the stages in execution order.
+For the general ideas, open the [LiDAR–inertial estimation course](docs/index.html) in a browser:
+IMU models, preintegration, point-to-plane factors, degeneracy, estimator designs, and a
+joint solve. glass-lio appears there as a worked case study.
+
+For this implementation, start with the **[implementation guide](docs/implementation/README.md)**.
+Its [pipeline](docs/implementation/pipeline.md) is the spine; follow the stages in execution order.
 
 | | Doc | What it covers |
 |---|---|---|
-| **1** | [IMU init](doc/1-imu-init.md) | Static-window detection, the **units trap** (accel in *g*), gravity alignment, and why yaw is deliberately left at zero |
-| **2** | [Sync](doc/2-sync.md) | Bracketing a scan with the IMU that spans it, and why consumed IMU is *not* eagerly dropped |
-| **3** | [Deskew](doc/3-deskew.md) | SO(3) gyro integration, SLERP between knots, the extrinsic **conjugation**, and the per-point timestamp traps |
-| **4** | [Downsample](doc/4-downsample.md) | The leaf-size trade, and why the **map** is fed the dense cloud while ICP is fed the sparse one |
-| **5** | [Register](doc/5-registration.md) | Predict → associate → solve → accept. Point-to-plane, the Jacobian, and the constant-velocity runaway — then the **tight** path: the IMU as a residual in the same normal equations, on-manifold preintegration, the 18-DoF state, `J_r⁻¹` |
-| **6** | [Local map](doc/6-local-map.md) | Voxel hash, cached planes, `floor` vs `int`, and the acceptance test that tells you the pose is right |
+| **1** | [IMU init](docs/implementation/1-imu-init.md) | Static-window detection, the **units trap** (accel in *g*), gravity alignment, and why yaw is deliberately left at zero |
+| **2** | [Sync](docs/implementation/2-sync.md) | Bracketing a scan with the IMU that spans it, and why consumed IMU is *not* eagerly dropped |
+| **3** | [Deskew](docs/implementation/3-deskew.md) | SO(3) gyro integration, SLERP between knots, the extrinsic **conjugation**, and the per-point timestamp traps |
+| **4** | [Downsample](docs/implementation/4-downsample.md) | The leaf-size trade, and why the **map** is fed the dense cloud while ICP is fed the sparse one |
+| **5** | [Register](docs/implementation/5-registration.md) | Predict → associate → solve → accept. Point-to-plane, the Jacobian, and the constant-velocity runaway — then the **tight** path: the IMU as a residual in the same normal equations, on-manifold preintegration, the 18-DoF state, `J_r⁻¹` |
+| **6** | [Local map](docs/implementation/6-local-map.md) | Voxel hash, cached planes, `floor` vs `int`, and the acceptance test that tells you the pose is right |
 
 **Companions:**
 
-- **[gauss-newton.md](doc/gauss-newton.md)** — the solver. The normal equations *derived*,
+- **[gauss-newton.md](docs/implementation/gauss-newton.md)** — the solver. The normal equations *derived*,
   what the Gauss-Newton approximation throws away, LDLT, Huber, the **retraction**, and why
   we run with neither damping nor line search.
-- **[benchmark.md](doc/benchmark.md)** — glasslio vs FAST-LIO2 vs KISS-ICP on M3DGR, with
+- **[benchmark.md](docs/implementation/benchmark.md)** — glasslio vs FAST-LIO2 vs KISS-ICP on M3DGR, with
   real ground truth.
-- **[testing.md](doc/testing.md)** — **how the bugs were actually found.** Finite-difference
+- **[testing.md](docs/implementation/testing.md)** — **how the bugs were actually found.** Finite-difference
   oracles, mutation testing, and why "all tests pass" is never the last step — ending with the
   full case study of making tight coupling work on the real bag.
 
@@ -275,14 +279,14 @@ $$
 \underbrace{\mathbf{J}_{\text{imu}}^\top \boldsymbol{\Sigma}^{-1} \mathbf{J}_{\text{imu}}}_{\text{IMU}}
 $$
 
-**That sum *is* the sensor fusion.** No filter, no blending coefficient — just Jacobians
-stacked into one linear system, each weighted by how much it actually knows. Where the
-geometry is degenerate (a corridor), the LiDAR term has a **null space** and the IMU is the
-only thing there, so it takes over exactly where it is needed, with no mode switch.
+**That sum is the sensor fusion inside the tight solve.** The LiDAR and IMU residuals
+contribute information in each direction. Where LiDAR geometry is degenerate, its contribution
+is small and the IMU can carry the estimate. Bias and gravity priors also enter the full solve.
 
-And the punchline: **loose coupling is tight coupling with $\boldsymbol{\Sigma}^{-1} = 0$.**
-The two are the same estimator with one block zeroed, which is what lets a single parameter
-select between them.
+**Loose mode uses a separate 6-DoF SE(3) solver.** With
+`registration.imu_prior_weight: 0`, the IMU supplies the initial pose guess and LiDAR ICP
+solves for pose alone. A positive weight selects the 18-DoF tight solver; zeroing the IMU
+block in that larger system would leave velocity unconstrained.
 
 ## Current state
 
@@ -321,23 +325,23 @@ open stretch where the LiDAR's degeneracy gate can flag a bad scan but has nothi
 to fall back on — tight coupling recovers it directly (RPE 22.6 m → 0.29 m rmse, path
 length 111x truth → 1.1x truth on M3DGR's `Outdoor01`). Deskew's gyro bias is kept in
 sync with the one the tight solve refines every scan, gated by how well the LiDAR itself
-constrains rotation that scan — see [5-registration.md §3.13](doc/5-registration.md#keeping-deskews-gyro-bias-in-sync-with-the-solve).
+constrains rotation that scan — see [5-registration.md §3.13](docs/implementation/5-registration.md#keeping-deskews-gyro-bias-in-sync-with-the-solve).
 
-How the tight solve works: [5-registration.md §3.7](doc/5-registration.md#37-tight-coupling--the-imu-inside-the-solve).
+How the tight solve works: [5-registration.md §3.7](docs/implementation/5-registration.md#37-tight-coupling--the-imu-inside-the-solve).
 How it was made to work — every bug, the wrong diagnosis, and the state fingerprints that
-caught them: [testing.md §12](doc/testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag).
+caught them: [testing.md §12](docs/implementation/testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag).
 The failure taught more than the success would have.
 
 **Not implemented:** loop closure (this is odometry, not SLAM — the map deliberately
 forgets), and translational deskew (tight coupling produces a trusted velocity now, but
-nothing reads it back into deskew yet — see [3-deskew.md §7](doc/3-deskew.md)).
+nothing reads it back into deskew yet — see [3-deskew.md §7](docs/implementation/3-deskew.md)).
 
 ## Benchmark
 
 glasslio measured against **FAST-LIO2** and **KISS-ICP** on
 [M3DGR](https://github.com/sjtuyinjie/M3DGR)'s `Outdoor01` sequence (RTK ground
 truth, 345.85 m path). Full write-up, second sequence, and methodology:
-[doc/benchmark.md](doc/benchmark.md).
+[docs/implementation/benchmark.md](docs/implementation/benchmark.md).
 
 | System | APE rmse | RPE rmse | Path length | Ratio vs GT |
 |---|---|---|---|---|
@@ -389,7 +393,8 @@ include/glasslio/     the LiDAR front-end headers — each one is the doc for it
 src/lio/              the pipeline stages, ROS-free apart from the message types they parse
 src/glasslio_node.cpp the ROS shell: subscriptions, threading, publishing
 test/                 assert-based self-checks, no framework
-doc/                  the actual product
+docs/                the HTML course and Markdown implementation guide
+  implementation/     pipeline stages, benchmark, and testing history
 docker/               pinned ROS 2 Jazzy image + a plain-docker runner
 .devcontainer/        VS Code wrapper around docker/Dockerfile
 ```

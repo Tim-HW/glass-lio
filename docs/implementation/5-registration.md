@@ -7,11 +7,11 @@ It has **two solvers**. **Loose** (§3.1–3.6): the IMU proposes the guess, the
 ICP solves the 6-DoF pose alone. **Tight** (§3.7–3.14, the default): the IMU becomes a residual in
 the same normal equations and the solve grows to 18 DoF. The loop below is shared.
 
-Code: [`registration.cpp`](../src/lio/registration.cpp),
-[`registration.hpp`](../include/glasslio/registration.hpp).
-The *solver* lives separately in [`gauss_newton.hpp`](../glass_core/include/glass_core/gauss_newton.hpp)
+Code: [`registration.cpp`](../../src/lio/registration.cpp),
+[`registration.hpp`](../../include/glasslio/registration.hpp).
+The *solver* lives separately in [`gauss_newton.hpp`](../../glass_core/include/glass_core/gauss_newton.hpp)
 — see [gauss_newton.md](gauss-newton.md).
-Self-check: [`test_registration.cpp`](../test/test_registration.cpp).
+Self-check: [`test_registration.cpp`](../../test/test_registration.cpp).
 
 The loop, four steps:
 
@@ -265,14 +265,14 @@ Everything above is the **loose** path (`imu_prior_weight: 0`): the IMU proposes
 point-to-plane residual — but the IMU becomes a **residual in the same normal equations**
 instead of a hint.
 
-Code: [`tight_registration.cpp`](../src/lio/tight_registration.cpp) (the solve),
-[`nav_residual.hpp`](../glass_core/include/glass_core/nav_residual.hpp) (every residual and
-Jacobian), [`preintegration.hpp`](../glass_core/include/glass_core/preintegration.hpp),
-[`nav_state.hpp`](../glass_core/include/glass_core/nav_state.hpp),
-[`so3_jacobian.hpp`](../glass_core/include/glass_core/so3_jacobian.hpp).
-Self-checks: [`test_tight.cpp`](../test/test_tight.cpp),
-[`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp),
-[`test_preintegration.cpp`](../glass_core/test/test_preintegration.cpp).
+Code: [`tight_registration.cpp`](../../src/lio/tight_registration.cpp) (the solve),
+[`nav_residual.hpp`](../../glass_core/include/glass_core/nav_residual.hpp) (every residual and
+Jacobian), [`preintegration.hpp`](../../glass_core/include/glass_core/preintegration.hpp),
+[`nav_state.hpp`](../../glass_core/include/glass_core/nav_state.hpp),
+[`so3_jacobian.hpp`](../../glass_core/include/glass_core/so3_jacobian.hpp).
+Self-checks: [`test_tight.cpp`](../../test/test_tight.cpp),
+[`test_nav_residual.cpp`](../../glass_core/test/test_nav_residual.cpp),
+[`test_preintegration.cpp`](../../glass_core/test/test_preintegration.cpp).
 
 > **Status: working, and ON by default.** Tight tracks the Livox test bag at **parity with
 > loose** (429 m vs 434 m of trajectory), recovers the axis a corridor hides from the LiDAR
@@ -509,7 +509,7 @@ to `I` moves the rotation-block error from **5.5e-10 to 2.5e-02**, seven orders 
 magnitude.
 
 > Sophus gives you `exp`, `log`, `hat`, `vee` — and **not** `J_r`. It is the one piece of
-> Lie algebra we write ourselves ([so3_jacobian.hpp](../glass_core/include/glass_core/so3_jacobian.hpp)),
+> Lie algebra we write ourselves ([so3_jacobian.hpp](../../glass_core/include/glass_core/so3_jacobian.hpp)),
 > because it is the piece every non-trivial derivative on SO(3) needs.
 
 ### The small-angle cliff
@@ -619,7 +619,7 @@ tight coupling buys you.
 
 ## 3.13 What it buys, and where it stands
 
-**Synthetic**, from [`test_tight.cpp`](../test/test_tight.cpp):
+**Synthetic**, from [`test_tight.cpp`](../../test/test_tight.cpp):
 
 | Scene | Loose | Tight |
 |---|---|---|
@@ -630,7 +630,7 @@ tight coupling buys you.
 The corridor is the whole thesis: the IMU supplies the direction the geometry cannot,
 *without* being able to steamroll the geometry when the geometry is good.
 
-**Real data**, measured deterministically with [`tight_replay`](../src/tight_replay.cpp) on the
+**Real data**, measured deterministically with [`tight_replay`](../../src/tight_replay.cpp) on the
 Livox bag:
 
 | | trajectory | scale-gate ratio | max `‖v‖` |
@@ -643,7 +643,7 @@ Livox bag:
 - **The scale gate is the wrong yardstick for a driving bag.** A large trajectory is *correct*
   when the car really travels, which is why even trusted loose "fails" at 2.76×. The gate was
   built for a bounded room; here "2.72×" means "tracks like loose", not "diverges".
-- **On the 3-ToF rig** ([`config/3lidars.yaml`](../config/3lidars.yaml)) tight converged toward
+- **On the 3-ToF rig** ([`config/3lidars.yaml`](../../config/3lidars.yaml)) tight converged toward
   loose as `lidar_sigma` shrank and never beat it. Fusing three fields of view already makes the
   geometry observable; the IMU helps where geometry is *degenerate*, and that rig removes the
   degeneracy.
@@ -716,7 +716,7 @@ A filter can update the *current* velocity and biases through their correlations
 the measured pose. It does not re-optimize a previously committed pose. A fixed-lag
 window does retain recent poses for later scans to revise; removing the oldest while
 preserving its linearized information requires Schur-complement marginalization
-([marginalization.hpp](../glass_core/include/glass_core/marginalization.hpp)).
+([marginalization.hpp](../../glass_core/include/glass_core/marginalization.hpp)).
 
 A fuller covariance might reduce the need for the loose warm-up, since a large
 initial velocity variance would represent uncertainty in $v_0$. Whether it can

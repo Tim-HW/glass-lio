@@ -24,7 +24,7 @@
     registration:
       # --- LOOSE coupling. THE make-or-break setting: the node's built-in default is 1.0
       # (tight on), so this must be set. On ToF the tight path has not been shown to beat
-      # loose (doc/5-registration.md sec 3.13); loose lets ICP measure velocity and
+      # loose (docs/implementation/5-registration.md sec 3.13); loose lets ICP measure velocity and
       # self-correct. 0 = loose.
       imu_prior_weight: 0.0
 

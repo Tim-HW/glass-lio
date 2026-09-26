@@ -10,7 +10,7 @@ repository that is **not** ours, and what it is licensed under.
 | **Sophus** | [`glass_core/include/sophus/`](glass_core/include/sophus/) | MIT | Lie group primitives (SO(3), SE(3), `Exp`/`Log`). Vendored as headers. © Hauke Strasdat, Steven Lovegrove. See [`glass_core/include/sophus/LICENSE`](glass_core/include/sophus/LICENSE). Upstream: <https://github.com/strasdat/Sophus> |
 
 That is the only third-party *code* in the tree. Everything else under `src/`,
-`include/glasslio/`, `test/`, `doc/`, `config/`, `scripts/` and `docker/` is ours and is
+`include/glasslio/`, `test/`, `docs/implementation/`, `config/`, `scripts/` and `docker/` is ours and is
 MIT.
 
 ## Fetched at runtime, not bundled

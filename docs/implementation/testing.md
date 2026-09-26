@@ -2,7 +2,7 @@
 
 The most transferable thing in this repo is not the LiDAR-inertial odometry — it is the
 method used to find the bugs in it. Because **every serious bug here produced plausible
-output** (see the [README](../README.md)): none crashed, NaN'd, or threw. A sign-flipped
+output** (see the [README](../../README.md)): none crashed, NaN'd, or threw. A sign-flipped
 Jacobian still converges; a plane fitted perpendicular to the wall still gives ICP
 something to chew on. That is the defining hazard of estimator code, and it dictates
 everything below.
@@ -49,7 +49,7 @@ what lets us assert agreement to `1e-9` instead of squinting at `1e-4`.
 **Perturb *through the retraction*, never by addition.** The state lives on a manifold, so
 the perturbation must be applied the way the solver applies it —
 $\mathrm{Exp}(h\,\mathbf{e}_i)$ — not by adding $h$ to a rotation matrix. In
-[`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp) the numeric Jacobian goes through
+[`test_nav_residual.cpp`](../../glass_core/test/test_nav_residual.cpp) the numeric Jacobian goes through
 `boxplus()`, the *same* retraction the optimizer uses. A finite-difference check that
 perturbs the wrong way tests the wrong function.
 
@@ -92,7 +92,7 @@ whether it is the Jacobian, the association, the retraction, or your convergence
 A finite-difference check only proves the analytic Jacobian matches. It does **not** prove
 your check is sensitive enough to notice if it didn't. So assert the failure explicitly:
 
-**Negative assertions.** [`test_jacobian.cpp`](../test/test_jacobian.cpp) constructs the
+**Negative assertions.** [`test_jacobian.cpp`](../../test/test_jacobian.cpp) constructs the
 *wrong* Jacobian — `(n × q)` instead of `(q × n)` — and asserts it **fails** the oracle:
 
 ```cpp
@@ -100,7 +100,7 @@ assert(err > 1e-3 && "the swapped cross product should NOT match; test 1 has no 
 ```
 
 **Load-bearing assertions.** Is the `J_r⁻¹` term in the IMU Jacobian actually doing work, or
-would we pass with it stubbed out? [`test_nav_residual.cpp`](../glass_core/test/test_nav_residual.cpp)
+would we pass with it stubbed out? [`test_nav_residual.cpp`](../../glass_core/test/test_nav_residual.cpp)
 replaces it with the identity matrix — the classic shortcut — and measures the damage:
 
 ```
@@ -403,7 +403,7 @@ of what §12.3's careful diagnosis prescribed.
 
 ### 12.6 A new sensor, a new silent freeze
 
-On the 3-ToF rig ([`config/3lidars.yaml`](../config/3lidars.yaml)) tight did not diverge — it
+On the 3-ToF rig ([`config/3lidars.yaml`](../../config/3lidars.yaml)) tight did not diverge — it
 **froze**: 0.3 m of trajectory, every scan coasting, not one warning. A ToF is a snapshot with no
 per-point time, so the preintegration window, derived from per-point timestamps, collapsed to
 `[0, 0]`; and because the scan-end time was only recorded *after* the empty-window guard, the

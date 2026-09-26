@@ -30,7 +30,7 @@ using namespace glass_core;  // the estimation engine (NOLINT: build/namespaces)
 
 /// LiDAR-inertial odometry node -- the ROS SHELL, and nothing more.
 ///
-/// The pipeline, numbered as doc/pipeline.md numbers it:
+/// The pipeline, numbered as docs/implementation/pipeline.md numbers it:
 ///
 ///   [1] IMU init      gate: nothing runs until it completes    | THIS FILE
 ///   [2] sync          pair a scan with the IMU spanning it     | (callback side,
@@ -91,7 +91,7 @@ public:
     const double map_range = declare_parameter<double>("map.max_range", 100.0);
     // The PLANARITY GATE, and its companion. These decide which voxels yield a plane at
     // all -- i.e. how many correspondences ICP gets, and how trustworthy each one is.
-    // Genuinely environment-dependent (see doc/6-local-map.md), hence config, not code.
+    // Genuinely environment-dependent (see docs/implementation/6-local-map.md), hence config, not code.
     const int map_min_pts_plane =
       declare_parameter<int>("map.min_points_for_plane", LocalMap::kDefaultMinPointsForPlane);
     const double map_planarity =
@@ -160,7 +160,7 @@ public:
     //          IMU information, velocity and the biases are UNOBSERVABLE (the LiDAR
     //          Jacobian's columns for them are structurally zero), so we do not pretend to
     //          estimate them -- we run the 6-DoF SE(3) solve instead.
-    //   > 0 -> TIGHT: one joint 18-DoF solve (nav + gravity). See doc/5-registration.md sec 3.7.
+    //   > 0 -> TIGHT: one joint 18-DoF solve (nav + gravity). See docs/implementation/5-registration.md sec 3.7.
     const double imu_prior_weight =
       declare_parameter<double>("registration.imu_prior_weight", 1.0);
     ep.use_tight = imu_prior_weight > 0.0;
@@ -489,7 +489,7 @@ private:
   /// [7] One line per scan. `map N vox` is the health check: with a correct pose the voxel
   /// count PLATEAUS (the same geometry re-observed lands in the same voxels). Climbing
   /// without bound means the same wall is being re-inserted at slightly wrong places --
-  /// i.e. the pose is drifting. See doc/6-local-map.md.
+  /// i.e. the pose is drifting. See docs/implementation/6-local-map.md.
   void logScan(const ScanResult & r)
   {
     const Eigen::Vector3d & t = estimator_->pose().translation();
@@ -590,7 +590,7 @@ private:
   // --- Callback side: sensor buffers. Never touched by the worker.
   std::mutex buf_mutex_;
   /// [2] Stage 2 lives here -- the buffers, the bracketing, and the time-jump watchdog.
-  /// Touched only under buf_mutex_. See doc/2-sync.md.
+  /// Touched only under buf_mutex_. See docs/implementation/2-sync.md.
   MeasureSync sync_{0.12};
 
   // --- The hand-off: the only shared state between callbacks and the worker.

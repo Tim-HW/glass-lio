@@ -1,5 +1,5 @@
 // Deterministic offline driver for the estimator -- Phase 0 of the preintegration roadmap
-// (doc/testing.md sec 12). It reads a bag and feeds scans + IMU to LioEstimator
+// (docs/implementation/testing.md sec 12). It reads a bag and feeds scans + IMU to LioEstimator
 // SYNCHRONOUSLY, in bag order, on one thread -- so a run is REPRODUCIBLE. The live node is
 // not: its worker thread drops scans under load and interleaves nondeterministically, so
 // the trajectory differs run to run and you cannot tell a fix from noise. This can.

@@ -15,7 +15,7 @@ namespace glasslio
 {
 
 /// [3] DESKEW -- rotation-only motion compensation, driven by the integrated gyro.
-/// See doc/3-deskew.md.
+/// See docs/implementation/3-deskew.md.
 ///
 /// A scan is not a snapshot: a Livox at 10 Hz spends ~100 ms sweeping, and every point is
 /// measured with the sensor at a different orientation. Uncorrected, the error at range r
@@ -26,7 +26,7 @@ namespace glasslio
 /// SCAN-END frame using the gyro orientation interpolated at its exact acquisition time.
 ///
 /// Translation is deliberately NOT compensated: that needs a trustworthy velocity, which
-/// only a tightly-coupled estimator produces (doc/5-registration.md sec 3.7).
+/// only a tightly-coupled estimator produces (docs/implementation/5-registration.md sec 3.7).
 class Deskew
 {
 public:
@@ -41,7 +41,7 @@ public:
   /// Extrinsic ROTATION lidar -> IMU. `q_il` must be normalized.
   ///
   /// Only the rotation is taken, because only the rotation is used: deskew is
-  /// rotation-only (see doc/3-deskew.md). The extrinsic TRANSLATION is validated at
+  /// rotation-only (see docs/implementation/3-deskew.md). The extrinsic TRANSLATION is validated at
   /// startup but deliberately not stored -- nothing reads it, and a field that is
   /// written and never read is a lie about what the code does. It comes back in the
   /// commit that actually needs it (translational deskew, or a non-identity extrinsic

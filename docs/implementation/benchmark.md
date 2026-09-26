@@ -34,8 +34,8 @@ FAST-LIO2 tracks Outdoor01 the most accurately of the three, with path length wi
 
 **APE and RPE over time:**
 
-![APE over time](../images/outdoor01_ape_over_time.png)
-![RPE over time](../images/outdoor01_rpe_over_time.png)
+![APE over time](../../images/outdoor01_ape_over_time.png)
+![RPE over time](../../images/outdoor01_rpe_over_time.png)
 
 FAST-LIO2's APE stays low and flat for the whole run. glasslio and KISS-ICP both
 oscillate — rising and falling repeatedly rather than drifting monotonically — which

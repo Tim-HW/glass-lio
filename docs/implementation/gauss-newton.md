@@ -2,7 +2,7 @@
 
 Iterative least squares on SE(3). This file has **never heard of a point cloud**.
 
-Code: [`gauss_newton.hpp`](../glass_core/include/glass_core/gauss_newton.hpp).
+Code: [`gauss_newton.hpp`](../../glass_core/include/glass_core/gauss_newton.hpp).
 
 It is split out from [5-registration.md](5-registration.md) on purpose, and the split is
 the lesson: **swap the residual and the same solver becomes a different estimator.** It is
@@ -210,7 +210,7 @@ incorrect trajectory.
 
 Consequently: **every Jacobian handed to `optimizeSE3` must be
 $\partial r / \partial \boldsymbol{\xi}$ under the left perturbation.** That is a contract,
-and it is pinned by finite differences in [`test_jacobian.cpp`](../test/test_jacobian.cpp) —
+and it is pinned by finite differences in [`test_jacobian.cpp`](../../test/test_jacobian.cpp) —
 not by a comment.
 
 ## 7. Robust weighting
@@ -248,7 +248,7 @@ convergence guarantees below are soft.
 Near the solution, with small residuals, Gauss-Newton converges **quadratically** — the
 error roughly squares each iteration. That is why the solver reaches
 $\lVert \log \mathbf{T}\rVert \approx 10^{-22}$ in **3 iterations** in
-[`test_jacobian.cpp`](../test/test_jacobian.cpp).
+[`test_jacobian.cpp`](../../test/test_jacobian.cpp).
 
 **Far from the solution there is no guarantee at all.** Gauss-Newton is a *local* method: it
 trusts its quadratic model completely and jumps to that model's minimum. If the model is bad

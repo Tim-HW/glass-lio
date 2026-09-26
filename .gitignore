@@ -10,3 +10,10 @@ compile_commands.json
 # project infrastructure. Kept locally, not versioned.
 scripts/eval/
 .venv-eval/
+
+# Local-markdown issue tracker (docs/agents/issue-tracker.md) -- specs and tickets
+# stay on this machine, never in the public repo.
+.scratch/
+
+# Local Claude settings and task state
+.claude/

@@ -11,7 +11,7 @@
 # The three bags rank apartment2 (1.18x) > apartment (1.46x) > apartment3 (3.06x) -- more
 # observed geometry, less drift. All three needed the sliding-window IMU-init fix to start at
 # all (they are handheld and never begin at rest; the rest window straddled init boundaries --
-# see doc/1-imu-init.md).
+# see docs/implementation/1-imu-init.md).
 #
 # Run:  ros2 run glasslio glasslio_node --ros-args --params-file config/3lidars.yaml
 # then: ros2 bag play data/transfer-01a041b7/3lidars-apartment2    (the best of the three)
@@ -42,7 +42,7 @@
       # integrated over 33 ms ToF snapshots only adds drift: tight coupling was measured to
       # converge toward loose as its weight shrinks and never beat it (5.32x -> 2.01x -> 1.69x
       # as lidar_sigma falls). Tight helps where geometry is DEGENERATE; this rig removes the
-      # degeneracy. See doc/5-registration.md sec 3.13. 0 = loose.
+      # degeneracy. See docs/implementation/5-registration.md sec 3.13. 0 = loose.
       imu_prior_weight: 0.0
 
       # Point-to-plane noise. Carried over from the tuned Livox value; only bites under tight.

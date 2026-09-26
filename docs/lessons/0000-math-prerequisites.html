@@ -52,7 +52,7 @@ glass-lio's initialisation: gravity is measured in the <em>IMU</em> frame, but t
 the <em>LiDAR</em>, so the initial attitude is \(R_{WL}=R_{WI}R_{IL}\). On the Mid-360 \(R_{IL}\)
 is the identity, which is precisely why forgetting it would go unnoticed until someone mounts an
 external IMU.<span class="sidenote">The project's own write-up calls this “a bug that only appears
-on someone else's hardware is the worst kind”: <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/1-imu-init.md"><code>doc/1-imu-init.md</code></a>, “Applying the extrinsic”.</span></p>
+on someone else's hardware is the worst kind”: <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/1-imu-init.md"><code>docs/implementation/1-imu-init.md</code></a>, “Applying the extrinsic”.</span></p>
 
 <h3>What orthogonality buys</h3>
 <p>\(R^\top R = I\) is one equation with three consequences you will use constantly.</p>
@@ -179,7 +179,7 @@ world frame and composes on the left; its 18-dimensional inertial state composes
 because the IMU equations are naturally body-frame. Neither is a mistake. Mixing them is: hand a
 right-perturbation Jacobian to a left-perturbation solver and the estimator still converges, to
 the wrong answer.<span class="sidenote">The project records the convention per component in a
-table: <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/gauss-newton.md"><code>doc/gauss-newton.md</code></a>, §6 “The perturbation convention”.</span></p>
+table: <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/gauss-newton.md"><code>docs/implementation/gauss-newton.md</code></a>, §6 “The perturbation convention”.</span></p>
 
 <h3>Log, and the half-turn</h3>
 <p>\(\operatorname{Log}\) returns the rotation vector of a rotation. It is well defined for angles

@@ -5,7 +5,7 @@ the stages chain, and the cross-cutting concerns (frames, threading, status). Ea
 stage has its own doc, linked below and named in **execution order**.
 
 Everything here happens inside **one node**
-([`glasslio_node.cpp`](../src/glasslio_node.cpp)). The intermediate clouds are never
+([`glasslio_node.cpp`](../../src/glasslio_node.cpp)). The intermediate clouds are never
 consumed outside it, so publishing them between separate nodes would buy a
 serialize/deserialize round trip and nothing else. They *are* exposed on debug topics,
 but only for RViz.
@@ -33,12 +33,12 @@ system's central hazard — see [6-local-map.md §6.6](6-local-map.md).
 
 | # | Stage | Doc | Code |
 |---|---|---|---|
-| **1** | **IMU initialization** — gyro bias, gravity, world frame. *A gate: nothing runs until it completes.* | [1-imu-init.md](1-imu-init.md) | [`imu_init.cpp`](../glass_core/src/imu_init.cpp) |
-| **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | [`sync.cpp`](../src/lio/sync.cpp) |
-| **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`deskew.cpp`](../src/lio/deskew.cpp), [`gyr_int.cpp`](../src/lio/gyr_int.cpp) |
+| **1** | **IMU initialization** — gyro bias, gravity, world frame. *A gate: nothing runs until it completes.* | [1-imu-init.md](1-imu-init.md) | [`imu_init.cpp`](../../glass_core/src/imu_init.cpp) |
+| **2** | **Sync** — pair a scan with the IMU that brackets it | [2-sync.md](2-sync.md) | [`sync.cpp`](../../src/lio/sync.cpp) |
+| **3** | **Deskew** — undo intra-scan rotation on SO(3) | [3-deskew.md](3-deskew.md) | [`deskew.cpp`](../../src/lio/deskew.cpp), [`gyr_int.cpp`](../../src/lio/gyr_int.cpp) |
 | **4** | **Downsample** — voxel grid, 0.5 m leaf | [4-downsample.md](4-downsample.md) | `LioEstimator::downsample()` |
-| **5** | **Register** — point-to-plane ICP → **the pose**. Tight by default: the IMU is folded into the same solve (`imu_prior_weight: 0` for loose) | [5-registration.md](5-registration.md) | [`registration.cpp`](../src/lio/registration.cpp), [`tight_registration.cpp`](../src/lio/tight_registration.cpp) |
-| **6** | **Local map** — insert the aligned scan; it is the next scan's target | [6-local-map.md](6-local-map.md) | [`local_map.cpp`](../src/lio/local_map.cpp) |
+| **5** | **Register** — point-to-plane ICP → **the pose**. Tight by default: the IMU is folded into the same solve (`imu_prior_weight: 0` for loose) | [5-registration.md](5-registration.md) | [`registration.cpp`](../../src/lio/registration.cpp), [`tight_registration.cpp`](../../src/lio/tight_registration.cpp) |
+| **6** | **Local map** — insert the aligned scan; it is the next scan's target | [6-local-map.md](6-local-map.md) | [`local_map.cpp`](../../src/lio/local_map.cpp) |
 
 **Companions** (not pipeline stages):
 
@@ -183,7 +183,7 @@ rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 
 ## Parameters
 
-All in [`config/livox_mid_360.yaml`](../config/livox_mid_360.yaml). The ones that
+All in [`config/livox_mid_360.yaml`](../../config/livox_mid_360.yaml). The ones that
 actually bite:
 
 | Param | Why it matters |

@@ -12,7 +12,7 @@ namespace glasslio
 {
 
 /// [2] SYNC -- pair a LiDAR scan with the IMU samples that span it.
-/// See doc/2-sync.md.
+/// See docs/implementation/2-sync.md.
 ///
 /// Trivial-looking, and it is where two of the nastier bugs in this pipeline can hide --
 /// both of which produce a deskew that SILENTLY DOES NOTHING rather than an error.

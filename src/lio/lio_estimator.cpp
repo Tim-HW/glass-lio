@@ -53,25 +53,25 @@ void LioEstimator::reset()
   resetBiasCovariance();
 }
 
-/// THE PIPELINE, in the order doc/pipeline.md numbers it. Stages [1] IMU init and [2] sync
+/// THE PIPELINE, in the order docs/implementation/pipeline.md numbers it. Stages [1] IMU init and [2] sync
 /// happened before we were called -- a MeasureGroup IS their product.
 ScanResult LioEstimator::processScan(const MeasureGroup & meas)
 {
   ScanResult r;
 
-  // --- [3] DESKEW: undo the intra-scan rotation (doc/3-deskew.md) ---
+  // --- [3] DESKEW: undo the intra-scan rotation (docs/implementation/3-deskew.md) ---
   r.deskewed = deskew_->process(meas);
   if (!r.deskewed || r.deskewed->empty()) {
     return r;   // ok == false
   }
 
-  // --- [4] DOWNSAMPLE: fewer points for ICP to chew (doc/4-downsample.md) ---
+  // --- [4] DOWNSAMPLE: fewer points for ICP to chew (docs/implementation/4-downsample.md) ---
   r.downsampled = downsample(r.deskewed);
 
-  // --- [5] REGISTER: align against the local map -> pose_ (doc/5-registration.md) ---
+  // --- [5] REGISTER: align against the local map -> pose_ (docs/implementation/5-registration.md) ---
   r.pose_trusted = registerScan(r.downsampled, meas);
 
-  // --- [6] LOCAL MAP: fold the aligned scan back in (doc/6-local-map.md) ---
+  // --- [6] LOCAL MAP: fold the aligned scan back in (docs/implementation/6-local-map.md) ---
   insertIntoMap(r.deskewed, r.pose_trusted);
 
   r.ok = true;
@@ -139,7 +139,7 @@ CloudXYZI::Ptr LioEstimator::downsample(const CloudXYZI::Ptr & cloud)
 ///
 /// TIGHT COUPLING NEEDS A VELOCITY TO START FROM, and IMU init cannot give it one: a
 /// static window cannot tell REST from CONSTANT VELOCITY -- both show zero rotation and
-/// zero acceleration variance (doc/1-imu-init.md). On this bag the robot is already
+/// zero acceleration variance (docs/implementation/1-imu-init.md). On this bag the robot is already
 /// cruising at ~1.5 m/s when recording starts, so init reports "static" and seeds v = 0.
 ///
 /// Loose coupling shrugs that off: velocity is only a prior there, and it self-corrects
@@ -238,7 +238,7 @@ bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
 ///
 /// THE WINDOW IS NOT THE MEASUREGROUP. `meas.imu` deliberately over-covers the scan:
 /// it carries a bracket sample before the start and IMU past the end (see
-/// doc/2-sync.md), so it spans ~0.12 s. But deskew compensates every point into the
+/// docs/implementation/2-sync.md), so it spans ~0.12 s. But deskew compensates every point into the
 /// scan-END frame, so consecutive POSES are 0.10 s apart.
 ///
 /// Integrate the whole group and the IMU factor asserts "over 0.12 s you moved dp"
@@ -267,7 +267,7 @@ ImuPreintegration LioEstimator::buildPreintegration(
     const auto & m = *meas.imu[i];   // zero-order hold over the interval
     const Eigen::Vector3d w(
       m.angular_velocity.x, m.angular_velocity.y, m.angular_velocity.z);
-    // SI, always. The Livox reports accel in g (see doc/1-imu-init.md); feeding raw
+    // SI, always. The Livox reports accel in g (see docs/implementation/1-imu-init.md); feeding raw
     // g into an integrator that also adds gravity in m/s^2 would be incoherent.
     const Eigen::Vector3d a = Eigen::Vector3d(
       m.linear_acceleration.x, m.linear_acceleration.y, m.linear_acceleration.z) *
@@ -397,11 +397,12 @@ bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureG
 /// That is the number IMU init could not observe.
 void LioEstimator::seedNavStateFromLoose()
 {
+  const Eigen::Vector3d init_gyro_bias = state_.bg;
   state_ = NavState();
   state_.R = Sophus::SO3d(Eigen::Quaterniond(pose_.linear()).normalized());
   state_.p = pose_.translation();
   state_.v = velocity_;
-  // gyro bias is already in state_.bg (set by initialize())
+  state_.bg = init_gyro_bias;
   // Accel bias starts at zero -- and, crucially, starts UNCERTAIN. A static window
   // cannot observe it, so we say so, and let the data reveal it.
   resetBiasCovariance();

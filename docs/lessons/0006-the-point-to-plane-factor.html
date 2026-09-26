@@ -71,7 +71,7 @@ is translation then rotation. The warm-up's rule decides the side: this correcti
 <em>world</em> frame, so it composes on the left, while the gyro's increment lives in the body frame and
 composes on the right. glass-core's solver header says "Same manifold, same Exp, opposite side.
 Swapping them silently produces an estimator that still runs, still converges, and is wrong."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/gauss_newton.hpp#L17-L29"><code>gauss_newton.hpp</code>,
-lines 17–29</a>. glass-lio's own derivation is in <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a>,
+lines 17–29</a>. glass-lio's own derivation is in <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a>,
 §3.3–3.4.</span></p>
 
 <h2>3 · Derive the Jacobian</h2>
@@ -427,8 +427,8 @@ weighting produces.</p>
   Least-Squares Optimization for Point-to-Plane ICP Surface Registration</em></a>, UNC TR04-004, 2004.
   <strong>Three pages; read all of it.</strong> It's the point-to-plane metric and its small-angle linearisation:
   this lesson's derivation, in Euler angles. Then read glass-lio's own
-  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.3–3.4, and
-  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/gauss-newton.md"><code>doc/gauss-newton.md</code></a> §3 and §6 for the build and the retraction.</p>
+  <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a> §3.3–3.4, and
+  <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/gauss-newton.md"><code>docs/implementation/gauss-newton.md</code></a> §3 and §6 for the build and the retraction.</p>
 </aside>
 
 <aside class="ask">

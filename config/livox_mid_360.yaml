@@ -55,7 +55,7 @@
       # mostly ground plus a wall) -- nothing then resists sliding along the missing
       # direction, so the solve reports a confident, wrong jump.
       #
-      # Calibrated empirically against two real runs (doc/5-registration.md): the
+      # Calibrated empirically against two real runs (docs/implementation/5-registration.md): the
       # indoor test bag's ratio never drops below 0.117 at the 5th percentile: the
       # Outdoor01 sequence's divergence window never rises above 0.034. No overlap.
       min_translation_eigenvalue_ratio: 0.05
@@ -89,7 +89,7 @@
       #
       # *** DEFAULT 1.0 (TIGHT). It tracks this bag at parity with loose (429 m vs 434 m) and
       #     rescues degenerate geometry on synthetic data -- and, since, on genuinely degenerate
-      #     REAL data too: see doc/5-registration.md sec 3.6.1 (M3DGR's Outdoor01 sequence,
+      #     REAL data too: see docs/implementation/5-registration.md sec 3.6.1 (M3DGR's Outdoor01 sequence,
       #     RTK ground truth). Loose there oscillates catastrophically (path length 111x truth)
       #     even with the degeneracy gate (sec 3.6.1) added, because coasting on
       #     use_constant_velocity has no floor under sustained degeneracy. Tight rescues it (RPE
@@ -114,7 +114,7 @@
       # (500 km -> 1.3 km): gravity now holds -9.8, the map is never lost, the pose tracks the
       # whole bag -- BROKEN to merely drifting. A second calibration fix (lidar_sigma, below)
       # then closed that remaining drift too, bringing tight to parity with loose. Full write-up
-      # with the fingerprints: doc/testing.md sec 12.
+      # with the fingerprints: docs/implementation/testing.md sec 12.
       #
       # A second calibration fix (lidar_sigma 0.05 -> 0.02, below) then brought tight to PARITY
       # with loose (429 m vs 434 m trajectory, sane velocities) on THIS bag, whose geometry is
@@ -123,7 +123,7 @@
       # BEATS loose there rather than merely matching it. Defaulting to tight.
       imu_prior_weight: 1.0
 
-      # Deskew's gyro bias is resynced every scan from state_.bg (see doc/3-deskew.md),
+      # Deskew's gyro bias is resynced every scan from state_.bg (see docs/implementation/3-deskew.md),
       # so it tracks the tight solve's own continuously-refined estimate instead of
       # staying fixed at the value measured once at init. This gate decides whether a
       # given scan's update is trusted enough to resync -- not a scan-rejection
@@ -133,14 +133,14 @@
       # eigenvalue / trace of the LiDAR-only rotation block of H, before IMU/bias/gravity
       # terms are added), so it reads as "how well does the LiDAR alone constrain rotation
       # this scan". Same starting value as that gate; not yet swept. See
-      # doc/5-registration.md sec 3.13.
+      # docs/implementation/5-registration.md sec 3.13.
       min_rotation_eigenvalue_ratio: 0.05
 
       # Scans to run LOOSE before engaging the IMU.
       #
       # Tight coupling needs a VELOCITY to start from, and IMU init cannot supply one: a
       # static window cannot tell rest from constant velocity, and on this bag the robot
-      # is already cruising at ~1.5 m/s when recording starts (see doc/1-imu-init.md).
+      # is already cruising at ~1.5 m/s when recording starts (see docs/implementation/1-imu-init.md).
       # Seeding v = 0 makes the IMU factor insist the robot is stationary while the LiDAR
       # insists otherwise -- they fight until the estimator free-falls. So we run loose
       # first, let ICP MEASURE the velocity, then hand a correct state to the tight solver.
@@ -161,7 +161,7 @@
       # plane residual has ZERO velocity columns, so position is the only channel that
       # disciplines velocity, and pinning it too weakly let |v| ramp to ~40 m/s. Calibrating
       # to 2 cm collapsed tight drift from 1339 m to 429 m (= the loose baseline). See
-      # doc/5-registration.md sec 3.12.
+      # docs/implementation/5-registration.md sec 3.12.
       lidar_sigma: 0.02
 
     # Local map: the accumulated world geometry each scan is registered against.
@@ -180,7 +180,7 @@
       # simply drop new points -- it RESERVOIR-SAMPLES them, keeping a uniform random
       # subset of everything it has ever seen. "Keep the first N" is not spatially
       # neutral: with an ordered input it retains a thin slab of the voxel, and PCA then
-      # fits a plane to the SLAB rather than the surface. See doc/6-local-map.md.
+      # fits a plane to the SLAB rather than the surface. See docs/implementation/6-local-map.md.
       max_points_per_voxel: 20
 
       # --- THE PLANARITY GATE. Which voxels are allowed to produce a plane at all, and
@@ -240,7 +240,7 @@
       # The accel bias is NOT observable from a static window (a static window sees only
       # g + b_a, their sum), so we start genuinely ignorant of it and let the data reveal
       # it. Set this too tight and the bias is frozen at zero -- and every error it causes
-      # is permanent. See doc/5-registration.md sec 3.11.
+      # is permanent. See docs/implementation/5-registration.md sec 3.11.
       bias_sigma0_gyro: 0.01    # rad/s
       bias_sigma0_accel: 0.3    # m/s^2
 
@@ -269,7 +269,7 @@
       #
       # This is the sensor-to-sensor extrinsic INSIDE the Mid-360, not the robot
       # mount. It is a correctness input to the estimator: get it wrong and the
-      # IMU and LiDAR constraints actively disagree. See doc/3-deskew.md sec. 5.
+      # IMU and LiDAR constraints actively disagree. See docs/implementation/3-deskew.md sec. 5.
       lidar_to_imu:
         # Mid-360: the internal IMU axes are aligned with the lidar frame, so this
         # identity is genuinely correct, not a placeholder.

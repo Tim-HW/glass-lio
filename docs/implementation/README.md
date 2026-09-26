@@ -1,4 +1,4 @@
-# glasslio docs
+# glass-lio implementation guide
 
 LiDAR-inertial odometry for Livox, built incrementally — and written to be **read**.
 The point of this repo is the *why*: Lie algebra on SO(3)/SE(3), and least squares on a
@@ -6,7 +6,7 @@ manifold, in a system where getting them subtly wrong still produces plausible o
 
 ## Start here
 
-For the general theory and exercises, use the [HTML estimation course](../docs/index.html).
+For the general theory and exercises, use the [HTML estimation course](../index.html).
 This Markdown guide follows the glass-lio implementation and its measured failures.
 
 **[pipeline.md](pipeline.md)** — the spine. The diagram, the frames, the threading, and

@@ -2,7 +2,7 @@
 
 Assembles a `MeasureGroup`: one LiDAR scan, plus the IMU samples that cover it.
 
-Code: `MeasureSync` in [`sync.cpp`](../src/lio/sync.cpp).
+Code: `MeasureSync` in [`sync.cpp`](../../src/lio/sync.cpp).
 
 Trivial-looking, and it is where two of the nastier bugs in this pipeline can hide —
 both of which produce a deskew that *silently does nothing* rather than an error.

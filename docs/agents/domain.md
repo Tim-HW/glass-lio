@@ -52,8 +52,9 @@ If your output contradicts an existing ADR, surface it explicitly rather than si
 
 ## This repo's existing docs
 
-`doc/` (singular) is the project's own write-up, separate from `docs/` above. Before
-touching a pipeline stage, read `doc/pipeline.md` (the spine), then that stage's doc
-(`doc/1-imu-init.md` … `doc/6-local-map.md`, plus `doc/gauss-newton.md` for the solver).
+`docs/implementation/` contains the project's implementation write-up. Before
+touching a pipeline stage, read `docs/implementation/pipeline.md` (the spine), then that stage's doc
+(`docs/implementation/1-imu-init.md` … `docs/implementation/6-local-map.md`, plus
+`docs/implementation/gauss-newton.md` for the solver).
 Treat what a stage doc says as a decision record: if your change contradicts it, say
 so explicitly, the same as for an ADR.

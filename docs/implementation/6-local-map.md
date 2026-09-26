@@ -5,9 +5,9 @@ of the pipeline (aligned scans go in) and the **input** to it (the next scan is
 registered against it), which is what makes it the most dangerous object in the
 system.
 
-Code: [`local_map.cpp`](../src/lio/local_map.cpp),
-[`local_map.hpp`](../include/glasslio/local_map.hpp).
-Self-check: [`test_local_map.cpp`](../test/test_local_map.cpp).
+Code: [`local_map.cpp`](../../src/lio/local_map.cpp),
+[`local_map.hpp`](../../include/glasslio/local_map.hpp).
+Self-check: [`test_local_map.cpp`](../../test/test_local_map.cpp).
 
 ---
 
@@ -55,7 +55,7 @@ static_cast<std::int32_t>(std::floor(p.x() / voxel_size_))
 >
 > This is invisible until you drive backwards through the origin, at which point your
 > map quietly develops a seam. `std::floor` rounds toward −∞ and gets it right.
-> Pinned by [`test_local_map.cpp`](../test/test_local_map.cpp).
+> Pinned by [`test_local_map.cpp`](../../test/test_local_map.cpp).
 
 ## 6.3 Insert — the density cap *is* the downsampling
 
@@ -108,7 +108,7 @@ gets refused.
 > The real Livox dodged this **by accident**. Its non-repetitive scan pattern delivers
 > points in scattered order, so the first 20 in a voxel happened to be representative.
 > Any raster-ordered sensor would have walked straight into it. Pinned by
-> [`test_local_map.cpp`](../test/test_local_map.cpp).
+> [`test_local_map.cpp`](../../test/test_local_map.cpp).
 
 The RNG is **deterministically seeded**: a map that reshuffles itself differently on every
 run is not reproducible, and an estimator you cannot reproduce is one you cannot debug.

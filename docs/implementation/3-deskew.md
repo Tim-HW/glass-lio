@@ -3,9 +3,9 @@
 Stage [3] of the pipeline. Removes the *rotational* distortion a moving LiDAR
 bakes into every scan, using the IMU gyroscope.
 
-Code: [`src/lio/deskew.cpp`](../src/lio/deskew.cpp) (deskew),
-[`src/lio/gyr_int.cpp`](../src/lio/gyr_int.cpp) (gyro integration),
-[`src/glasslio_node.cpp`](../src/glasslio_node.cpp) (buffering / sync).
+Code: [`src/lio/deskew.cpp`](../../src/lio/deskew.cpp) (deskew),
+[`src/lio/gyr_int.cpp`](../../src/lio/gyr_int.cpp) (gyro integration),
+[`src/glasslio_node.cpp`](../../src/glasslio_node.cpp) (buffering / sync).
 
 Deskew is **stage 1** of the pipeline, not a standalone node. For the whole
 pipeline see [pipeline.md](pipeline.md).
@@ -96,7 +96,7 @@ acquisition instant instead ([5-registration.md §3.9](5-registration.md#39-prei
 
 ## 4. Integrating the gyro → R(t)
 
-`GyrInt` (in [`gyr_int.cpp`](../src/lio/gyr_int.cpp)) turns discrete gyro samples
+`GyrInt` (in [`gyr_int.cpp`](../../src/lio/gyr_int.cpp)) turns discrete gyro samples
 into a continuous orientation function.
 
 ### Why SO(3) and not Euler angles
@@ -295,7 +295,7 @@ translational deskew drops straight into the same loop.
 
 ## 8. Node plumbing
 
-[`glasslio_node.cpp`](../src/glasslio_node.cpp) buffers both streams and pairs them.
+[`glasslio_node.cpp`](../../src/glasslio_node.cpp) buffers both streams and pairs them.
 
 A scan is only processed once the IMU buffer **brackets it on both sides**:
 

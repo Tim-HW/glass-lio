@@ -82,7 +82,7 @@ scenes, where too few planes form. The rejecting line in <code>fitPlane()</code>
 </ul>
 
 <p>The gate is only as good as the points it sees.<span class="sidenote">glass-lio's
-<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/6-local-map.md"><code>doc/6-local-map.md</code></a> §6.3: keeping only the
+<a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/6-local-map.md"><code>docs/implementation/6-local-map.md</code></a> §6.3: keeping only the
 <em>first</em> 20 points left thin slabs that passed the gate with wrong normals, "1.2e6 of spurious
 stiffness" in a corridor test. Reservoir sampling fixed it.</span></p>
 
@@ -134,7 +134,7 @@ lines 72–88</a>. It re-associates once at the converged pose, to test the \(\m
 Why was it needed? On M3DGR's Outdoor01, glass-lio's path came out at 38,657&nbsp;m against a true 346&nbsp;m,
 while the RMSE sat at its normal 0.10–0.16 and correspondences never fell below 300. A pose sliding along a
 free direction leaves every residual small. The gate stops those scans being trusted; tight coupling, with
-the IMU in the same solve, is what carries the pose through (RPE 22.6&nbsp;m → 0.29&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a>
+the IMU in the same solve, is what carries the pose through (RPE 22.6&nbsp;m → 0.29&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a>
 §3.6.1, "a healthy RMSE can still be a lie".</span></p>
 
 <p>Zhang, Kaess &amp; Singh read degeneracy the same way, from "eigenvalues and eigenvectors of the system"

@@ -44,7 +44,7 @@ struct EstimatorParams
   double max_rmse = 0.5;
   bool use_constant_velocity = true;
 
-  /// TIGHT COUPLING (doc/5-registration.md sec 3.7). Not a pipeline stage -- it changes how [5]
+  /// TIGHT COUPLING (docs/implementation/5-registration.md sec 3.7). Not a pipeline stage -- it changes how [5]
   /// solves, by folding the IMU into the same normal equations. `use_tight` is
   /// `imu_prior_weight > 0`; zero selects the 6-DoF loose path.
   bool use_tight = false;
@@ -104,7 +104,7 @@ struct ScanResult
 /// therefore had no safety net whatsoever.
 ///
 /// THREADING: not thread-safe, and does not try to be. The node owns exactly one, touched
-/// by exactly one thread (the worker). See doc/pipeline.md#threading.
+/// by exactly one thread (the worker). See docs/implementation/pipeline.md#threading.
 class LioEstimator
 {
 public:

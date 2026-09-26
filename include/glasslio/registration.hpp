@@ -30,7 +30,7 @@ struct RegistrationParams
   /// directions roughly evenly (ratio ~0.1-0.35 either way); a scene dominated by
   /// near-parallel planes (an open outdoor stretch: mostly ground plus one or two
   /// walls) leaves one direction with near-zero normal support relative to the others.
-  /// Calibrated empirically -- see doc/5-registration.md -- against the indoor test
+  /// Calibrated empirically -- see docs/implementation/5-registration.md -- against the indoor test
   /// bag (ratio never below 0.117 at the 5th percentile) and the Outdoor01 divergence
   /// (ratio never above 0.034): the two do not overlap.
   double min_translation_eigenvalue_ratio = 0.05;

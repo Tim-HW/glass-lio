@@ -72,7 +72,7 @@ lines 46–79</a>: the state layout, and <code>boxplus</code>, which composes ro
 
 <p>Four blocks: every LiDAR point (lesson 6, Huber \(\rho\)), the IMU factor (lessons 3–5), a bias prior, and a gravity
 prior. All four fold into the same \(\mathbf{H}\), "That sum IS the sensor fusion."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L59-L170"><code>tight_registration.cpp</code>,
-lines 59–170</a>, and glass-lio's <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.11, "One
+lines 59–170</a>, and glass-lio's <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a> §3.11, "One
 tight solve, four residual blocks".</span></p>
 
 <pre><code>eq.addScalar(r * inv_sigma, Jl * inv_sigma, huber_whitened);
@@ -136,8 +136,8 @@ Now close your eyes on the list and rebuild it:</p>
 <h3>Case study: measured weight failures</h3>
 
 <p>These historical experiments motivated the weights below. The outcomes depend on the dataset and estimator revision; changing a noise setting does not universally produce the same failure:<span class="sidenote">glass-lio
-<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.11–3.12; the case study is in
-<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a> §12.</span></p>
+<a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a> §3.11–3.12; the case study is in
+<a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/testing.md"><code>docs/implementation/testing.md</code></a> §12.</span></p>
 
 <table class="compact">
   <tr><th>Block</th><th>Weight</th><th>Set wrong, glass-lio measured…</th></tr>
@@ -198,7 +198,7 @@ exactly the 500&nbsp;km failure.</p>
 
 <p>In the glass-lio case study, the hardest bugs were not found by staring at the trajectory. They were found by logging the
 <em>state</em>: velocity, bias, gravity, rejections, scan by scan. Each failure has a fingerprint in
-those numbers that points at one term of this solve.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a>
+those numbers that points at one term of this solve.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/testing.md"><code>docs/implementation/testing.md</code></a>
 §12.4, “Log the state, not the pose”, and the case study around it.</span> Here is every failure this
 course has met, arranged as you would meet them:</p>
 
@@ -246,7 +246,7 @@ now have:</p>
   <p class="label">Where to go next</p>
   <p>Read FAST-LIO2's iterated Kalman filter to see the full-covariance route to the same problem, and
   VINS-Mono's marginalizing window to see the other one. Then read glass-lio's
-  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a>
+  <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/testing.md"><code>docs/implementation/testing.md</code></a>
   §12 end to end. It is the whole of this course happening for real, including the parts where careful
   reasoning was wrong and a logged number was right.</p>
 </div>
@@ -406,7 +406,7 @@ now have:</p>
   <p>Forster, Carlone, Dellaert &amp; Scaramuzza, <a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration for Real-Time
   Visual-Inertial Odometry</em></a>, IEEE T-RO. <strong>Read §IV (the MAP problem, eq.&nbsp;26) and §VI-D (the preintegrated IMU factor with bias
   updates, eq.&nbsp;45)</strong>: glass-lio's tight solve is those two equations with LiDAR rows. Then read glass-lio's own case study,
-  <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a> §12, for how each weight in section 3 was found.</p>
+  <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/testing.md"><code>docs/implementation/testing.md</code></a> §12, for how each weight in section 3 was found.</p>
 </aside>
 
 <aside class="ask">
