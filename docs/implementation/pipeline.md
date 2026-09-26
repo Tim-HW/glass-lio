@@ -163,9 +163,10 @@ rather than a tuning problem: [6-local-map.md §6.4](6-local-map.md).
 
 ## Not implemented
 
-- **A fixed-lag window.** The tight solve is a *factor, not a filter*: the previous state is
-  committed and never re-estimated. Every primitive a window needs already exists and is
-  tested — [5-registration.md §3.14](5-registration.md#314-the-limit--a-factor-not-a-filter).
+- **A fixed-lag window.** The tight solve optimizes only the newest state and carries
+  partial uncertainty; the previous state is committed and never re-estimated. A
+  window would retain recent states and marginalize the oldest — see
+  [5-registration.md §3.14](5-registration.md#current-state-limit).
 - **Translational deskew** — needs a trustworthy velocity. Tight coupling now produces
   one (`state_.v`), but nothing yet reads it back into deskew (and it would retire
   `use_constant_velocity` with it). See [3-deskew.md §7](3-deskew.md).

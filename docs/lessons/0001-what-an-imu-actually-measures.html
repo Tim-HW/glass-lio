@@ -16,16 +16,12 @@
 <header class="page">
   <p class="kicker">Lesson 1 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
   <h1>What an IMU actually measures</h1>
-  <p class="subtitle">Two equations, one sign, and the bug it caused in glass-lio.</p>
+  <p class="subtitle">Specific force, angular rate, and the limits of stationary initialization.</p>
 </header>
 
 <article>
 
-<p class="lede">Every IMU-preintegration derivation an interviewer asks for starts from the
-<em>measurement model</em>: what the gyroscope and the accelerometer actually report. Get one
-sign wrong there and everything built on it is wrong too. By the end of this page you should be
-able to write both equations from memory, and explain in one sentence why an early version of
-glass-lio's tight coupling drifted hundreds of metres a minute.</p>
+<p class="lede">IMU integration starts with the <em>measurement model</em>: what a gyroscope and accelerometer report, in which frame, and with which biases. A wrong gravity sign propagates into every later state update. By the end, you should be able to write both equations from memory and explain why stationary data cannot reveal every state variable.</p>
 
 <p>New to matrices, derivatives, or uncertainty? Start with <a href="0000-math-prerequisites.html">the mathematical toolkit</a>. It introduces the notation used throughout these lessons.</p>
 
@@ -135,8 +131,8 @@ The node then seeds the estimator's gravity pointing <em>down</em>, as \([0,\,0,
 </ul>
 
 <p>The last case is the reason the accelerometer cannot, by itself, tell tilt from acceleration,
-and it is why an initialisation that assumes “the mean reading is gravity” must first check
-that the platform is not accelerating. Section 5 shows how glass-lio checks.</p>
+so an initialisation that treats the mean reading as gravity needs a quiet interval.
+Section 5 shows glass-lio's variation checks and why they cannot rule out steady acceleration.</p>
 
 <div class="callout">
   <p class="label">Units trap</p>
@@ -215,8 +211,8 @@ reading and simplify:</p>
 <p>Seed gravity at its true magnitude, carry \(\mathbf{b}^{a}\) as a body-frame state, and the
 term disappears, because the bias is then subtracted in the frame where it actually lives.</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
   <p>“An accelerometer measures specific force, \(\mathbf{a} - \mathbf{g}\), in the body frame.
   At rest you only ever see \(-\mathbf{R}^{\top}\mathbf{g} + \mathbf{b}^{a}\) as one sum, so a
   static initialisation can't separate gravity from the accelerometer bias. You constrain gravity's magnitude and use sufficiently varied motion and external motion measurements to separate bias from gravity and attitude.”</p>
@@ -251,8 +247,8 @@ the honest response to an unobservable quantity.</p>
 
 <h3>Two checks, and why the second one exists</h3>
 
-<p>The averages above are only valid if the platform really was still. glass-lio refuses a
-window unless both of these hold:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/imu_init.cpp#L46-L71"><code>imu_init.cpp</code>, lines 46–71</a>,
+<p>The averages above describe rest or constant velocity with negligible rotation.
+glass-lio accepts a window only when both of these heuristics hold:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/src/imu_init.cpp#L46-L71"><code>imu_init.cpp</code>, lines 46–71</a>,
 with the thresholds in <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L259-L265"><code>livox_mid_360.yaml</code>, lines 259–265</a>.</span></p>
 
 <ul>
@@ -262,11 +258,11 @@ with the thresholds in <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b7
   deviation.</li>
 </ul>
 
-<p>The gyro check alone is the obvious one, and it is not enough. Recall the accelerating car from
-section 3: a platform pushed in a straight line has zero rotation rate, passes a gyro-only test,
-and has its forward acceleration averaged into “gravity”, tilting the whole world frame. At the
-0.5&nbsp;m/s² scale of the accelerometer gate, a steady push of that size would tilt the world
-by about 2.9°. The second check exists to catch exactly what the first cannot.</p>
+<p>The gyro check misses straight-line acceleration. The accelerometer standard-deviation check
+detects acceleration that <em>changes during the window</em>, but a steady push can pass both
+checks: its constant forward acceleration is absorbed into the estimated gravity direction.
+A steady 0.5&nbsp;m/s² horizontal acceleration would tilt that direction by about 2.9°.
+These gates are practical stationarity heuristics, not proof that the platform was at rest.</p>
 
 <p>When a window fails, it slides forward by one sample rather than being discarded wholesale.
 That detail matters more than it looks: clearing the buffer only ever tests non-overlapping
@@ -286,8 +282,10 @@ ten scans, which <em>measures</em> the velocity, before switching the IMU in.</p
 
 <div class="callout">
   <p class="label">Read the log carefully</p>
-  <p>“Static window detected” does not mean “the robot is stopped”. It means “the robot is not
-  accelerating”. The project lost real time reading it the first way.</p>
+  <p>“Static window detected” means the samples passed the rotation-rate and
+  acceleration-variation gates. It does not prove rest or even zero acceleration:
+  constant velocity and steady acceleration can both pass, although only the former
+  leaves gravity alignment uncorrupted.</p>
 </div>
 
 <h2>6 · What the model leaves out</h2>
@@ -493,7 +491,7 @@ stick.</p>
 
 <div class="recall">
   <p class="q"><strong>From memory:</strong> write both measurement models, gyroscope and
-  accelerometer, and label the frame of each term. Then say the whiteboard sentence out loud.</p>
+  accelerometer, and label the frame of each term. Then explain the principle in your own words.</p>
   <textarea placeholder="Write it here, however roughly. Symbols like w~ = w + b_g + n_g are fine."></textarea>
   <button class="action reveal">Check against the answer</button>
   <div class="answer" hidden>
@@ -541,10 +539,8 @@ stick.</p>
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Nothing is too basic: questions like “why
-  \(\mathbf{R}^{\top}\) and not \(\mathbf{R}\)?” are exactly what it's for. Tell it how the recall
-  box went, too. That's how the next lesson gets pitched at the right level.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Why does specific force contain gravity at rest? Which states remain unobservable in a stationary window? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

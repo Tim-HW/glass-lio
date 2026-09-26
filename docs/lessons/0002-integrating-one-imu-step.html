@@ -21,11 +21,7 @@
 
 <article>
 
-<p class="lede">Lesson 1 ended on a question. glass-core's <code>integrate()</code> subtracts the
-biases but never touches gravity, so where does \(\mathbf{g}\) come back? This lesson answers it
-by building Forster's eq.&nbsp;(31): the update that turns one IMU sample into a change of
-orientation, velocity and position. If an interviewer says "integrate this IMU sample", this is
-what you write first.</p>
+<p class="lede">Lesson 1 separated measured specific force from world-frame acceleration. This lesson puts gravity back into a state update and derives the changes in orientation, velocity, and position over one IMU sample. The result is the basic propagation step used by inertial estimators.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -149,8 +145,8 @@ rotated by the orientation at the start, <code>xi.R</code>. The code's comment s
 was kept out of the deltas: "so the deltas would not depend on xi". Why that matters is
 lesson 3.</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
   <p>"For one IMU step, orientation is right-multiplied by the Exp of the bias-corrected gyro
   times \(\Delta t\), because the rate is in the body frame. For velocity and position, I rotate
   the bias-corrected specific force into the world with the orientation at the start of the step,
@@ -437,12 +433,12 @@ material is what makes it stick.</p>
 </div>
 
 <div class="quiz" data-answer="poses">
-  <p class="q">The IMU group for a scan covers about 0.12&nbsp;s. Why does glass-lio clip the
+  <p class="q">The available IMU samples cover a longer interval than the scan-to-scan pose change. Why clip the
   preintegration to a shorter interval?</p>
   <ol class="options">
     <li><button class="option" data-key="speed">to save computation</button></li>
     <li><button class="option" data-key="noise">the extra samples are noisier</button></li>
-    <li><button class="option" data-key="poses">consecutive poses are only 0.10&nbsp;s apart</button></li>
+    <li><button class="option" data-key="poses">the factor must cover exactly the interval between its two poses</button></li>
     <li><button class="option" data-key="gravity">gravity is only valid for 0.10&nbsp;s</button></li>
   </ol>
   <div class="explain" hidden>
@@ -470,7 +466,7 @@ material is what makes it stick.</p>
 
 <div class="recall">
   <p class="q"><strong>From memory:</strong> write the three lines of eq.&nbsp;(31), bias-corrected,
-  with the noise dropped. Then say the whiteboard sentence out loud.</p>
+  with the noise dropped. Then explain the principle in your own words.</p>
   <textarea placeholder="R(t+dt) = ...&#10;v(t+dt) = ...&#10;p(t+dt) = ..."></textarea>
   <button class="action reveal">Check against the answer</button>
   <div class="answer" hidden>
@@ -504,10 +500,8 @@ material is what makes it stick.</p>
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Questions like "why is \(\boldsymbol{\omega}\,\Delta t\)
-  a rotation vector?" or "what would a midpoint scheme change?" are exactly what it's for. Tell it
-  how the warm-up and the recall box went, too. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Why is \(\boldsymbol{\omega}\Delta t\) a rotation vector? What changes under midpoint integration? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

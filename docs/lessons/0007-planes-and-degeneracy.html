@@ -22,11 +22,7 @@
 
 <article>
 
-<p class="lede">Lesson 6 took each plane's centroid \(\mathbf{c}\) and normal \(\mathbf{n}\) as given. This
-lesson is where they come from, and when the whole scan should be refused. Both answers are the same
-move: build a 3×3 scatter matrix and look at its smallest eigenvalue. Once for a voxel's points, to find
-a plane; once for the scan's normals, to find a direction no plane holds. The second one is the story
-behind glass-lio's Outdoor01 run: a healthy RMSE, and a trajectory 111 times too long.</p>
+<p class="lede">Lesson 6 assumed each map plane had a centroid and normal. Here you will fit those planes and identify motions the observed geometry cannot constrain. Both tasks use eigenvalues: first to test planarity, then to find weak directions in a scan’s information matrix.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -145,17 +141,16 @@ the IMU in the same solve, is what carries the pose through (RPE 22.6&nbsp;m →
 (\(\mathbf{A}^{\top}\mathbf{A}\), which is Gauss-Newton's \(\mathbf{H}\)), but choose a different remedy: they "only
 partially solve the problem in well-conditioned directions" instead of rejecting the scan.<span class="sidenote">Zhang,
 Kaess &amp; Singh, <a href="https://frc.ri.cmu.edu/~zhangji/publications/ICRA_2016.pdf"><em>On Degeneracy of
-Optimization-based State Estimation Problems</em></a>, ICRA 2016.</span> That contrast is worth having ready in
-an interview.</p>
+Optimization-based State Estimation Problems</em></a>, ICRA 2016.</span> This illustrates another response to a weakly constrained direction.</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
-  <p>"Both LiDAR tests are the same move: build a 3×3 scatter matrix and read its smallest eigenvalue. For a voxel's
-  points, the covariance's smallest-eigenvalue eigenvector is the plane normal, and if that eigenvalue isn't much
-  smaller than the middle one, it's a blob, a corner or a line, so there's no plane. For the whole scan,
-  \(\mathbf{H}\)'s translation block is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\); its smallest-eigenvalue eigenvector is the
-  direction no plane constrains, and when that eigenvalue is a tiny fraction of the trace, like floor plus one wall,
-  the pose can slide along it with a perfectly healthy RMSE. glass-lio's loose path refuses scans below 0.05; the tight path can use IMU information along the weak direction; Zhang et al. instead solve only the well-conditioned directions."</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
+  <p>A plane fit uses the smallest-eigenvalue eigenvector of a point covariance as its
+  normal, provided the point spread is sufficiently planar. For a whole scan, the
+  smallest eigenvalue of the translation information identifies a weak motion direction.
+  A small residual can coexist with that weakness, and a translation test alone does not
+  certify the full pose. An estimator may reject the scan, use independent motion
+  information, or solve only well-constrained directions.</p>
 </div>
 
 <h2>5 · The eigenvalues of real shapes, in a 1&nbsp;m voxel</h2>
@@ -323,7 +318,7 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
 </div>
 
 <div class="quiz" data-answer="free">
-  <p class="q">On Outdoor01 the pose drifted hundreds of metres while the RMSE stayed at 0.10–0.16. Why didn't the RMSE catch it?</p>
+  <p class="q">A pose drifts along a direction the observed planes cannot constrain, while point-to-plane RMSE stays small. Why does RMSE miss it?</p>
   <ol class="options">
     <li><button class="option" data-key="free">Motion along it adds no residual</button></li>
     <li><button class="option" data-key="few">A low RMSE guarantees a correct pose if enough points match</button></li>
@@ -332,7 +327,7 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
   </ol>
   <div class="explain" hidden>
     <p>Along a direction every normal is perpendicular to, \(\mathbf{n}^{\top}\boldsymbol{\rho} = 0\) for every correspondence:
-    the residuals don't change, so the fit still looks fine at the wrong position. Correspondence counts stayed above 300.</p>
+    the residuals don't change, so the fit still looks fine at the wrong position. A large correspondence count does not add a constraint in the missing direction.</p>
   </div>
 </div>
 
@@ -352,7 +347,7 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
 </div>
 
 <div class="quiz" data-answer="lambda1">
-  <p class="q">A pole of 5&nbsp;cm radius crosses a 1&nbsp;m voxel. Why does glass-lio compare \(\lambda_0\) with \(\lambda_1\)
+  <p class="q">A pole of 5&nbsp;cm radius crosses a 1&nbsp;m voxel. Why compare \(\lambda_0\) with \(\lambda_1\)
   rather than with \(\lambda_2\)?</p>
   <ol class="options">
     <li><button class="option" data-key="lambda1">against \(\lambda_2\) a line would pass the gate with an arbitrary normal</button></li>
@@ -430,10 +425,8 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. One to think about: glass-lio keeps the plane whose <em>centroid</em>
-  is nearest, not the one the point is closest to. When would those differ, and would you change it? Tell it how the
-  warm-up and the recall box went. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>When can the nearest plane centroid differ from the plane with the smallest point-to-plane distance? How would that affect association? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

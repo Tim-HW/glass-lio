@@ -21,11 +21,7 @@
 
 <article>
 
-<p class="lede">The deltas tell the solver what the IMU says happened. The solver also needs to know
-<em>how much to believe it</em>: that's the 9×9 covariance \(\Sigma_{ij}\) of the deltas. Its inverse
-is the weight on the IMU residual, and in glass-lio it's what gets set against the LiDAR. This lesson
-is how that covariance is built, one sample at a time. It's the second half of the course's uncertainty-propagation goal, and the answer to an interview question you should expect: how do you weigh the IMU against
-another sensor?</p>
+<p class="lede">Preintegrated deltas describe the IMU prediction; their 9×9 covariance describes its uncertainty. Propagate that covariance one sample at a time, then use it to weight the IMU residual against other measurements.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -150,8 +146,8 @@ bandwidth assumptions, and the resulting residual statistics. Datasheet range no
 residual uncertainty: plane fitting, deskew errors, and correlated returns also matter. The historical glass-lio settings
 are calibration choices for those experiments, not universal constants.</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
   <p>"Preintegration's noise is a linear function of the IMU's white noise, so I propagate its 9×9
   covariance over \([\delta\boldsymbol{\phi}, \delta\mathbf{v}, \delta\mathbf{p}]\) one sample at a time:
   \(\Sigma \leftarrow \mathbf{A}\Sigma\mathbf{A}^{\top} + \mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), starting from
@@ -424,11 +420,8 @@ standard, honest fix when you cannot model the correlation.</p></details>
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Questions like "why is it \(\mathbf{A}\Sigma\mathbf{A}^{\top}\)
-  and not \(\mathbf{A}\Sigma\)?" or "why does glass-lio add \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\)?" are
-  exactly what it's for. Tell it how the warm-up and the recall box went. Terms follow the
-  <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Why is propagated covariance \(A\Sigma A^\top\)? How does uncertainty in the starting state change a factor weight? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

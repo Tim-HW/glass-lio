@@ -12,11 +12,11 @@
 </head>
 <body>
 <main>
-<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0009-the-tight-solve-end-to-end.html">Lesson 9</a> › Reference card</p>
+<p class="crumbs"><a href="../index.html">LiDAR–inertial estimation course</a> › <a href="../lessons/0009-the-tight-solve-end-to-end.html">Lesson 9</a> › Reference card</p>
 <header class="page">
   <p class="kicker">Reference card · Lesson 9</p>
   <h1>The tight solve</h1>
-  <p class="subtitle">One scan through glass-lio, every term justified, and each one traced to the lesson it came from.</p>
+  <p class="subtitle">Trace a scan through prediction, association, joint optimization, and map update.</p>
 </header>
 
 <article>
@@ -25,24 +25,27 @@
 <h2>Key equations</h2>
 <p class="label">Warm-up, from memory</p>
 <div class="eq">$$ \mathbf{r}_{\Delta v} = \mathbf{R}_i^{\top}(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) - \Delta\hat{\mathbf{v}}_{ij}(\mathbf{b}) $$</div>
-<p class="label">The one equation</p>
-<div class="eq">$$ \mathcal{X}^{\star} = \arg\min\; \|\mathbf{r}_0\|^2_{\Sigma_0} + \sum \|\mathbf{r}_{\mathcal{I}_{ij}}\|^2_{\Sigma_{ij}} + \sum\sum \|\mathbf{r}_{\mathcal{C}_{il}}\|^2_{\Sigma_{\mathcal{C}}} \tag{26} $$</div>
+<p class="label">General joint objective</p>
+<div class="eq">$$ \mathcal{X}^{\star}=\arg\min_{\mathcal{X}}\;
+\|\mathbf{r}_{\mathrm{prior}}\|^2_{\Sigma_{\mathrm{prior}}}
++\sum_{ij}\|\mathbf{r}_{\mathrm{imu},ij}\|^2_{\Sigma_{\mathrm{imu},ij}}
++\sum_l\rho\!\left(r_{\mathrm{lidar},l}/\sigma_l\right). $$</div>
+<p class="label">One current-state implementation</p>
 <div class="eq">$$ \begin{aligned}
 \arg\min_{\mathbf{x}_j,\,\mathbf{g}}\;\; &\sum_{l} \rho\big(r_l/\sigma\big) \;+\; \|\mathbf{r}_{\mathcal{I}}\|^{2}_{\Sigma_{\text{eff}}}\\
 +\;&\|\mathbf{b}_j - \mathbf{b}_i\|^{2}_{\mathbf{P}_b} \;+\; \|\mathbf{g} - \mathbf{g}_{\text{init}}\|^{2}_{\sigma_g^{2}\mathbf{I}}
 \end{aligned} $$</div>
 
-<h2>Say it at a whiteboard</h2>
-<div class="callout interview">
-<p>"Each scan, glass-lio deskews the points with the gyro, then preintegrates the IMU from the previous scan's end to this one's:
-  \(\Delta\mathbf{R}\), \(\Delta\mathbf{v}\), \(\Delta\mathbf{p}\) and their covariance, after growing the bias uncertainty by its random walk. It
-  predicts the new state from those deltas, putting gravity back in the world frame. Then it iterates one 18-DoF Gauss-Newton solve over
-  rotation, position, velocity, both biases and gravity, with four blocks in the same \(\mathbf{H}\): every LiDAR point's point-to-plane
-  residual, whitened by its 2&nbsp;cm noise and Huber-weighted; the 9-row IMU residual with bias-corrected deltas, weighted by the
-  preintegration covariance inflated by the previous state's uncertainty; a prior from the carried bias covariance; and a gravity prior
-  anchored to its initial value. Rotation is retracted on the right. If the solve has too few correspondences, a non-finite update, or an excessive residual, it
-  coasts on the prediction and keeps the scan out of the map. Otherwise it carries the posterior covariances forward, resyncs deskew's
-  gyro bias if the LiDAR constrains rotation, and inserts the scan into the map."</p>
+<h2>Explain the idea</h2>
+<div class="callout summary">
+  <p class="label">Explain the idea: one scan</p>
+  <p>Put LiDAR and IMU measurements on a consistent time interval and in consistent
+  frames. Use the IMU to predict motion, associate LiDAR points with map geometry,
+  and combine their residuals with priors using justified uncertainty weights.
+  Iterate the state update when the problem is nonlinear, then check whether the
+  measurements constrained the answer. Carry an appropriate uncertainty summary
+  forward and add the scan to the map only when its pose is trusted. The exact
+  state, solver, gates, and feedback rules depend on the estimator.</p>
 </div>
 
 </article>

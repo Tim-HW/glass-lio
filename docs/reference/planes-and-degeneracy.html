@@ -12,7 +12,7 @@
 </head>
 <body>
 <main>
-<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0007-planes-and-degeneracy.html">Lesson 7</a> › Reference card</p>
+<p class="crumbs"><a href="../index.html">LiDAR–inertial estimation course</a> › <a href="../lessons/0007-planes-and-degeneracy.html">Lesson 7</a> › Reference card</p>
 <header class="page">
   <p class="kicker">Reference card · Lesson 7</p>
   <h1>Planes and degeneracy</h1>
@@ -36,21 +36,22 @@
     \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
     \end{aligned} $$</div>
 
-<h2>Say it at a whiteboard</h2>
-<div class="callout interview">
-<p>"Both LiDAR tests are the same move: build a 3×3 scatter matrix and read its smallest eigenvalue. For a voxel's
-  points, the covariance's smallest-eigenvalue eigenvector is the plane normal, and if that eigenvalue isn't much
-  smaller than the middle one, it's a blob, a corner or a line, so there's no plane. For the whole scan,
-  \(\mathbf{H}\)'s translation block is \(\sum w\,\mathbf{n}\mathbf{n}^{\top}\); its smallest-eigenvalue eigenvector is the
-  direction no plane constrains, and when that eigenvalue is a tiny fraction of the trace, like floor plus one wall,
-  the pose can slide along it with a perfectly healthy RMSE. glass-lio's loose path refuses scans below 0.05; the tight path can use IMU information along the weak direction; Zhang et al. instead solve only the well-conditioned directions."</p>
+<h2>Explain the idea</h2>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
+  <p>A plane fit uses the smallest-eigenvalue eigenvector of a point covariance as its
+  normal, provided the point spread is sufficiently planar. For a whole scan, the
+  smallest eigenvalue of the translation information identifies a weak motion direction.
+  A small residual can coexist with that weakness, and a translation test alone does not
+  certify the full pose. An estimator may reject the scan, use independent motion
+  information, or solve only well-constrained directions.</p>
 </div>
 
 </article>
 
 <nav class="course">
   <a href="../lessons/0007-planes-and-degeneracy.html">← Lesson 7: Planes and degeneracy</a>
-  <a href="filter-window-or-factor.html">Next card: Filter, window, or factor →</a>
+  <a href="filter-window-or-factor.html">Next card: Filter, window, or current-state solve →</a>
 </nav>
 </main>
 </body>

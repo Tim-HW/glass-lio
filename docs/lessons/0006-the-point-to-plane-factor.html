@@ -21,10 +21,7 @@
 
 <article>
 
-<p class="lede">Lessons 3–5 built the IMU's half of glass-lio's solve. This is the other half: the
-LiDAR factor. Each laser return becomes one scalar residual, its distance to a plane in the map. By
-the end you should be able to derive that residual's 1×6 Jacobian at a whiteboard, and say exactly
-what one correspondence adds to the normal equations. This supplies the LiDAR terms needed to explain the complete tight solve.</p>
+<p class="lede">Lessons 3–5 built an IMU factor. Now build a LiDAR factor: a point’s signed distance to a plane in a map. Derive its pose Jacobian and the contribution of one correspondence to the normal equations.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -157,8 +154,8 @@ lines 64–91</a>. The gravity columns are zero too: "a laser return sees the po
   -normal.transpose() * x.R.matrix() * Sophus::SO3d::hat(p_sensor);
 J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
   <p>"Each LiDAR point, moved into the world by the current pose, \(\mathbf{q} = \mathbf{T}\mathbf{p}\), gives one
   scalar residual: its signed distance to the matched plane, \(r = \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c})\).
   Point-to-plane lets points slide along the surface, which is right, because a LiDAR never re-hits the same
@@ -370,10 +367,10 @@ weighting produces.</p>
 </div>
 
 <div class="quiz" data-answer="guess">
-  <p class="q">Why does glass-lio hand ICP an IMU prediction instead of simply starting from the last pose?</p>
+  <p class="q">Why give ICP a motion prediction rather than always starting from the last pose?</p>
   <ol class="options">
     <li><button class="option" data-key="speed">the IMU prediction makes each iteration cheaper</button></li>
-    <li><button class="option" data-key="guess">association only finds the right plane within about a metre</button></li>
+    <li><button class="option" data-key="guess">association searches only within a local neighborhood</button></li>
     <li><button class="option" data-key="huber">Huber weighting needs a prior</button></li>
     <li><button class="option" data-key="none">it does not matter where ICP starts</button></li>
   </ol>
@@ -435,11 +432,8 @@ weighting produces.</p>
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Questions like "why is \(\mathrm{Exp}(\boldsymbol{\xi})\mathbf{q}\approx
-  \mathbf{q}+\boldsymbol{\rho}+\boldsymbol{\phi}\times\mathbf{q}\)?" or "why is it \(\mathbf{b}-\) and not \(\mathbf{b}+\)?" are exactly
-  what it's for. Tell it how the warm-up and the recall box went. Terms follow the
-  <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Which frame does each Jacobian column use? How does the perturbation side change the point-to-plane derivative? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

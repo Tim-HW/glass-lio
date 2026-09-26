@@ -1,10 +1,10 @@
 # [3] Register — producing the pose
 
-Scan-to-map **point-to-plane ICP**, solved by Gauss-Newton on SE(3). This is the
-stage that produces `pose_`; everything else feeds it or consumes it.
+Scan-to-map **point-to-plane registration** produces `pose_`. The loose path solves
+for a pose on SE(3); the tight path also estimates velocity, biases, and gravity.
 
-It has **two solvers**. **Loose** (§3.1–3.6, the default): the IMU proposes the guess, then
-ICP solves the 6-DoF pose alone. **Tight** (§3.7–3.14, opt-in): the IMU becomes a residual in
+It has **two solvers**. **Loose** (§3.1–3.6): the IMU proposes the guess, then
+ICP solves the 6-DoF pose alone. **Tight** (§3.7–3.14, the default): the IMU becomes a residual in
 the same normal equations and the solve grows to 18 DoF. The loop below is shared.
 
 Code: [`registration.cpp`](../src/lio/registration.cpp),
@@ -290,7 +290,8 @@ Two consequences:
 **Degenerate geometry has no fallback.** Point-to-plane in a long corridor constrains
 you *across* the walls but not *along* them: that direction is a genuine **null space**
 of `Σ JᵀJ`. ICP will slide along it, and the LDLT solve will not complain, because the
-residuals honestly do not care. The IMU *knows* you are not accelerating. It has no vote.
+residuals honestly do not care. The IMU predicts motion, but it has no vote in the
+registration residual.
 
 **`use_constant_velocity` is a symptom.** You carry an accelerometer — a device that
 measures the thing loose coupling *guesses* by finite-differencing consecutive poses.
@@ -299,41 +300,49 @@ loop by construction, and it is what made the runaway of §3.5 possible.
 
 ### The one idea
 
-**Tight coupling is not a new algorithm. It is one more residual block in the same
+**In the tight path, the IMU and LiDAR contribute residual blocks to the same
 normal equations.**
 
-**Loose** — LiDAR only:
+**Loose** — LiDAR only, with a robust point-to-plane loss:
 
 $$
-J(\mathbf{T}) = \sum_i \rho\!\left( \mathbf{n}_i^\top(\mathbf{T}\mathbf{p}_i - \mathbf{c}_i) \right)^2
+\mathcal{L}_{\mathrm{loose}}(\mathbf{T})
+= \sum_l \rho\!\left(r_l(\mathbf{T})/\sigma_l\right).
 $$
 
-**Tight** — the IMU enters as a *prior residual on the same state*:
+**Tight** — LiDAR and the preintegrated IMU factor constrain the new state
+together, with bias and gravity priors:
 
 $$
-J(\mathbf{x}) =
-\underbrace{\lVert \mathbf{x} \boxminus \hat{\mathbf{x}} \rVert^2_{\boldsymbol{\Sigma}^{-1}}}_{\text{IMU}}
-\;+\;
-\underbrace{\sum_i \rho\!\left( r_i(\mathbf{x})^2 \right) / \sigma^2}_{\text{LiDAR}}
+\begin{aligned}
+\mathcal{L}_{\mathrm{tight}}(\mathbf{x}_j,\mathbf{g})
+={}& \sum_l \rho\!\left(r_l(\mathbf{x}_j)/\sigma_l\right)
++\|\mathbf{r}_{\mathcal I}(\mathbf{x}_i,\mathbf{x}_j,\mathbf{g})\|^2_{\Sigma_{\mathrm{eff}}}\\
+&+\|\mathbf{b}_j-\mathbf{b}_i\|^2_{P_b}
++\|\mathbf{g}-\mathbf{g}_{\mathrm{init}}\|^2_{\sigma_g^2 I}.
+\end{aligned}
 $$
 
-which assembles into
+At one linearization, with correspondences and robust weights fixed, the
+Gauss-Newton information has the shape
 
 $$
-\mathbf{H} = \mathbf{J}_{\text{imu}}^\top \boldsymbol{\Sigma}^{-1} \mathbf{J}_{\text{imu}}
-\;+\; \sum_i \frac{1}{\sigma^2}\,\mathbf{J}_i^\top \mathbf{J}_i
+H_{\mathrm{total}} =
+J_{\mathcal I}^{\top}\Sigma_{\mathrm{eff}}^{-1}J_{\mathcal I}
++\sum_l \frac{w_l}{\sigma_l^2}J_l^\top J_l
++H_{\mathrm{bias}}+H_{\mathrm{gravity}}.
 $$
 
-**That sum *is* the fusion.** There is no filter, no blending coefficient, no mode
-switch. Where the LiDAR is well-conditioned its term dominates. Where it is degenerate
-(the corridor) its term contributes *nothing* in that direction, and `Σ⁻¹` is the only
-thing there — so the IMU takes over precisely where it is needed. The information
-matrices arbitrate, per-direction, per-iteration. (The solver side — `addScalar` for each laser
-return, `addBlock` for the IMU's 9-vector — is [gauss-newton.md §10](gauss-newton.md#10-two-ways-in).)
+**That sum is the fusion within the tight solve.** Its information matrices set
+the relative influence of IMU and LiDAR in each direction. Where LiDAR geometry
+is weak, its contribution along that direction is small, so IMU information can
+carry the estimate. Section 3.11 shows the actual four-block system, including
+robust weights and priors.
 
-> **Loose coupling is this with `Σ⁻¹ = 0`.** Zero the IMU information and `H` collapses
-> back to `Σ JᵀJ` — literally the 6-DoF solve. That is not an analogy; it is the same
-> matrix with one block zeroed, and it is why `imu_prior_weight` can select between them.
+The loose path is a separate 6-DoF SE(3) solve selected when the IMU weight is zero.
+Conceptually, it keeps the LiDAR terms and uses the IMU only to predict a starting
+pose. Simply zeroing the IMU block of the 18-DoF tight system would leave velocity
+unconstrained and make that system singular; it is not the implementation of loose mode.
 
 ## 3.8 The state — 18 DoF, one curved block
 
@@ -410,10 +419,13 @@ those states, and it is why the LiDAR can discipline velocity *only through posi
 
 ## 3.9 Preintegration — why it exists
 
-To constrain two poses with the IMU you must integrate between them. Naively that
-integration is expressed in the **world** frame, so it needs `R_i` to rotate each
-acceleration sample. The moment the optimizer changes its estimate of `R_i`, all several
-hundred samples must be re-integrated. Inside an iterative solve, that is ruinous.
+To constrain two poses with the IMU you must integrate between them. A naive
+world-frame integration rotates each acceleration sample using the estimated
+starting orientation. If an optimizer changes that orientation, it must repeat
+the integration. The cost scales with interval length and solver iterations:
+glass-lio's 0.1 s scan spans about 20 samples at 200 Hz, while a longer-lived
+window factor can span hundreds. Bias correction and computing covariance once
+also make preintegration useful for short intervals.
 
 **The trick:** integrate in the frame of the *first sample* instead.
 
@@ -674,35 +686,47 @@ an ungated resync cascaded into total divergence. The gate keeps the resync to s
 itself backs up. `min_rotation_eigenvalue_ratio` defaults to `0.05`, the translation gate's
 starting value, and has not been swept.
 
-## 3.14 The limit — a factor, not a filter
+<a id="current-state-limit"></a>
+## 3.14 The limit — a current-state solve with partial covariance
 
-`x_i` is committed after each scan and never revisited; its uncertainty reaches the next solve
-only through `Σ_eff`, for one factor. A filter — or a fixed-lag window — would instead carry the
-**whole state's** covariance, so that *today's* measurement can correct *yesterday's* estimate:
+After each scan, the previous state is committed and never re-optimized. Its uncertainty
+enters the next IMU factor through $\Sigma_{\mathrm{eff}}$, which marginalizes an
+independent Gaussian perturbation of that state for this one linearized factor (§3.11).
+The solver extracts the navigation and bias blocks from the full local posterior
+$H_{\mathrm{total}}^{-1}$. It carries correlations among navigation variables, but
+does not carry gravity cross-correlations or a complete joint history.
 
-1. **Propagate** $\mathbf{P} \leftarrow \mathbf{F}\mathbf{P}\mathbf{F}^\top + \mathbf{G}\mathbf{Q}\mathbf{G}^\top$
-   across the IMU interval. Both halves exist: $\mathbf{G}\mathbf{Q}\mathbf{G}^\top$ is
-   `ImuPreintegration::covariance()`, and $\mathbf{F}$ is `imuStateTransition`, pinned against a
-   finite difference of `predictState` at `5.9e-09`.
-2. **Prior on the whole state**, $\lVert \mathbf{x} \boxminus \hat{\mathbf{x}} \rVert^2_{\mathbf{P}^{-1}}$
-   — `priorResidual`, built on `boxminus`.
-3. **Posterior** $\mathbf{P} \leftarrow (\mathbf{P}^{-1} + \mathbf{H})^{-1}$ — `TightResult::H`
-   is returned for exactly this.
+This is a current-state optimization with partial uncertainty propagation. Factors
+can also be used inside filters and sliding windows; the distinction is which state
+distribution and past states the estimator retains.
 
-A fixed-lag window needs one more piece, the **Schur-complement marginalization** kernel
-([`marginalization.hpp`](../glass_core/include/glass_core/marginalization.hpp), exact to
-`2.1e-17`), to drop the oldest state without losing what it knew. And with a proper
-$\mathbf{P}$, `tight_warmup_scans` disappears: initialise $\mathbf{P}_v$ large — *"we do not
-know the velocity"* — and let the LiDAR discover it.
+A full-state filter would:
 
-> **This is why FAST-LIO is an iterated EKF.** Carrying $\mathbf{x}_i$'s covariance forward is
-> not an implementation detail — it is the mechanism by which yesterday's error can be
-> corrected by today's measurement.
+1. Propagate a complete current-state covariance,
+   $P^- = F P^+ F^\top + G Q G^\top$, across the IMU interval.
+   ImuPreintegration::covariance() supplies the 9×9 uncertainty of the
+   preintegrated deltas; it is not, by itself, the full state process-noise term.
+2. Use the propagated uncertainty as a prior on the current state, retaining its
+   cross-correlations through the LiDAR update.
+3. Compute the joint local posterior from the **total** information, including each
+   prior once: $P^+ \approx H_{\mathrm{total}}^{-1}$. Adding a prior information
+   matrix again after it is already in $H_{\mathrm{total}}$ would double-count it.
 
-This limit was once believed to be the *cause* of the real-bag divergence. It was not — two
-miscalibrated numbers were ([testing.md §12](testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag)).
-That is why it is written down as a limit rather than an open bug: the factor is at parity with
-loose, and the window is future work on primitives that already exist and are tested.
+A filter can update the *current* velocity and biases through their correlations with
+the measured pose. It does not re-optimize a previously committed pose. A fixed-lag
+window does retain recent poses for later scans to revise; removing the oldest while
+preserving its linearized information requires Schur-complement marginalization
+([marginalization.hpp](../glass_core/include/glass_core/marginalization.hpp)).
+
+A fuller covariance might reduce the need for the loose warm-up, since a large
+initial velocity variance would represent uncertainty in $v_0$. Whether it can
+remove that warm-up without harming convergence requires a real-data test.
+
+This limit was once believed to be the *cause* of the real-bag divergence. It was
+not — two miscalibrated numbers were
+([testing.md §12](testing.md#12-case-study--making-tight-coupling-work-on-the-real-bag)).
+The current solve is at parity with loose on the original bag; a full filter or
+window remains a separate design choice.
 
 ## 3.15 Parameters that bite
 

@@ -12,7 +12,7 @@
 </head>
 <body>
 <main>
-<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0002-integrating-one-imu-step.html">Lesson 2</a> › Reference card</p>
+<p class="crumbs"><a href="../index.html">LiDAR–inertial estimation course</a> › <a href="../lessons/0002-integrating-one-imu-step.html">Lesson 2</a> › Reference card</p>
 <header class="page">
   <p class="kicker">Reference card · Lesson 2</p>
   <h1>IMU motion integration</h1>
@@ -52,8 +52,8 @@
     &\quad + \tfrac{1}{2}\mathbf{R}(t)(\tilde{\mathbf{a}} - \mathbf{b}^{a})\,\Delta t^{2}
     \end{aligned} $$</div>
 
-<h2>Say it at a whiteboard</h2>
-<div class="callout interview">
+<h2>Explain the idea</h2>
+<div class="callout summary">
 <p>"For one IMU step, orientation is right-multiplied by the Exp of the bias-corrected gyro
   times \(\Delta t\), because the rate is in the body frame. For velocity and position, I rotate
   the bias-corrected specific force into the world with the orientation at the start of the step,

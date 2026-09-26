@@ -12,7 +12,7 @@
 </head>
 <body>
 <main>
-<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0005-the-noise-preintegration-carries.html">Lesson 5</a> › Reference card</p>
+<p class="crumbs"><a href="../index.html">LiDAR–inertial estimation course</a> › <a href="../lessons/0005-the-noise-preintegration-carries.html">Lesson 5</a> › Reference card</p>
 <header class="page">
   <p class="kicker">Reference card · Lesson 5</p>
   <h1>Preintegration covariance</h1>
@@ -48,8 +48,8 @@
     \Sigma_{\eta} &= \frac{1}{\Delta t}\begin{bmatrix}\sigma_g^{2}\mathbf{I} & \mathbf{0}\\ \mathbf{0} & \sigma_a^{2}\mathbf{I}\end{bmatrix}
     \end{aligned} $$</div>
 
-<h2>Say it at a whiteboard</h2>
-<div class="callout interview">
+<h2>Explain the idea</h2>
+<div class="callout summary">
 <p>"Preintegration's noise is a linear function of the IMU's white noise, so I propagate its 9×9
   covariance over \([\delta\boldsymbol{\phi}, \delta\mathbf{v}, \delta\mathbf{p}]\) one sample at a time:
   \(\Sigma \leftarrow \mathbf{A}\Sigma\mathbf{A}^{\top} + \mathbf{B}\Sigma_{\eta}\mathbf{B}^{\top}\), starting from

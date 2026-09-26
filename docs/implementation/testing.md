@@ -423,5 +423,5 @@ had already removed the degeneracy the IMU exists to rescue.
 > conclusions until the data confirms them. This time the thesis caught the author twice: once
 > in the code, once in the write-up.
 
-The "factor, not a filter" limit is real, and it is still there — written down as a limit, not
-a bug, in [5-registration.md §3.14](5-registration.md#314-the-limit--a-factor-not-a-filter).
+The partial covariance and lack of a window remain design limits, described in
+[5-registration.md §3.14](5-registration.md#current-state-limit).

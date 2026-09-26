@@ -59,15 +59,16 @@ after scaling, it logs an ERROR naming the parameter.
 
 Accumulate `N` samples (`num_samples: 200` = 1 s at 200 Hz), then require **both**:
 
-| Check | Threshold | Rules out |
+| Check | Threshold | Sensitive to |
 |---|---|---|
-| `maxᵢ ‖ωᵢ‖` | < 0.1 rad/s | rotation |
-| `max_axis σ(a)` | < 0.5 m/s² | translation (acceleration) |
+| `maxᵢ ‖ωᵢ‖` | < 0.1 rad/s | rotation above the threshold |
+| `max_axis σ(a)` | < 0.5 m/s² | large changes in measured specific force |
 
-**The second check is not redundant**, and it is the one people leave out. A
-gyro-only test passes happily while the sensor is carried in a straight line at
-increasing speed — and that acceleration would be summed into the mean and reported
-as part of "gravity", permanently tilting the world frame.
+**The second check is not redundant:** it can catch changing linear acceleration
+that a gyro-only test misses. It cannot detect a steady push. Constant horizontal
+acceleration has low standard deviation, passes both gates, and is included in the
+mean specific force used to align gravity. These are stationarity heuristics, not
+proof that the platform was at rest.
 
 Measured on the bag: static windows peak at `‖ω‖ ≈ 0.04` rad/s; a turn hits 0.4. The
 0.1 threshold sits in the gap.
@@ -90,7 +91,7 @@ window that passes **both** checks.
 ### The limitation, and it bit us
 
 Neither check can distinguish **rest** from **constant velocity**. Both give zero
-angular rate and zero acceleration variance — that is what "no acceleration" *means*.
+angular rate and low accelerometer variation.
 
 On our own test bag the robot is **already cruising at ~1.5 m/s** when the recording
 starts. The check reports "static". It is not lying: constant velocity means zero
@@ -99,8 +100,10 @@ acceleration, so gravity is uncorrupted and the init is *valid*.
 But we then read the "static" log line as "the robot is stopped", and spent real time
 mistaking a correctly-tracked 1.6 m/s trajectory for drift.
 
-**Never read "static window detected" as "the robot is stationary."** It means "the
-robot is not accelerating."
+**Never read "static window detected" as "the robot is stationary."** It means
+the samples passed the rotation-rate and acceleration-variation gates. Constant
+velocity and steady acceleration can both pass; only the former leaves gravity
+alignment uncorrupted.
 
 ---
 

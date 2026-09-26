@@ -21,11 +21,7 @@
 
 <article>
 
-<p class="lede">Lesson 3 left one thing unexplained: the <code>_hat</code> in glass-core's residual.
-The deltas in eq.&nbsp;(33) still contain the <a href="../glossary.html#bias">biases</a>, and the solver
-keeps re-estimating the biases, so the deltas go stale. This lesson is Forster's fix, eq.&nbsp;(44):
-correct them to first order instead of re-integrating. It's also what keeps glass-lio's lesson-1 fix,
-estimating \(\mathbf{b}^{a}\) as a state, affordable.</p>
+<p class="lede">Preintegrated deltas depend on the biases assumed when they were built. If an optimizer changes those biases, the deltas need updating. This lesson derives the first-order correction that avoids integrating every IMU sample again, including the rotation update on SO(3).</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -80,7 +76,7 @@ for the preintegrated measurement, as in lesson 1:</p>
 writes the partial derivatives out in full; the \(\mathbf{J}\) shorthand is this course's, for writing
 by hand. In glass-core, \(\mathbf{J}^{v}_{a}\) is <code>dv_dba_</code>, \(\mathbf{J}^{R}_{g}\) is
 <code>dR_dbg_</code>, and so on.</span> Forster: "The Jacobians remain constant and can be precomputed
-during the preintegration." So the correction costs a few matrix products, not hundreds of samples.</p>
+during the preintegration." So each correction costs a few matrix products instead of re-integrating every sample in the interval.</p>
 
 <h2>3 · Rotations don't add</h2>
 
@@ -101,7 +97,7 @@ return dp_ + dp_dbg_ * dbg + dp_dba_ * dba;</code></pre>
 
 <h2>4 · Derive one Jacobian yourself</h2>
 
-<p>The easiest one, and a good whiteboard moment. Start from the warm-up's sum. The accelerometer bias
+<p>Start with the easiest Jacobian, from the warm-up's sum. The accelerometer bias
 appears once, linearly, and \(\Delta\bar{\mathbf{R}}_{ik}\) doesn't depend on it at all (gyro only):</p>
 
 <div class="eq">$$ \begin{aligned}
@@ -137,8 +133,8 @@ first-order approximation are negligible, even for relatively large bias perturb
 §VIII, the discussion of Fig.&nbsp;11.</span> If the bias ever drifts too far, glass-core's own rule is
 blunt: "the answer is to re-integrate, not to add higher-order terms."</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
   <p>"The preintegrated deltas depend on the bias they were integrated with, and the solver keeps
   moving the bias. Rather than re-integrating, I also accumulate each delta's Jacobian with respect to
   the biases during preintegration. Then, for a bias offset \(\delta\mathbf{b}\), \(\Delta\mathbf{v}\) and
@@ -303,7 +299,7 @@ driving straight down a corridor, it barely is.</p>
   </ol>
   <div class="explain" hidden>
     <p>The bias is a state, so every Gauss-Newton iteration can move it by \(\delta\mathbf{b}\).
-    Re-integrating hundreds of samples each time is what Forster calls "computationally expensive".</p>
+    Re-integrating the entire interval at every iteration is what Forster calls "computationally expensive".</p>
   </div>
 </div>
 
@@ -444,11 +440,8 @@ driving straight down a corridor, it barely is.</p>
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Questions like "why is the gyro-bias Jacobian of
-  \(\Delta\mathbf{v}\) so much messier?" or "why expand around \(\bar{\mathbf{b}}\) and not the current
-  bias?" are exactly what it's for. Tell it how the warm-up and the recall box went. Terms follow the
-  <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>When is first-order bias correction accurate enough? Why expand around a reference bias? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

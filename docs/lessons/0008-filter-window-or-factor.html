@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Filter, window, or factor · Lesson 8</title>
+<title>Filter, window, or current-state solve · Lesson 8</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <link rel="stylesheet" href="../assets/course.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
@@ -15,17 +15,13 @@
 
 <header class="page">
   <p class="kicker">Lesson 8 · Inertial state estimation · 30–45 minutes first study · 15 minutes revision</p>
-  <h1>Filter, window, or factor</h1>
+  <h1>Filter, window, or current-state solve</h1>
   <p class="subtitle">What each estimator keeps, what it re-linearises, and what marginalization buys.</p>
 </header>
 
 <article>
 
-<p class="lede">Every real-time estimator has to decide what to do with the past. Keep every old state
-and the cost grows forever; throw them away carelessly and you lose information or invent it. Your two
-repos answer this differently, and so do FAST-LIO2 and VINS-Mono. This lesson gives you one tool,
-<em>marginalization</em>, which you'll do by hand on a 2×2 system, and one table to compare them all. It's
-a chance to defend a filter-vs-window choice at a whiteboard.</p>
+<p class="lede">A real-time estimator must decide what information to retain from past states. Derive marginalization on a 2×2 system, then compare a filter, a sliding window, and a current-state solve. Identify which states can be relinearized and which correlations survive.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -98,8 +94,8 @@ b_marg = bk - Hmk.transpose() * Hmm_inv_bm;</code></pre>
   <tr><th>Design</th><th>Keeps</th><th>Re-linearises</th><th>The past</th></tr>
   <tr><td><strong>Filter</strong> (EKF, iterated EKF: FAST-LIO2)</td><td>current state + its covariance</td><td>the current state only</td><td>marginalized every step</td></tr>
   <tr><td><strong>Window, marginalize</strong> (VINS-Mono)</td><td>last \(N\) states</td><td>all \(N\), every solve</td><td>oldest turned into a prior</td></tr>
-  <tr><td><strong>Window, drop</strong> (the linked glass-vio version)</td><td>last \(N\) keyframes</td><td>all \(N\), every solve</td><td>oldest dropped; an anchor held fixed</td></tr>
-  <tr><td><strong>Current-state factor solve</strong> (glass-lio)</td><td>the new state \(\mathbf{x}_j\)</td><td>\(\mathbf{x}_j\) only</td><td>\(\mathbf{x}_i\) held fixed; its covariance carried</td></tr>
+  <tr><td><strong>Window, drop</strong> (simple bounded window)</td><td>last \(N\) states</td><td>retained states</td><td>oldest dropped; its information is lost</td></tr>
+  <tr><td><strong>Current-state factor solve</strong> (one-step optimizer)</td><td>the new state \(\mathbf{x}_j\)</td><td>\(\mathbf{x}_j\) only</td><td>\(\mathbf{x}_i\) held fixed; its covariance carried</td></tr>
 </table>
 
 <p><strong>The filter.</strong> Propagate \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\) across the
@@ -108,22 +104,21 @@ is cheap. It can never go back and re-linearise an old state. FAST-LIO2 is "a hi
 filter", which re-linearises only the current state, a few times per update.<span class="sidenote">Xu et al.,
 <a href="https://arxiv.org/abs/2107.06829"><em>FAST-LIO2</em></a>, abstract.</span></p>
 
-<p><strong>The window.</strong> VINS-Mono keeps a "window of recent states by marginalizing out past states", turning the
-measurements of each removed state "into a prior".<span class="sidenote">Qin, Li &amp; Shen,
-<a href="https://arxiv.org/abs/1708.03852"><em>VINS-Mono</em></a>, IEEE T-RO 2018: the introduction, and the Marginalization
-subsection with its Fig.&nbsp;7.</span> the linked glass-vio version simply pops the oldest keyframe,
-keeping the anchor fixed.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/src/vio/keyframe_window.cpp#L92-L98"><code>keyframe_window.cpp</code>,
-lines 92–98</a>; the design comparison is in glass-vio's <a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/doc/08-sliding-window.md"><code>doc/08-sliding-window.md</code></a>,
-§6, whose "Stage B" is marginalization, with the warning "a wrong marginalization injects spurious information… Do
-<strong>not</strong> start here."</span></p>
-
-<pre><code>kfs_.push_back(std::move(kf));
-while (static_cast&lt;int&gt;(kfs_.size()) &gt; p_.max_keyframes + 1) {
-  kfs_.pop_front();
-}</code></pre>
+<p><strong>The window.</strong> A fixed-lag optimizer retains recent states and relinearizes them.
+When the window is full, it can marginalize the oldest state into a prior, as in
+VINS-Mono,<span class="sidenote">Qin, Li &amp; Shen,
+<a href="https://arxiv.org/abs/1708.03852"><em>VINS-Mono</em></a>, IEEE T-RO 2018,
+Marginalization subsection.</span> or simply drop its measurements. The latter bounds
+cost but discards information. Fixing an uncertain state as an anchor changes the
+problem again: it treats that estimate as exact.</p>
+<details><summary>Implementation example: a window that drops old keyframes</summary>
+<p>The linked glass-vio revision uses <code>pop_front()</code> when its window is full.
+That is an example of the drop policy, not a property of every windowed estimator.
+<a href="https://github.com/Tim-HW/glass-vio/blob/cb41f7248f6c160ac91cc04c56750b22ffa9c3d2/src/vio/keyframe_window.cpp#L92-L98">See the implementation</a>.</p>
+</details>
 
 <p><strong>The current-state factor solve.</strong> A factor is a term in an objective, not a mutually exclusive alternative to a filter or smoother. glass-lio optimizes the new state and gravity, inflates the IMU covariance by the previous state's uncertainty, and carries selected covariance blocks. Not revisiting old states does not by itself distinguish it from a filter. The important question is which joint distribution and correlations its prior represents.</p>
-<p>ORB-SLAM3 also should not be described as a FIFO window that simply forgets old keyframes: it reuses covisible keyframes and maintains maps beyond the local optimization window. See the <a href="https://arxiv.org/abs/2007.11898">ORB-SLAM3 paper</a>. The table describes the linked glass-vio implementation only.</p>
+
 <h3 id="posterior">Extracting covariance without inventing information</h3>
 <p>Let \(H_{\rm total}=H_{\rm prior}+H_{\rm data}\) include all four residual blocks. For the resulting nonsingular local Gaussian approximation,</p>
 <div class="eq">$$ P\approx H_{\rm total}^{-1},\qquad
@@ -174,7 +169,7 @@ The landmark's row connects it to all three poses, and the Schur complement adds
 <strong>fill-in</strong>: the removed variable's connections become a dense clique among its neighbours.
 Marginalize a few hundred landmarks from a window of ten keyframes and the keyframes' prior becomes one
 dense block, which is why VINS-Mono's marginalization is its most expensive and most delicate step, and
-why glass-vio's plan calls it “the hard, essential part” and says not to start there.</p>
+why window design has to account for both computation and the resulting prior.</p>
 
 <details><summary>Try it: why do windowed estimators usually marginalize landmarks <em>before</em> the oldest keyframe?</summary>
 <p>A landmark seen only by the oldest keyframe can be marginalized with the keyframe at little cost. But
@@ -182,10 +177,9 @@ landmarks seen by several keyframes cause fill-in among all of them. Removing th
 their measurements entirely, keeps the resulting prior on the survivors small and structured. The choice of
 <em>what</em> to marginalize, and in which order, is a sparsity decision as much as a statistical one.</p></details>
 
-<h2>5 · glass-lio's inflation is a marginalization</h2>
+<h2>5 · Previous-state uncertainty in a factor</h2>
 
-<p>Lesson 5 showed glass-lio inflating the IMU factor's covariance by the previous state's own
-uncertainty, \(\Sigma_{\text{eff}} = \Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\). The Schur complement
+<p>One way to account for an uncertain starting state in an IMU factor is to inflate its covariance: \(\Sigma_{\text{eff}} = \Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\). The Schur complement
 explains what that line really is. Take the simplest version: \(x_j = x_i + d\), with measurement noise
 variance \(\sigma^2\) and a prior on \(x_i\) with variance \(p\). The joint information on
 \([x_i;\ x_j]\) and its marginal on \(x_j\) are</p>
@@ -195,9 +189,8 @@ variance \(\sigma^2\) and a prior on \(x_i\) with variance \(p\). The joint info
 
 <p>With \(p = 0.04\) and \(\sigma^2 = 0.01\), the marginal information is exactly \(20 = 1/0.05\): the
 variances add. That is the inflation, derived. <strong>Adding \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to the
-factor's covariance is marginalizing a Gaussian \(\mathbf{x}_i\) out of this one factor.</strong> It is why
-glass-lio is best described not as “a factor, not a filter” but as a one-step marginalization: it removes
-\(\mathbf{x}_i\) correctly for the IMU factor, and carries forward only the covariance blocks it keeps.</p>
+factor's covariance is marginalizing a Gaussian \(\mathbf{x}_i\) out of this one factor.</strong> In the glass-lio case study, this is a one-factor marginalization of
+\(\mathbf{x}_i\); the estimator then carries forward selected covariance blocks.</p>
 
 <h3>What it would take to become a full filter</h3>
 
@@ -208,9 +201,10 @@ glass-lio is best described not as “a factor, not a filter” but as a one-ste
   \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^\top + \mathbf{G}\mathbf{Q}\mathbf{G}^\top\). glass-core already computes the
   state-transition Jacobian \(\mathbf{F}\) (<code>imuStateTransition</code>); what a filter needs is a caller that
   applies it every scan to the whole state.</li>
-  <li><strong>Keeping every cross-correlation.</strong> glass-lio carries selected blocks. A filter carries
-  the full \(\mathbf{P}\), including how position errors correlate with bias errors, and that correlation is
-  exactly how a filter learns the accelerometer bias from position corrections.</li>
+  <li><strong>Keeping every cross-correlation.</strong> glass-lio carries a 15×15 navigation covariance,
+  including position–bias correlations, but omits correlations with gravity and the complete joint
+  history. A full-state filter would propagate the complete current-state covariance through the
+  prediction and update.</li>
   <li><strong>Iterating the update's linearization</strong>, as FAST-LIO2's iterated EKF does, which
   glass-lio's Gauss-Newton loop already approximates.</li>
 </ul>
@@ -221,9 +215,9 @@ distribution it chooses to keep, not a different theory.</p>
 
 <h2>6 · Why a wrong marginalization injects information</h2>
 
-<p>Glass-vio's warning that “a wrong marginalization injects spurious information” sounds paradoxical:
-removing a variable should only lose information. The resolution is the phrase in section 2: the
-summary is exact <em>for the chosen linearization</em>.</p>
+<p>A marginalization prior is exact only <em>for the chosen linearization</em>.
+In a nonlinear estimator, combining it carelessly with later linearizations can make
+the resulting uncertainty too small.</p>
 
 <p>When a state is marginalized, its prior \(\mathbf{H}'\) is frozen with Jacobians evaluated at the estimate
 held at that moment. The surviving states keep being re-linearized at newer, better estimates. Now the
@@ -236,38 +230,35 @@ lightly and drifts while reporting a small covariance.</p>
 
 <p>The standard remedy is <strong>first-estimate Jacobians</strong> (FEJ): evaluate every Jacobian that
 touches a marginalized state at that state's <em>first</em> estimate, so all factors agree on the
-linearization point and the unobservable directions stay unobservable. Filter-based VIO systems such as
-OpenVINS turn it on; you will even find <code>use_fej: true</code> in an OpenVINS configuration file that
-sits, unused, in glass-vio's <code>config/</code> folder. It trades a little accuracy per step for a covariance that tells the
-truth.</p>
+linearization point and the unobservable directions stay unobservable. Filter-based visual–inertial systems also use FEJ to preserve the correct unobservable
+directions. It is a consistency technique, not a guarantee that every covariance is calibrated.</p>
 
 <div class="callout">
   <p class="label">The consistency test</p>
   <p>An estimator is consistent if its errors, measured against ground truth, are about as large as its
   own covariance claims. The usual check is the normalised estimation error squared (NEES): average
   \(\mathbf{e}^\top\mathbf{P}^{-1}\mathbf{e}\) over many runs and compare it with the state dimension. Far above it means
-  overconfident, which is the signature of injected information. It is the one test that catches
-  this class of bug, because every other check looks fine.</p>
+  overconfident, which is the signature of injected information. It is a useful statistical test for this class of overconfidence, which a trajectory plot alone may miss.</p>
 </div>
 
 <h2>7 · So which?</h2>
 
-<p>For visual SLAM, Strasdat et al. conclude that "keyframe bundle adjustment outperforms filtering, since it gives the
-most accuracy per unit of computing time", because "it is usually more profitable to increase the number of features
-than the number of frames."<span class="sidenote">Strasdat et al., abstract and §8, Conclusion.</span> But FAST-LIO2 is a
-filter, and it's the system glass-lio benchmarks itself against. The honest interview answer names the trade: a filter
-is cheap and never revisits; a window re-linearises recent history at a bounded cost; and whichever you pick, the
-uncertain states you remove should be marginalized if you intend to preserve their information. Dropping measurements loses information; fixing an uncertain state can invent certainty. Fixing a gauge to define the coordinate frame is a separate operation.</p>
+<p>There is no universal winner. A filter keeps a compact current distribution and cannot
+relinearize past states. A sliding window can refine recent states at a bounded computational
+cost, but it must decide how to remove old information. A current-state solve can be simpler
+while approximating some past correlations. Choose based on the sensor model, available
+compute, and which uncertainties the application must preserve. Dropping measurements loses
+information; fixing an uncertain estimate can invent certainty. Fixing a coordinate gauge
+to define the reference frame is a separate operation.</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
-  <p>"Every real-time estimator has to decide what to do with the past. A filter keeps only the current state and its
-  covariance: it propagates \(\mathbf{P}\leftarrow\mathbf{F}\mathbf{P}\mathbf{F}^{\top}+\mathbf{G}\mathbf{Q}\mathbf{G}^{\top}\), updates, and has
-  marginalized everything older, so it's cheap but can never re-linearise an old state. A sliding window keeps the last
-  \(N\) states and re-linearises all of them each solve. To stay bounded it removes the oldest, properly by Schur
-  complement, which leaves the prior for that linearization \(\mathbf{H}_{kk}-\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\), or cheaply by dropping it
-  and fixing an anchor. Treating an uncertain old state as exact can make the estimator overconfident; fixing a coordinate gauge is a separate choice. glass-lio uses a current-state solve that holds \(\mathbf{x}_i\) fixed but carries its covariance; FAST-LIO2 is an iterated EKF;
-  VINS-Mono is a marginalizing window."</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
+  <p>A filter summarizes past measurements in the current state distribution and cannot
+  relinearize old states. A sliding window retains recent states and can refine them
+  together; marginalizing its oldest state preserves a local linearized prior but may
+  create dense couplings. A current-state solve can also account for an uncertain
+  previous state within a factor. Dropping measurements loses information, while fixing
+  an uncertain estimate as exact can make the result overconfident.</p>
 </div>
 
 <h2>8 · Practice</h2>
@@ -331,16 +322,18 @@ uncertain states you remove should be marginalized if you intend to preserve the
 </div>
 
 <div class="quiz" data-answer="drop">
-  <p class="q">What does glass-vio's keyframe window do with its oldest keyframe today?</p>
+  <p class="q">A fixed-size window removes its oldest state and all measurements touching it,
+  without making a marginalization prior. What happens?</p>
   <ol class="options">
-    <li><button class="option" data-key="marg">Marginalizes it into a Schur prior</button></li>
-    <li><button class="option" data-key="drop">Drops it and fixes an anchor</button></li>
-    <li><button class="option" data-key="keep">Keeps it forever in the window</button></li>
-    <li><button class="option" data-key="graph">Converts it into a pose graph</button></li>
+    <li><button class="option" data-key="marg">Its information is preserved exactly</button></li>
+    <li><button class="option" data-key="drop">Information from those measurements is lost</button></li>
+    <li><button class="option" data-key="keep">The oldest state remains in the solve</button></li>
+    <li><button class="option" data-key="graph">A pose graph is created automatically</button></li>
   </ol>
   <div class="explain" hidden>
-    <p><code>pop_front()</code> in the linked glass-vio revision. Marginalizing it into a prior is glass-vio's planned "Stage B", with the kernel
-    already in glass-core.</p>
+    <p>Dropping removes those measurements. Marginalization instead summarizes their local
+    information in a prior on the surviving states. Treating the removed estimate as exact
+    can create overconfidence.</p>
   </div>
 </div>
 
@@ -388,8 +381,8 @@ uncertain states you remove should be marginalized if you intend to preserve the
 </div>
 
 <div class="quiz" data-answer="marg">
-  <p class="q">glass-lio adds \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to the IMU factor's covariance. In the language of this lesson,
-  that line is…</p>
+  <p class="q">A factor adds \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to its covariance to account for an uncertain starting state.
+  In the language of this lesson, that is…</p>
   <ol class="options">
     <li><button class="option" data-key="fix">holding \(\mathbf{x}_i\) fixed</button></li>
     <li><button class="option" data-key="marg">marginalizing a Gaussian \(\mathbf{x}_i\) out of that one factor</button></li>
@@ -405,8 +398,8 @@ uncertain states you remove should be marginalized if you intend to preserve the
 
 <div class="recall">
   <p class="q"><strong>From memory:</strong> write the Schur-complement marginalization of \(m\) from \([m;\ k]\), both \(\mathbf{H}'\) and
-  \(\mathbf{b}'\). Then say in one line each what a filter, a sliding window and glass-lio do with the past.</p>
-  <textarea placeholder="H' = ...   b' = ...&#10;filter: ...   window: ...   glass-lio: ..."></textarea>
+  \(\mathbf{b}'\). Then say in one line each what a filter, a sliding window, and a current-state solve do with the past.</p>
+  <textarea placeholder="H' = ...   b' = ...&#10;filter: ...   window: ...   current state: ..."></textarea>
   <button class="action reveal">Check against the answer</button>
   <div class="answer" hidden>
     <div class="eq">$$ \begin{aligned}
@@ -417,8 +410,8 @@ uncertain states you remove should be marginalized if you intend to preserve the
       <li>\(\mathbf{H}_{mm}^{-1}\) sandwiched between the coupling blocks</li>
       <li>The same correction applied to \(\mathbf{b}\)</li>
       <li>Filter: marginalizes every step, keeps the current state and \(\mathbf{P}\)</li>
-      <li>Window: keeps \(N\) states; marginalizes (VINS-Mono) or drops (glass-vio) the oldest</li>
-      <li>glass-lio: holds \(\mathbf{x}_i\) fixed, carries its covariance forward</li>
+      <li>Window: keeps \(N\) states; marginalizes or drops the oldest when full</li>
+      <li>Current-state solve: optimizes the newest state and can account for the previous state's uncertainty in its factors</li>
     </ul>
     <p>Missed something? Try this box again after a night's sleep, before rereading anything.</p>
   </div>
@@ -436,11 +429,8 @@ uncertain states you remove should be marginalized if you intend to preserve the
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Questions like "why is marginalizing the same as solving the top row and
-  substituting?", "what would glass-lio need to become a filter?" or "why does a wrong marginalization inject information?"
-  are exactly what it's for. Tell it how the warm-up and the recall box went. Terms follow the
-  <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>What information does a filter retain? When does marginalization create fill-in or inconsistency? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

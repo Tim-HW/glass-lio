@@ -21,11 +21,7 @@
 
 <article>
 
-<p class="lede">Lesson 2 integrated a single IMU sample. This lesson explains why we combine a whole interval into reusable deltas, and gives the derivation
-behind that sentence: one substitution and one multiplication turn Forster's eq.&nbsp;(32) into
-eq.&nbsp;(33), the preintegrated deltas \(\Delta\mathbf{R}_{ij}\), \(\Delta\mathbf{v}_{ij}\),
-\(\Delta\mathbf{p}_{ij}\). It's the core of this course's first goal: deriving them from
-memory.</p>
+<p class="lede">Lesson 2 integrated a single IMU sample. Here we combine an interval into three deltas that can be reused when an optimizer changes the starting pose. Derive the deltas from repeated state updates, then decide when preintegration saves work.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -71,10 +67,10 @@ change in all future rotations \(\mathbf{R}_k\)", so the whole integration has t
 whenever the linearization point at \(t_i\) moves.<span class="sidenote">Forster §VI, the
 paragraph after eq.&nbsp;(32).</span></p>
 
-<p>Inside an optimizer, the estimate of \(\mathbf{R}_i\) moves every iteration. glass-core's own
-header puts the cost bluntly: "every one of those hundreds of samples must be re-integrated.
-Inside an iterative solve that is ruinous."<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/preintegration.hpp#L13-L18"><code>preintegration.hpp</code>,
-lines 13–18</a>.</span></p>
+<p>Inside an optimizer, the estimate of \(\mathbf{R}_i\) can move every iteration.
+Without preintegration, each move repeats the sample integration. That cost grows
+with interval length and the number of solver iterations; section 10 compares a
+short scan interval with a longer-lived sliding-window factor.</p>
 
 <h2>3 · The move</h2>
 
@@ -136,10 +132,10 @@ Zero when they agree."</span></p>
 <p>Notice the <code>_hat</code>. The deltas still depend on the bias, and the bias is a state the
 solver moves too. How glass-core avoids re-integrating when <em>that</em> changes is lesson 4.</p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard</p>
+<div class="callout summary">
+  <p class="label">Explain the idea</p>
   <p>"Iterating the IMU from \(i\) to \(j\) puts \(\mathbf{R}_i\) inside every term, so each time the
-  optimizer moves \(\mathbf{R}_i\) you'd re-integrate hundreds of samples. Preintegration writes
+  optimizer moves \(\mathbf{R}_i\) you'd re-integrate every sample in the interval. Preintegration writes
   \(\mathbf{R}_k = \mathbf{R}_i\,\Delta\mathbf{R}_{ik}\), pulls \(\mathbf{R}_i\) out of the sums, and
   moves the states and gravity to the other side. What's left, \(\Delta\mathbf{R}_{ij}\),
   \(\Delta\mathbf{v}_{ij}\) and \(\Delta\mathbf{p}_{ij}\), depends only on the IMU measurements and the
@@ -149,7 +145,7 @@ solver moves too. How glass-core avoids re-integrating when <em>that</em> change
 <h2>6 · Where \(\mathbf{v}_i\,\Delta t_{ij}\) and \(\tfrac12\mathbf{g}\,\Delta t_{ij}^2\) come from</h2>
 
 <p>The velocity line was one substitution. The position line takes two more steps, and it is the
-line people most often get wrong at a whiteboard, so derive it once. Iterate the position line of
+line where the starting velocity is easy to overlook, so derive it once. Iterate the position line of
 eq.&nbsp;(31) from \(i\) to \(j\), over \(n\) steps of length \(\Delta t\):</p>
 
 <div class="eq">$$ \mathbf{p}_j = \mathbf{p}_i + \sum_{k=i}^{j-1}\Big[\mathbf{v}_k\,\Delta t + \tfrac12\mathbf{g}\,\Delta t^2 + \tfrac12\mathbf{R}_k(\tilde{\mathbf{a}}_k-\mathbf{b}^a)\,\Delta t^2\Big]. $$</div>
@@ -288,14 +284,13 @@ next lessons build on the deltas: a first-order bias correction (lesson 4) and a
 computed once (lesson 5), neither of which would be possible if the deltas were rebuilt from
 scratch at every iteration.</p>
 
-<p><strong>In a window</strong>, the saving becomes dramatic. glass-core also serves a sibling
-project, glass-vio, whose keyframe window keeps 10 keyframes about 0.2&nbsp;s apart and runs 8
-iterations per solve. Each IMU factor therefore spans about 40 samples and stays in the window
-for 10 solves:</p>
+<p><strong>In a sliding window</strong>, the saving can grow much larger. Consider an
+illustrative design with 10 keyframes, 40 IMU samples per interval, and 8 solver iterations
+per update. If a factor stays for 10 updates, repeatedly integrating its samples costs:</p>
 
 <div class="eq">$$ \underbrace{10 \times 8}_{\text{re-linearisations}} \times \underbrace{40}_{\text{samples}} = 3200 \text{ sample integrations per factor, versus } 40 \text{ with preintegration.} $$</div>
 
-<p>An 80-fold saving on every factor, and that is before counting the covariance and the bias
+<p>An 80-fold saving in this example, and that is before counting the covariance and the bias
 Jacobians, which would otherwise be rebuilt just as often. The longer a factor lives inside an
 optimiser, the more preintegration pays. That is why it is the standard building block of
 sliding-window and smoothing estimators.</p>
@@ -484,11 +479,8 @@ to its conclusion: filters, windows and factors differ mainly in how they treat 
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Questions like "why is \(\Delta\mathbf{R}_{ij}\)
-  physical but \(\Delta\mathbf{v}_{ij}\) not?" or "where does \(\mathbf{v}_i\,\Delta t_{ij}\) in
-  \(\Delta\mathbf{p}_{ij}\) come from?" are exactly what it's for. Tell it how the warm-up and the
-  recall box went. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Why is \(\Delta\mathbf{v}_{ij}\) not the physical velocity change? Where does \(\mathbf{v}_i\Delta t_{ij}\) enter position? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

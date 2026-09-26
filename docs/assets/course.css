@@ -141,7 +141,7 @@ th { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font
   margin: 1.6rem 0;
 }
 .callout > :last-child, aside > :last-child { margin-bottom: 0; }
-.callout.interview { border-left: 4px solid var(--accent); }
+.callout.summary { border-left: 4px solid var(--accent); }
 
 dl.symbols { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 1.2rem 0; }
 dl.symbols dt { font-weight: 600; }

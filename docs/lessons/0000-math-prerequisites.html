@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The mathematical toolkit · glass-lio course</title>
+<title>The mathematical toolkit · LiDAR–inertial estimation course</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <link rel="stylesheet" href="../assets/course.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
@@ -14,7 +14,7 @@
 <header class="page">
   <p class="kicker">Before lesson 1 · 45–60 minutes</p>
   <h1>The mathematical toolkit</h1>
-  <p class="subtitle">Six tools, each worked by hand, each tied to a bug it prevents in glass-lio.</p>
+  <p class="subtitle">Six tools for reasoning about rotations, uncertainty, and least squares.</p>
 </header>
 <article>
 
@@ -24,8 +24,7 @@ Jacobians, covariance, and least squares. Allow 45–60 minutes with pencil and 
 If one of those is unfamiliar, work through its example below before continuing. A glossary definition alone is not a substitute for doing the calculation.</p>
 
 <p><strong>How to use this page.</strong> Each section has three layers. First the idea, stated
-once and exactly. Then a worked example with real numbers, most of them taken from glass-lio's
-own sensor or code. Then the mistake the idea exists to prevent, because every tool here is in
+once and exactly. Then a worked example with real numbers, some taken from the glass-lio case study. Then the mistake the idea exists to prevent, because every tool here is in
 the course <em>because</em> getting it slightly wrong produces an estimator that still runs and
 is still wrong. Do the “Try it” boxes before opening them. The quizzes at the end are for a
 second sitting, a day later.</p>
@@ -597,10 +596,8 @@ stick.</p>
 <a href="https://arxiv.org/abs/1812.01537">Solà et al., A micro Lie theory for state estimation in robotics</a> provides a fuller geometric treatment.</p></aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. “Why does the inverse translation need \(R^\top\)?”
-  and “which side do I perturb on?” are exactly the questions this page exists to raise. Tell it
-  which Try-it boxes you could not do; that tells it where to start lesson 1.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Why does inverse translation use \(R^\top\)? How does the perturbation side change a Jacobian? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>

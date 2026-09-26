@@ -17,15 +17,12 @@
 <header class="page">
   <p class="kicker">Lesson 9 · Inertial state estimation · capstone · 45–60 minutes first study · 20 minutes revision</p>
   <h1>The tight solve, end to end</h1>
-  <p class="subtitle">One scan through glass-lio, every term justified, and each one traced to the lesson it came from.</p>
+  <p class="subtitle">Trace a scan through prediction, association, joint optimization, and map update.</p>
 </header>
 
 <article>
 
-<p class="lede">This capstone brings the course together: walk an interviewer through glass-lio's tight coupling and
-justify every term. Nothing here is new. It's lessons 1–8 put in the order the code runs them. By the end you should be
-able to narrate one scan from raw points to an updated map, and say for each weight what glass-lio measured when it was
-set wrong.</p>
+<p class="lede">This capstone assembles the measurement models, factors, covariances, and geometry from lessons 1–8 into one LiDAR–inertial update. Identify what each term constrains and how it is weighted, then follow one implementation from raw scan to updated map.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -46,14 +43,24 @@ set wrong.</p>
 
 <h2>1 · The one equation</h2>
 
-<p>Forster writes visual-inertial estimation as a single least-squares problem: a prior, the IMU factors, and the sensor
-factors, each weighted by its own covariance:<span class="sidenote">Forster et al.,
-<a href="https://arxiv.org/abs/1512.02363"><em>On-Manifold Preintegration…</em></a>, §IV, eq.&nbsp;(26); the IMU factor with
-bias updates is §VI-D, eq.&nbsp;(45).</span></p>
+<p>A tightly coupled estimator combines motion and geometric evidence in one objective.
+A prior anchors what the current measurements cannot determine; IMU and LiDAR factors
+contribute residuals scaled by their uncertainties. A robust loss limits the influence
+of incorrect point-to-plane correspondences:</p>
 
-<div class="eq">$$ \mathcal{X}^{\star} = \arg\min\; \|\mathbf{r}_0\|^2_{\Sigma_0} + \sum \|\mathbf{r}_{\mathcal{I}_{ij}}\|^2_{\Sigma_{ij}} + \sum\sum \|\mathbf{r}_{\mathcal{C}_{il}}\|^2_{\Sigma_{\mathcal{C}}} \tag{26} $$</div>
+<div class="eq">$$ \mathcal{X}^{\star}=\arg\min_{\mathcal{X}}\;
+\|\mathbf{r}_{\mathrm{prior}}\|^2_{\Sigma_{\mathrm{prior}}}
++\sum_{ij}\|\mathbf{r}_{\mathrm{imu},ij}\|^2_{\Sigma_{\mathrm{imu},ij}}
++\sum_l\rho\!\left(r_{\mathrm{lidar},l}/\sigma_l\right). $$</div>
 
-<p>glass-lio's tight solve is that shape with one IMU interval and LiDAR in place of the camera. It solves for the new
+<p>The exact state, prior, and number of factors depend on the estimator.
+This pattern is the LiDAR counterpart of the visual–inertial MAP objective
+in Forster et al.<span class="sidenote"><a href="https://arxiv.org/abs/1512.02363">
+<em>On-Manifold Preintegration…</em></a>, §IV, eq.&nbsp;(26); the IMU factor
+with bias updates is §VI-D, eq.&nbsp;(45).</span></p>
+
+<h3>Case study: a current-state solve</h3>
+<p>glass-lio instantiates this objective with one IMU interval and point-to-plane LiDAR residuals. It solves for the new
 state and gravity, an 18-dimensional increment \([\delta\boldsymbol{\phi},\ \delta\mathbf{p},\ \delta\mathbf{v},\ \delta\mathbf{b}^{g},\ \delta\mathbf{b}^{a},\ \delta\mathbf{g}]\):<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_state.hpp#L46-L79"><code>nav_state.hpp</code>,
 lines 46–79</a>: the state layout, and <code>boxplus</code>, which composes rotation on the right. Gravity is appended in
 <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/tight_registration.hpp#L22-L23"><code>tight_registration.hpp</code></a>.</span></p>
@@ -74,6 +81,16 @@ eq.addBlock&lt;6&gt;(biasResidual(xi, x), Jb, bias_information);
 eq.addBlock&lt;3&gt;(g - gravity_prior, Jg, gravity_information);</code></pre>
 
 <h2>2 · One scan, in order</h2>
+
+<p>Across implementations, the reusable sequence is: choose a common time and frame
+for the measurements; predict motion from the IMU; associate LiDAR points with map
+geometry; combine residuals and priors; solve and check the result; then update the
+map only when the pose is trusted. Each decision needs its own uncertainty model.</p>
+
+<h3>Case study: glass-lio's scan update</h3>
+<p>The following steps show one implementation. Its warm-up length, acceptance
+threshold, covariance approximation, and gyro-bias feedback gate are design choices,
+not requirements of tight coupling.</p>
 
 <ol>
   <li><strong>Deskew</strong> the points with the gyro, integrated on SO(3) (<a href="0002-integrating-one-imu-step.html">lesson 2</a>).</li>
@@ -114,6 +131,10 @@ Now close your eyes on the list and rebuild it:</p>
 
 <h2>3 · Justify every weight</h2>
 
+<p>For any estimator, a residual scale states how much error that measurement model expects. Compare weights only after accounting for units, correlations, and robust losses. Calibrate them from the sensor and the full residual, then test their effect on held-out motion and geometry.</p>
+
+<h3>Case study: measured weight failures</h3>
+
 <p>These historical experiments motivated the weights below. The outcomes depend on the dataset and estimator revision; changing a noise setting does not universally produce the same failure:<span class="sidenote">glass-lio
 <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/5-registration.md"><code>doc/5-registration.md</code></a> §3.11–3.12; the case study is in
 <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a> §12.</span></p>
@@ -134,17 +155,15 @@ g += dx.segment&lt;3&gt;(kIdxGrav);</code></pre>
 <p>That's the retraction: \(\mathrm{Exp}\) on the right for rotation, plain addition for everything else, gravity included.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/tight_registration.cpp#L148-L169"><code>tight_registration.cpp</code>,
 lines 148–169</a>: solve, retract, and stop once both the translation and rotation increments are small.</span></p>
 
-<div class="callout interview">
-  <p class="label">Say it at a whiteboard: the whole scan</p>
-  <p>"Each scan, glass-lio deskews the points with the gyro, then preintegrates the IMU from the previous scan's end to this one's:
-  \(\Delta\mathbf{R}\), \(\Delta\mathbf{v}\), \(\Delta\mathbf{p}\) and their covariance, after growing the bias uncertainty by its random walk. It
-  predicts the new state from those deltas, putting gravity back in the world frame. Then it iterates one 18-DoF Gauss-Newton solve over
-  rotation, position, velocity, both biases and gravity, with four blocks in the same \(\mathbf{H}\): every LiDAR point's point-to-plane
-  residual, whitened by its 2&nbsp;cm noise and Huber-weighted; the 9-row IMU residual with bias-corrected deltas, weighted by the
-  preintegration covariance inflated by the previous state's uncertainty; a prior from the carried bias covariance; and a gravity prior
-  anchored to its initial value. Rotation is retracted on the right. If the solve has too few correspondences, a non-finite update, or an excessive residual, it
-  coasts on the prediction and keeps the scan out of the map. Otherwise it carries the posterior covariances forward, resyncs deskew's
-  gyro bias if the LiDAR constrains rotation, and inserts the scan into the map."</p>
+<div class="callout summary">
+  <p class="label">Explain the idea: one scan</p>
+  <p>Put LiDAR and IMU measurements on a consistent time interval and in consistent
+  frames. Use the IMU to predict motion, associate LiDAR points with map geometry,
+  and combine their residuals with priors using justified uncertainty weights.
+  Iterate the state update when the problem is nonlinear, then check whether the
+  measurements constrained the answer. Carry an appropriate uncertainty summary
+  forward and add the scan to the map only when its pose is trusted. The exact
+  state, solver, gates, and feedback rules depend on the estimator.</p>
 </div>
 
 <h2>4 · Who holds what: the information budget of one scan</h2>
@@ -175,9 +194,9 @@ meant to win, because over 0.1&nbsp;s nothing else can tell a small gravity tilt
 bias error. An anchor that followed its own estimate would have given it no restoring force, which is
 exactly the 500&nbsp;km failure.</p>
 
-<h2>5 · A debugging table: symptom, fingerprint, lesson</h2>
+<h2>5 · Debugging symptoms and state fingerprints</h2>
 
-<p>glass-lio's hardest bugs were not found by staring at the trajectory. They were found by logging the
+<p>In the glass-lio case study, the hardest bugs were not found by staring at the trajectory. They were found by logging the
 <em>state</em>: velocity, bias, gravity, rejections, scan by scan. Each failure has a fingerprint in
 those numbers that points at one term of this solve.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/doc/testing.md"><code>doc/testing.md</code></a>
 §12.4, “Log the state, not the pose”, and the case study around it.</span> Here is every failure this
@@ -211,9 +230,9 @@ now have:</p>
   <li><strong>No window.</strong> Only the newest state is solved; the previous one is marginalized out of
   a single factor (lesson 8). A fixed-lag window would let later scans correct earlier states, and it is
   where preintegration's savings grow largest (lesson 3).</li>
-  <li><strong>Partial covariance.</strong> Selected blocks are carried forward, not the full joint
-  distribution (lesson 8). A full filter would keep the position–bias correlations that let position
-  corrections refine the accelerometer bias faster.</li>
+  <li><strong>Partial covariance.</strong> The carried 15×15 navigation block includes position–bias
+  correlations, but gravity cross-correlations and the complete joint history are not carried forward
+  (lesson 8). A full-state filter would propagate the complete current-state covariance.</li>
   <li><strong>A fixed gravity anchor.</strong> Gravity can move only within its prior around the initial
   value. That is right for odometry; a system that ran for hours might re-level gravity against a longer
   history.</li>
@@ -238,7 +257,7 @@ now have:</p>
 <p class="score"></p>
 
 <div class="quiz" data-answer="vel">
-  <p class="q">Why does glass-lio run its first 10 scans loose before switching to the tight solve?</p>
+  <p class="q">Why might a tight LiDAR–inertial solver need an external velocity estimate at startup?</p>
   <ol class="options">
     <li><button class="option" data-key="map">The map has no planes yet</button></li>
     <li><button class="option" data-key="bias">Gyro bias must converge before tight</button></li>
@@ -294,7 +313,7 @@ now have:</p>
 </div>
 
 <div class="quiz" data-answer="rot">
-  <p class="q">After an accepted tight solve, when does glass-lio <em>skip</em> resyncing deskew's gyro bias?</p>
+  <p class="q">When should an estimator avoid feeding a newly estimated gyro bias back into LiDAR deskew?</p>
   <ol class="options">
     <li><button class="option" data-key="cov">When the bias covariance is large</button></li>
     <li><button class="option" data-key="short">When the IMU interval is short</button></li>
@@ -391,15 +410,14 @@ now have:</p>
 </aside>
 
 <aside class="ask">
-  <p class="label">Stuck, or curious?</p>
-  <p>Ask your teacher, the agent in this workspace. Try: "walk me through a scan, and interrupt me when I'm wrong", or "what would change if
-  glass-lio became a filter?" Tell it how the sequence exercise and the recall box went. Terms follow the <a href="../glossary.html">glossary</a>.</p>
+  <p class="label">Questions to revisit</p>
+  <p>Which variables does each factor constrain directly? How would a filter or sliding window change the update? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
 </aside>
 
 </article>
 
 <nav class="course">
-  <a href="0008-filter-window-or-factor.html">← Lesson 8: Filter, window, or factor</a>
+  <a href="0008-filter-window-or-factor.html">← Lesson 8: Filter, window, or current-state solve</a>
   <a href="../reference/the-tight-solve.html">Reference card: the tight solve →</a>
   <span>Next: a cold review of every recall box, after a night's sleep</span>
 </nav>

@@ -12,7 +12,7 @@
 </head>
 <body>
 <main>
-<p class="crumbs"><a href="../index.html">glass-lio course</a> › <a href="../lessons/0006-the-point-to-plane-factor.html">Lesson 6</a> › Reference card</p>
+<p class="crumbs"><a href="../index.html">LiDAR–inertial estimation course</a> › <a href="../lessons/0006-the-point-to-plane-factor.html">Lesson 6</a> › Reference card</p>
 <header class="page">
   <p class="kicker">Reference card · Lesson 6</p>
   <h1>Point-to-plane factor</h1>
@@ -51,8 +51,8 @@ r(\boldsymbol{\xi}) &\approx \mathbf{n}^{\top}(\mathbf{q} + \boldsymbol{\rho} + 
     \mathbf{H} &\leftarrow \mathbf{H} + w\,\mathbf{J}^{\top}\mathbf{J}, \qquad \mathbf{b} \leftarrow \mathbf{b} - w\,\mathbf{J}^{\top}r
     \end{aligned} $$</div>
 
-<h2>Say it at a whiteboard</h2>
-<div class="callout interview">
+<h2>Explain the idea</h2>
+<div class="callout summary">
 <p>"Each LiDAR point, moved into the world by the current pose, \(\mathbf{q} = \mathbf{T}\mathbf{p}\), gives one
   scalar residual: its signed distance to the matched plane, \(r = \mathbf{n}^{\top}(\mathbf{q} - \mathbf{c})\).
   Point-to-plane lets points slide along the surface, which is right, because a LiDAR never re-hits the same

@@ -6,6 +6,9 @@ manifold, in a system where getting them subtly wrong still produces plausible o
 
 ## Start here
 
+For the general theory and exercises, use the [HTML estimation course](../docs/index.html).
+This Markdown guide follows the glass-lio implementation and its measured failures.
+
 **[pipeline.md](pipeline.md)** — the spine. The diagram, the frames, the threading, and
 the current status. Read it first; it links to everything else.
 

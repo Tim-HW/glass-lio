@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>glass-lio course</title>
+<title>LiDAR–inertial estimation course</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <link rel="stylesheet" href="assets/course.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
@@ -13,15 +13,14 @@
 <body>
 <main>
 <header class="page">
-  <p class="kicker">Inertial state estimation</p>
-  <h1>The glass-lio course</h1>
-  <p class="subtitle">Nine core lessons, a mathematical toolkit, and practical exercises.</p>
+  <p class="kicker">Robotics estimation course</p>
+  <h1>LiDAR–inertial estimation</h1>
+  <p class="subtitle">From IMU measurements and LiDAR geometry to a joint state estimate.</p>
 </header>
 
 <article>
-<p class="lede">Each lesson follows one idea through the maths and into the
-<a href="https://github.com/Tim-HW/glass-lio">glass-lio</a> source, including the bugs it caused. Every lesson has quizzes, a
-from-memory recall box and a short reference card to revise from.</p>
+<p class="lede">Learn the models and calculations behind LiDAR–inertial odometry, then apply them to a working estimator. Each of the nine core lessons includes recall prompts, quizzes, and a short reference card.</p>
+<p>The equations and design choices apply beyond any one codebase. <a href="https://github.com/Tim-HW/glass-lio">glass-lio</a> is a running case study: its source and measured failures make abstract ideas concrete. Sensor values, gates, and performance results are examples, not settings to copy.</p>
 <p>Allow 30–45 minutes per lesson on first study (45–60 for the capstone), plus the exercises; the 15–20 minute estimates are for revision. Start with the <a href="lessons/0000-math-prerequisites.html">mathematical toolkit</a> if matrices, derivatives, or covariance are unfamiliar. Use the <a href="exercises.html">practical worksheet</a> at the checkpoints linked from the lessons.</p>
 <p>By the end, aim to derive the IMU updates, explain covariance and bias correction, differentiate a point-to-plane residual, identify unobservable motions, and audit the complete solve.</p>
 <p>Take them in order: each one builds on the last. Terms are defined in the <a href="glossary.html">glossary</a>.</p>
@@ -29,15 +28,15 @@ from-memory recall box and a short reference card to revise from.</p>
 
 <ol class="home-list">
   <li><a href="lessons/0000-math-prerequisites.html"><span class="kicker">Start here · 45–60 minutes</span><span class="title">The mathematical toolkit</span><span class="sub">Frames, rotations, Jacobians, covariance, and the normal equations, with worked examples.</span></a></li>
-  <li><a href="lessons/0001-what-an-imu-actually-measures.html"><span class="kicker">Lesson 1 · 30–45 minutes first study</span><span class="title">What an IMU actually measures</span><span class="sub">Two equations, one sign, and the bug it caused in glass-lio.</span></a><p class="extra"><a href="reference/imu-measurement-model.html">Reference card</a></p></li>
+  <li><a href="lessons/0001-what-an-imu-actually-measures.html"><span class="kicker">Lesson 1 · 30–45 minutes first study</span><span class="title">What an IMU actually measures</span><span class="sub">Specific force, angular rate, and the limits of stationary initialization.</span></a><p class="extra"><a href="reference/imu-measurement-model.html">Reference card</a></p></li>
   <li><a href="lessons/0002-integrating-one-imu-step.html"><span class="kicker">Lesson 2 · 30–45 minutes first study</span><span class="title">Integrating one IMU step</span><span class="sub">Where gravity comes back in, and the update-order trap.</span></a><p class="extra"><a href="reference/imu-motion-integration.html">Reference card</a></p></li>
   <li><a href="lessons/0003-why-preintegrate.html"><span class="kicker">Lesson 3 · 30–45 minutes first study</span><span class="title">Why preintegrate</span><span class="sub">From eq. (31) iterated, to three deltas reusable when the starting pose changes.</span></a><p class="extra"><a href="reference/imu-preintegration.html">Reference card</a></p></li>
   <li><a href="lessons/0004-the-bias-correction.html"><span class="kicker">Lesson 4 · 30–45 minutes first study</span><span class="title">The bias correction</span><span class="sub">Why the deltas go stale when the bias moves, and the first-order fix.</span></a><p class="extra"><a href="reference/imu-bias-correction.html">Reference card</a></p></li>
   <li><a href="lessons/0005-the-noise-preintegration-carries.html"><span class="kicker">Lesson 5 · 30–45 minutes first study</span><span class="title">The noise preintegration carries</span><span class="sub">One covariance, propagated a sample at a time, and why it decides who wins.</span></a><p class="extra"><a href="reference/imu-preintegration-covariance.html">Reference card</a></p></li>
   <li><a href="lessons/0006-the-point-to-plane-factor.html"><span class="kicker">Lesson 6 · 30–45 minutes first study</span><span class="title">The point-to-plane factor</span><span class="sub">One residual per laser return, its Jacobian, and how thousands of them build one linear system.</span></a><p class="extra"><a href="reference/point-to-plane-factor.html">Reference card</a></p></li>
   <li><a href="lessons/0007-planes-and-degeneracy.html"><span class="kicker">Lesson 7 · 30–45 minutes first study</span><span class="title">Planes and degeneracy</span><span class="sub">One skill, used twice: reading the smallest eigenvalue of a 3×3 matrix.</span></a><p class="extra"><a href="reference/planes-and-degeneracy.html">Reference card</a></p></li>
-  <li><a href="lessons/0008-filter-window-or-factor.html"><span class="kicker">Lesson 8 · 30–45 minutes first study</span><span class="title">Filter, window, or factor</span><span class="sub">What each estimator keeps, what it re-linearises, and what marginalization buys.</span></a><p class="extra"><a href="reference/filter-window-or-factor.html">Reference card</a></p></li>
-  <li><a href="lessons/0009-the-tight-solve-end-to-end.html"><span class="kicker">Lesson 9 · 45–60 minutes first study</span><span class="title">The tight solve, end to end</span><span class="sub">One scan through glass-lio, every term justified, and each one traced to the lesson it came from.</span></a><p class="extra"><a href="reference/the-tight-solve.html">Reference card</a></p></li>
+  <li><a href="lessons/0008-filter-window-or-factor.html"><span class="kicker">Lesson 8 · 30–45 minutes first study</span><span class="title">Filter, window, or current-state solve</span><span class="sub">What each estimator keeps, what it re-linearises, and what marginalization buys.</span></a><p class="extra"><a href="reference/filter-window-or-factor.html">Reference card</a></p></li>
+  <li><a href="lessons/0009-the-tight-solve-end-to-end.html"><span class="kicker">Lesson 9 · 45–60 minutes first study</span><span class="title">The tight solve, end to end</span><span class="sub">Trace a scan through prediction, association, joint optimization, and map update.</span></a><p class="extra"><a href="reference/the-tight-solve.html">Reference card</a></p></li>
   <li><a href="exercises.html"><span class="kicker">Apply what you learned · 60–90 minutes</span><span class="title">Practical worksheet</span><span class="sub">Integrate IMU samples, check a Jacobian, find an invisible motion, and audit covariance. Hints and worked solutions included.</span></a></li>
 </ol>
 
