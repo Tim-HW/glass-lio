@@ -28,6 +28,13 @@
       # self-correct. 0 = loose.
       imu_prior_weight: 0.0
 
+      # OFF on ToF. The constant-velocity prior was silently dead here until its dt was fixed
+      # (it divided by the scan duration, which is 0 for a snapshot sensor, so v stayed 0).
+      # Live, it extrapolates through the long coasting stretches the degeneracy gate causes
+      # on this narrow FOV: tim_house loose went 1.64x -> 9.42x on the scale gate. Keeping it
+      # off preserves the behaviour these bags were tuned with.
+      use_constant_velocity: false
+
       # --- Sparse-cloud tuning. This sensor delivers ~576 points per scan (a Livox gives
       # 20k+). The defaults, tuned for dense clouds, starve registration; these keep enough
       # points and correspondences to fit planes and solve.

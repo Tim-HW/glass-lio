@@ -5,10 +5,12 @@
 // GyrInt CLAMPS instead of extrapolating, so the tail of every scan is silently
 // under-corrected. No error, no crash -- just a slightly warped cloud.
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 
 #include <rclcpp/time.hpp>
 
+#include "glasslio/ros_time.hpp"
 #include "glasslio/sync.hpp"
 
 using namespace glasslio;
@@ -148,6 +150,28 @@ static void testGuardTooSmallReleasesEarly()
   std::printf("  scan_guard: too small releases early, correct one holds       OK\n");
 }
 
+// =================================================================================
+// 5. A DROPPED scan's IMU is inherited by the next group, shared samples kept once.
+// =================================================================================
+static void testDroppedImuIsInherited()
+{
+  MeasureGroup dropped, next;
+  for (double t : {0.99, 1.05, 1.13}) {dropped.imu.push_back(imuAt(t));}
+  for (double t : {1.05, 1.13, 1.20, 1.25}) {next.imu.push_back(imuAt(t));}   // overlap
+
+  mergeDroppedImu(dropped, next);
+  const double expect[] = {0.99, 1.05, 1.13, 1.20, 1.25};
+  assert(next.imu.size() == 5 && "overlapping bracket samples must not be duplicated");
+  for (std::size_t i = 0; i < 5; ++i) {
+    assert(std::abs(stamp_sec(next.imu[i]) - expect[i]) < 1e-9);
+  }
+
+  MeasureGroup empty, keep;
+  keep.imu.push_back(imuAt(2.0));
+  mergeDroppedImu(empty, keep);
+  assert(keep.imu.size() == 1 && "nothing to inherit -> unchanged");
+}
+
 int main()
 {
   std::printf("test_sync: pairing a scan with the IMU that spans it\n");
@@ -155,6 +179,7 @@ int main()
   testImuSurvivesForTheNextScan();
   testTimeJumps();
   testGuardTooSmallReleasesEarly();
+  testDroppedImuIsInherited();
   std::printf("test_sync: all checks passed\n");
   return 0;
 }

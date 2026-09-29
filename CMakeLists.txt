@@ -112,7 +112,7 @@ if(BUILD_TESTING)
   # test_imu_init, test_preintegration, test_nav_residual moved to glass_core -- they
   # test the engine, and now live with it. What stays here tests the LiDAR front-end
   # (and test_jacobian pins the point-to-plane Jacobian, which is glasslio's).
-  foreach(t test_local_map test_registration test_jacobian test_tight test_sync)
+  foreach(t test_local_map test_registration test_jacobian test_tight test_sync test_estimator)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} lio ${PCL_LIBRARIES})
     target_compile_options(${t} PRIVATE -UNDEBUG)

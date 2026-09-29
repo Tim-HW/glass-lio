@@ -5,6 +5,7 @@
 
 #include "glasslio/types.hpp"   // CloudXYZI, MeasureGroup
 #include "glasslio/local_map.hpp"
+#include "glasslio/registration.hpp"   // RegistrationParams
 #include "glass_core/nav_residual.hpp"   // predictState (and the IMU factor itself)
 #include "glass_core/nav_state.hpp"
 #include "glass_core/preintegration.hpp"
@@ -24,13 +25,10 @@ inline constexpr int kTightDim = kNavDim + 3;  ///< 18 = nav (15) + gravity (3)
 
 struct TightParams
 {
-  // --- LiDAR side: identical semantics to the loose path, so the tuning carries over.
-  double max_correspondence_distance = 1.0;
-  double huber_delta = 0.2;
-  int max_iterations = 30;
-  int min_correspondences = 50;
-  double eps_translation = 1e-3;
-  double eps_rotation = 1e-4;
+  /// LiDAR side: the SAME struct the loose path uses, so the tuning carries over and cannot
+  /// drift (it did, in tight_replay, while these were hand-copied duplicates).
+  /// `min_translation_eigenvalue_ratio` is loose-only and ignored here.
+  RegistrationParams reg;
 
   /// Standard deviation of a point-to-plane measurement (m). THE MOST IMPORTANT NUMBER
   /// IN THIS STRUCT, and the easiest to forget.
@@ -96,15 +94,14 @@ struct TightResult
   double rmse = 0.0;    ///< RMS point-to-plane residual (m), LiDAR only -- comparable
                         ///< with the loose path's rmse.
 
-  /// DIAGNOSTIC (not a gate -- nothing rejects or reweights on this yet). Smallest-
-  /// eigenvalue/trace ratio of the LiDAR-ONLY rotation block (kIdxPhi, 3x3) of H,
+  /// Smallest-eigenvalue/trace ratio of the LiDAR-ONLY rotation block (kIdxPhi, 3x3) of H,
   /// captured before the IMU/bias/gravity blocks are added each iteration -- i.e. what
   /// the LiDAR ALONE can see about rotation, independent of how much the IMU factor is
   /// backfilling. The loose path has an analogous check on its TRANSLATION block (see
-  /// RegistrationParams::min_translation_eigenvalue_ratio) that actually gates; this is
-  /// the rotational counterpart, logged only, to find out whether the tight path's
-  /// oscillating-APE symptom on open outdoor stretches lines up with yaw becoming
-  /// LiDAR-degenerate there. 0 if never computed (e.g. rejected on correspondence count).
+  /// RegistrationParams::min_translation_eigenvalue_ratio) that rejects scans; this
+  /// rotational counterpart never rejects a scan -- it only gates the deskew gyro-bias
+  /// resync (TightParams::min_rotation_eigenvalue_ratio), and is logged per scan.
+  /// 0 if never computed (e.g. rejected on correspondence count).
   double rotation_eigenvalue_ratio = 0.0;
 };
 

@@ -98,6 +98,13 @@ private:
   double last_lidar_time_ = -1.0;
 };
 
+/// A scan is being DROPPED (the worker fell behind): hand its IMU to the group that will be
+/// processed instead. The next pose is then two scans away from the last one, and the IMU
+/// factor must integrate across that whole gap -- with only `next`'s own samples it covered
+/// half of it and asserted "you barely moved". Samples the two groups share (the bracket
+/// past `dropped`'s end is also `next`'s leading bracket) are kept once.
+void mergeDroppedImu(const MeasureGroup & dropped, MeasureGroup & next);
+
 }  // namespace glasslio
 
 #endif  // GLASSLIO_SYNC_HPP

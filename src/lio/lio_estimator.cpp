@@ -1,6 +1,7 @@
 #include "glasslio/lio_estimator.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 
 #include <pcl/common/transforms.h>
 
@@ -20,6 +21,17 @@ LioEstimator::LioEstimator(const EstimatorParams & params, const rclcpp::Logger 
       params.map_voxel_size, params.map_max_points_per_voxel, params.map_max_range,
       params.map_min_points_for_plane, params.map_planarity_ratio))
 {
+  // The tight solve assumes the IMU and LiDAR frames share an orientation (see
+  // alignTightlyCoupled): a rotated extrinsic would feed it IMU deltas in the wrong axes and
+  // it would fuse them anyway, silently. Refuse rather than produce a confident wrong pose.
+  if (p_.use_tight &&
+    p_.extrinsic_q_il.angularDistance(Eigen::Quaterniond::Identity()) > 1e-6)
+  {
+    throw std::invalid_argument(
+            "tight coupling (registration.imu_prior_weight > 0) assumes an IDENTITY lidar->IMU "
+            "rotation, but extrinsic.lidar_to_imu.quat_xyzw is not identity. Run loose "
+            "(imu_prior_weight: 0) with this extrinsic.");
+  }
   deskew_->set_extrinsic(p_.extrinsic_q_il);
   voxel_.setLeafSize(p_.voxel_leaf_size, p_.voxel_leaf_size, p_.voxel_leaf_size);
   resetBiasCovariance();
@@ -48,9 +60,6 @@ void LioEstimator::initialize(
 void LioEstimator::reset()
 {
   resetPipelineState();
-  scans_done_ = 0;
-  prev_scan_end_ = -1.0;
-  resetBiasCovariance();
 }
 
 /// THE PIPELINE, in the order docs/implementation/pipeline.md numbers it. Stages [1] IMU init and [2] sync
@@ -90,6 +99,7 @@ void LioEstimator::resetPipelineState()
     p_.map_voxel_size, p_.map_max_points_per_voxel, p_.map_max_range, p_.map_min_points_for_plane,
       p_.map_planarity_ratio);
   map_bootstrapped_ = false;
+  deskew_->reset();
   pose_ = Eigen::Isometry3d::Identity();
   velocity_.setZero();
   state_ = NavState();
@@ -155,9 +165,23 @@ bool LioEstimator::registerScan(const CloudXYZI::Ptr & scan, const MeasureGroup 
 {
   const bool warming_up = p_.use_tight && scans_done_ < p_.tight_warmup_scans;
 
+  // The pose refers to the scan-END instant (deskew compensates there), so the interval
+  // between two poses is previous-scan-end -> this-scan-end. NOT the scan duration: that
+  // differs whenever the node drops a scan (the gap is then two scans long) and is ZERO
+  // for a snapshot sensor (ToF), which silently froze the loose velocity estimate.
+  //
+  // Recorded NOW, even if this scan coasts: the boundary is t_end either way, so the NEXT
+  // scan must start from here. (Deferring it once froze the ToF tight path: the first
+  // window was [t_end, t_end], it coasted, and every later window stayed empty.)
+  const double t_end = deskew_->last_scan_end();
+  const double t_begin = (prev_scan_end_ > 0.0) ?
+    prev_scan_end_ :
+    t_end - deskew_->last_scan_duration();
+  prev_scan_end_ = t_end;
+
   const bool ok = (p_.use_tight && !warming_up) ?
-    registerScanTight(scan, meas) :
-    registerScanLoose(scan);
+    registerScanTight(scan, meas, t_begin, t_end) :
+    registerScanLoose(scan, t_end - t_begin);
 
   if (warming_up && scans_done_ + 1 == p_.tight_warmup_scans) {
     seedNavStateFromLoose();
@@ -168,9 +192,9 @@ bool LioEstimator::registerScan(const CloudXYZI::Ptr & scan, const MeasureGroup 
 
 
 /// [5] LOOSE registration: the IMU only proposes a guess, then ICP solves alone.
-/// Used when imu_prior_weight == 0 (the default). Returns false if ICP failed, in which
+/// Used when imu_prior_weight == 0, and during the tight warm-up. Returns false if ICP failed, in which
 /// case we keep the IMU prediction and the scan is NOT inserted into the map.
-bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
+bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan, double dt)
 {
   // The rotation-eigenvalue diagnostic is tight-path only; a loose scan carrying a
   // stale value from an earlier tight scan would be misleading.
@@ -187,8 +211,8 @@ bool LioEstimator::registerScanLoose(const CloudXYZI::Ptr & scan)
   // --- Predict. ICP is a LOCAL optimizer: hand it a guess a few degrees off
   // and it will happily lock onto the wrong wall and report a confident fit.
   // Rotation comes from the gyro (accurate); translation from a constant-
-  // velocity model (off by default -- see the runaway note above).
-  const double dt = deskew_->last_scan_duration();
+  // velocity model (registration.use_constant_velocity). `dt` is pose-to-pose, see
+  // registerScan().
   Eigen::Isometry3d guess = Eigen::Isometry3d::Identity();
   guess.linear() = pose_.linear() * deskew_->last_delta_rot().matrix();
   guess.translation() = p_.use_constant_velocity ?
@@ -281,27 +305,14 @@ ImuPreintegration LioEstimator::buildPreintegration(
 /// TIGHTLY-COUPLED registration: one joint solve over the 15-DoF nav state, with the
 /// LiDAR residuals and the preintegrated IMU factor in the SAME normal equations.
 /// Updates `state_` (and `pose_`/`velocity_`, which are just views of it).
-bool LioEstimator::registerScanTight(const CloudXYZI::Ptr & scan, const MeasureGroup & meas)
+bool LioEstimator::registerScanTight(
+  const CloudXYZI::Ptr & scan, const MeasureGroup & meas, double t_begin, double t_end)
 {
   // Default until (if) alignTightlyCoupled actually computes one below -- see
   // ScanResult::rotation_eigenvalue_ratio.
   last_rot_eig_ratio_ = 0.0;
 
-  // The pose refers to the scan-END instant (deskew compensates there), so the IMU
-  // factor must span previous-scan-end -> this-scan-end. Nothing else is coherent.
-  const double t_end = deskew_->last_scan_end();
-  const double t_begin = (prev_scan_end_ > 0.0) ?
-    prev_scan_end_ :
-    t_end - deskew_->last_scan_duration();
-
-  // Record this scan's end time NOW, even if we coast below (t_begin already read the old
-  // value). The window is (prev-scan-end -> this-scan-end], and that boundary is t_end
-  // whether or not this scan's solve succeeds -- so the NEXT scan must start from here.
-  // Deferring this until after the dt guard froze the snapshot path: on a ToF the first
-  // tight scan has t_begin == t_end (no prior end, zero scan duration), so it coasts, and if
-  // prev_scan_end_ never got set every later window stayed [t_end, t_end] and coasted forever.
-  prev_scan_end_ = t_end;
-
+  // The IMU factor spans previous-scan-end -> this-scan-end (see registerScan()).
   const ImuPreintegration pre = buildPreintegration(meas, t_begin, t_end);
   if (pre.dt() <= 0.0) {
     return false;   // no usable IMU span (e.g. the first snapshot scan); coast this one
@@ -455,7 +466,10 @@ void LioEstimator::updatePose(const Eigen::Isometry3d & new_pose, double dt)
 /// prior and keep feeding the map anyway.
 void LioEstimator::insertIntoMap(const CloudXYZI::Ptr & deskewed, bool pose_trusted)
 {
-  if (pose_trusted) {
+  // Checked BEFORE the insert: the first scan returns "trusted" only because an empty map
+  // leaves nothing to fail against. Counting it would end the bootstrap before any real
+  // registration had happened -- the deadlock this exception exists to prevent.
+  if (pose_trusted && !map_->empty()) {
     map_bootstrapped_ = true;
   }
   if (!pose_trusted && map_bootstrapped_) {

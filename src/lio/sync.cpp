@@ -85,4 +85,19 @@ bool MeasureSync::next(MeasureGroup & meas, bool * dropped_no_imu)
   return true;
 }
 
+void mergeDroppedImu(const MeasureGroup & dropped, MeasureGroup & next)
+{
+  if (dropped.imu.empty()) {
+    return;
+  }
+  std::vector<sensor_msgs::msg::Imu::ConstSharedPtr> merged = dropped.imu;
+  const double last = stamp_sec(merged.back());
+  for (const auto & m : next.imu) {
+    if (stamp_sec(m) > last) {
+      merged.push_back(m);
+    }
+  }
+  next.imu = std::move(merged);
+}
+
 }  // namespace glasslio

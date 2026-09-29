@@ -54,11 +54,14 @@ public:
   /// Gyro bias from ImuInit, subtracted before integration.
   void set_gyro_bias(const Eigen::Vector3d & bias) {gyr_int_.set_bias(bias);}
 
-  /// Rotation of the LIDAR frame across the last processed scan, i.e. the new
-  /// scan-end frame expressed in the previous one. Scans are contiguous, so this
-  /// is the IMU's prediction of how the sensor turned since the last pose --
-  /// exactly the initial guess registration needs.
+  /// Rotation of the LIDAR frame since the PREVIOUS processed scan's end, i.e. the new
+  /// scan-end frame expressed in the previous one -- including any dropped scan in between.
+  /// The IMU's prediction of how the sensor turned since the last pose: exactly the initial
+  /// guess registration needs. (First scan after construction/reset(): since scan start.)
   const Sophus::SO3d & last_delta_rot() const {return last_delta_rot_;}
+
+  /// Forget the previous scan (a restart): the next scan anchors at its own start.
+  void reset() {last_t1_ = -1.0;}
 
   /// Duration (s) of the last processed scan.
   double last_scan_duration() const {return last_dt_;}
@@ -69,6 +72,9 @@ public:
   double last_scan_end() const {return last_t1_;}
 
 private:
+  /// The IMU must reach back to within this of the previous scan's end to anchor there.
+  static constexpr double kMaxAnchorGapSec = 0.05;
+
   Sophus::SO3d last_delta_rot_;
   double last_dt_ = 0.0;
   double last_t1_ = -1.0;

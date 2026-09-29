@@ -138,8 +138,9 @@ private:
 
   // --- [5]
   bool registerScan(const CloudXYZI::Ptr & scan, const MeasureGroup & meas);
-  bool registerScanLoose(const CloudXYZI::Ptr & scan);
-  bool registerScanTight(const CloudXYZI::Ptr & scan, const MeasureGroup & meas);
+  bool registerScanLoose(const CloudXYZI::Ptr & scan, double dt);
+  bool registerScanTight(
+    const CloudXYZI::Ptr & scan, const MeasureGroup & meas, double t_begin, double t_end);
   ImuPreintegration buildPreintegration(
     const MeasureGroup & meas, double t_begin, double t_end) const;
   void seedNavStateFromLoose();
@@ -190,8 +191,8 @@ private:
   Eigen::Matrix<double, kNavDim, kNavDim> nav_cov_ =
     Eigen::Matrix<double, kNavDim, kNavDim>::Identity();
   int scans_done_ = 0;
-  /// Scan-end time of the previous scan: the lower edge of the IMU factor's integration
-  /// window. -1 until the first tight scan.
+  /// Scan-end time of the previous scan: the lower edge of the pose-to-pose interval (the
+  /// loose velocity's dt, the IMU factor's window). -1 until the first scan.
   double prev_scan_end_ = -1.0;
 };
 

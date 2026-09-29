@@ -37,47 +37,65 @@ CloudXYZI::Ptr Deskew::process(const MeasureGroup & meas)
     t1 = std::max(t1, pt_sec(pt));
   }
 
-  // Integrate gyro across the scan, anchored at scan start.
-  gyr_int_.reset(t0, meas.imu.front());
-  for (const auto & imu : meas.imu) {
-    gyr_int_.integrate(imu);
+  // SWEEP vs SNAPSHOT. A Livox spreads its points across ~100 ms, so the per-point time
+  // span (t1 - t0) is the real scan duration and t1 is the acquisition instant. A ToF is a
+  // global-shutter SNAPSHOT: every point shares one instant, and this driver ships no
+  // per-point time at all, so t0 == t1 == 0. For a snapshot the acquisition time is the
+  // message HEADER stamp -- for every point, since a 0 must never be looked up on the gyro
+  // timeline -- and consecutive headers give the true pose-to-pose interval.
+  const bool snapshot = (t1 - t0) < 1e-6;
+  const double t_end = snapshot ? stamp_sec(meas.lidar) : t1;
+  const double t_start = snapshot ? t_end : t0;
+  auto point_time = [&](const LivoxPoint & p) {return snapshot ? t_end : pt_sec(p);};
+
+  // ANCHOR the gyro integration at the PREVIOUS scan's end when we can, not at this scan's
+  // start: last_delta_rot_ must be the rotation since the last POSE, which is what the loose
+  // path's guess needs. From this scan's start it missed a dropped scan's rotation entirely,
+  // and for a snapshot (start == end) it was always identity. Only when the group's IMU
+  // actually reaches back that far (sync keeps it from the previous scan's start;
+  // mergeDroppedImu covers drops); otherwise -- first scan, a gap -- fall back to t_start.
+  const double prev_end = last_t1_;
+  const bool chain = prev_end > 0.0 && prev_end <= t_start && t_start - prev_end < 1.0 &&
+    stamp_sec(meas.imu.front()) <= prev_end + kMaxAnchorGapSec;
+  const double anchor = chain ? prev_end : t_start;
+
+  // The anchor bracket is the LAST sample at or before the anchor, handed to reset() rather
+  // than integrated: GyrInt interpolates omega at the anchor between the bracket and the
+  // first sample after it. (Integrating the bracket itself made that span zero, so the
+  // interpolation never ran.)
+  std::size_t k = 0;
+  while (k + 1 < meas.imu.size() && stamp_sec(meas.imu[k + 1]) <= anchor) {
+    ++k;
+  }
+  gyr_int_.reset(anchor, meas.imu[k]);
+  for (std::size_t i = k + 1; i < meas.imu.size(); ++i) {
+    gyr_int_.integrate(meas.imu[i]);
   }
   if (gyr_int_.empty()) {
     return nullptr;
   }
 
-  // Orientation of the lidar frame at time t, relative to scan start:
+  // Orientation of the lidar frame at time t, relative to the anchor:
   //   R_L(t) = R_il^{-1} * R_I(t) * R_il
   auto lidar_rot_at = [&](double t) {
       return R_il_.inverse() * gyr_int_.rotationAt(t) * R_il_;
     };
 
-  // Rotation of the lidar across this scan: the scan-end frame expressed in the
-  // scan-start frame. Since scans are contiguous, this is also the rotation since
-  // the previous pose -- the prediction registration will start from.
-  const SO3d R_end = lidar_rot_at(t1);
+  // The scan-end frame expressed in the anchor frame: the rotation since the previous pose
+  // -- the prediction registration will start from.
+  const SO3d R_end = lidar_rot_at(t_end);
   last_delta_rot_ = R_end;
+  last_dt_ = t1 - t0;   // 0 for a snapshot
+  last_t1_ = t_end;
 
-  // SWEEP vs SNAPSHOT. A Livox spreads its points across ~100 ms, so the per-point time
-  // span (t1 - t0) is the real scan duration and t1 is the acquisition instant. A ToF is a
-  // global-shutter SNAPSHOT: every point shares one instant, and this driver ships no
-  // per-point time at all, so t0 == t1 == 0. Deskew is then correctly a no-op -- but the
-  // tightly-coupled preintegration window is derived from `last_scan_end()`, and a zero
-  // there collapses the IMU interval to [0,0] and freezes the tight solve. So for a
-  // snapshot, the acquisition time is the message HEADER stamp; consecutive headers give
-  // the true pose-to-pose interval the IMU factor needs.
-  const bool snapshot = (t1 - t0) < 1e-6;
-  last_dt_ = snapshot ? 0.0 : (t1 - t0);
-  last_t1_ = snapshot ? stamp_sec(meas.lidar) : t1;
-
-  // Compensate every point into the scan-end frame:
-  //   p_end = R_L(t1)^{-1} * R_L(t_i) * p_i
+  // Compensate every point into the scan-end frame. Relative, so the anchor cancels out:
+  //   p_end = R_L(t_end)^{-1} * R_L(t_i) * p_i
   const SO3d R_end_inv = R_end.inverse();
 
   CloudXYZI::Ptr out(new CloudXYZI());
   out->reserve(cloud->size());
   for (const auto & pt : cloud->points) {
-    const SO3d R_i = lidar_rot_at(pt_sec(pt));
+    const SO3d R_i = lidar_rot_at(point_time(pt));
     const Eigen::Vector3d p(pt.x, pt.y, pt.z);
     const Eigen::Vector3d pc = R_end_inv * (R_i * p);
 

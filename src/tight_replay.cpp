@@ -9,7 +9,7 @@
 // per-scan extent. Tight coupling today blows this by ~4x; the gate makes that a hard,
 // scriptable failure (nonzero exit) instead of a pretty picture.
 //
-//   tight_replay <bag_dir> [imu_topic] [lidar_topic] [imu_prior_weight]
+//   tight_replay <bag_dir> [imu_topic] [lidar_topic] [imu_prior_weight] [lidar_sigma]
 //
 // imu_prior_weight > 0 selects the tight path (default 1.0); 0 runs loose for comparison.
 
@@ -55,14 +55,14 @@ int main(int argc, char ** argv)
 {
   if (argc < 2) {
     std::fprintf(stderr,
-      "usage: tight_replay <bag_dir> [imu_topic] [lidar_topic] [imu_prior_weight]\n");
+      "usage: tight_replay <bag_dir> [imu_topic] [lidar_topic] [imu_prior_weight] [lidar_sigma]\n");
     return 2;
   }
   const std::string bag = argv[1];
   const std::string imu_topic = argc > 2 ? argv[2] : "/asdt1_driver/imu";
   const std::string lidar_topic = argc > 3 ? argv[3] : "/asdt1_driver/point_cloud";
   const double imu_prior_weight = argc > 4 ? std::stod(argv[4]) : 1.0;
-  const double lidar_sigma = argc > 5 ? std::stod(argv[5]) : 0.05;   // LiDAR-vs-IMU trust knob
+  const double lidar_sigma = argc > 5 ? std::stod(argv[5]) : 0.02;   // LiDAR-vs-IMU trust knob (config default)
 
   rclcpp::init(argc, argv);
   auto logger = rclcpp::get_logger("tight_replay");
@@ -89,10 +89,12 @@ int main(int argc, char ** argv)
     p.reg.min_correspondences = 20;
     p.reg.max_correspondence_distance = 0.5;
     p.accel_scale = 1.0;                     // m/s^2, not g
+    p.use_constant_velocity = false;         // config/asdt1.yaml: off on ToF
   }
   p.use_tight = imu_prior_weight > 0.0;
   p.tight.imu_prior_weight = imu_prior_weight;
   p.tight.lidar_sigma = lidar_sigma;
+  p.tight.reg = p.reg;                      // same LiDAR tuning on both paths
 
   LioEstimator est(p, logger);
   ImuInit init(200, 0.1, 0.5, p.accel_scale);   // same accel scale as the estimator
@@ -203,7 +205,7 @@ int main(int argc, char ** argv)
 
   std::printf("\n--- SCALE GATE ---\n");
   std::printf("  scans processed      : %d\n", scan_idx);
-  std::printf("  per-scan extent (med): %.1f m   (the scene the sensor sees)\n", scan);
+  std::printf("  per-scan extent (avg): %.1f m   (the scene the sensor sees)\n", scan);
   std::printf("  trajectory extent    : %.1f m\n", traj);
   std::printf("  ratio                : %.2fx   (pass band %.2f--%.2fx)\n", ratio, kMinRatio,
     kMaxRatio);

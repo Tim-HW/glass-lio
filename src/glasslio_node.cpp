@@ -86,7 +86,7 @@ public:
     const auto t_xyz = declare_parameter<std::vector<double>>(
       "extrinsic.lidar_to_imu.xyz", {0.0, 0.0, 0.0});
 
-    const double map_voxel = declare_parameter<double>("map.voxel_size", 0.5);
+    const double map_voxel = declare_parameter<double>("map.voxel_size", 1.0);
     const int map_max_pts = declare_parameter<int>("map.max_points_per_voxel", 20);
     const double map_range = declare_parameter<double>("map.max_range", 100.0);
     // The PLANARITY GATE, and its companion. These decide which voxels yield a plane at
@@ -166,12 +166,7 @@ public:
     ep.use_tight = imu_prior_weight > 0.0;
 
     ep.tight.imu_prior_weight = imu_prior_weight;
-    ep.tight.max_correspondence_distance = ep.reg.max_correspondence_distance;
-    ep.tight.max_iterations = ep.reg.max_iterations;
-    ep.tight.min_correspondences = ep.reg.min_correspondences;
-    ep.tight.eps_translation = ep.reg.eps_translation;
-    ep.tight.eps_rotation = ep.reg.eps_rotation;
-    ep.tight.huber_delta = ep.reg.huber_delta;
+    ep.tight.reg = ep.reg;
     // Point-to-plane measurement noise. Irrelevant with one sensor (a global scale cancels
     // out of H xi = b); the moment the IMU enters the SAME normal equations it decides
     // which sensor is believed.
@@ -413,6 +408,8 @@ private:
         // Bounded. If the worker cannot keep up, DROP the oldest rather than let
         // latency and memory grow without bound -- a stale pose is useless anyway.
         if (queue_.size() >= max_queue_) {
+          // Its scan is lost, but its IMU is not: the next group inherits it (sync.hpp).
+          mergeDroppedImu(queue_.front(), queue_.size() > 1 ? queue_[1] : meas);
           queue_.pop_front();
           ++dropped_;
           RCLCPP_WARN_THROTTLE(
@@ -456,9 +453,6 @@ private:
           const Eigen::Vector3d init_bias = pending_init_bias_;
           const Eigen::Vector3d init_gravity = pending_init_gravity_;
           lock.unlock();
-
-          // Both reset and init hand the estimator over here rather than writing it from a
-          // callback, so the worker's exclusive ownership actually holds.
           estimator_->initialize(init_pose, init_bias, init_gravity);
           continue;
         }
@@ -599,7 +593,7 @@ private:
   std::condition_variable queue_cv_;
   std::deque<MeasureGroup> queue_;
   bool stop_ = false;
-  /// Set by a callback, acted on by the worker: see reset() / resetEstimator().
+  /// Set by a callback, acted on by the worker: see reset() / workerLoop().
   bool reset_requested_ = false;
   /// Init result handed from the callback to the worker: see onInitialized().
   bool init_pending_ = false;

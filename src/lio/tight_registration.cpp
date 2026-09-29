@@ -75,7 +75,7 @@ TightResult alignTightlyCoupled(
   // the loop exits, same pattern as `result.H` a few lines down.
   Eigen::Matrix3d lidar_rotation_H = Eigen::Matrix3d::Zero();
 
-  for (int iter = 0; iter < params.max_iterations; ++iter) {
+  for (int iter = 0; iter < params.reg.max_iterations; ++iter) {
     NavEquations eq;
 
     // --- 1. LiDAR: one scalar residual per correspondence, Huber-weighted.
@@ -86,7 +86,7 @@ TightResult alignTightlyCoupled(
     // in different units and the weighting is meaningless. (Huber's threshold is
     // whitened too, so `huber_delta` keeps its natural units of metres.)
     const double inv_sigma = 1.0 / params.lidar_sigma;
-    const double huber_whitened = params.huber_delta * inv_sigma;
+    const double huber_whitened = params.reg.huber_delta * inv_sigma;
 
     double lidar_sq_err = 0.0;
     int n_corr = 0;
@@ -98,7 +98,7 @@ TightResult alignTightlyCoupled(
       const Eigen::Vector3d q = x.R * p_sensor + x.p;   // into the world
 
       Plane plane;
-      if (!map.closestPlane(q, params.max_correspondence_distance, plane)) {
+      if (!map.closestPlane(q, params.reg.max_correspondence_distance, plane)) {
         continue;
       }
 
@@ -114,7 +114,7 @@ TightResult alignTightlyCoupled(
     }
 
     result.correspondences = n_corr;
-    if (n_corr < params.min_correspondences) {
+    if (n_corr < params.reg.min_correspondences) {
       result.valid = false;   // under-constrained: refuse rather than invent a pose
       return result;
     }
@@ -181,8 +181,8 @@ TightResult alignTightlyCoupled(
     // Report the LiDAR-only RMSE, so it is directly comparable with the loose path's.
     result.rmse = std::sqrt(lidar_sq_err / static_cast<double>(n_corr));
 
-    if (dx.segment<3>(kIdxPos).norm() < params.eps_translation &&
-      dx.segment<3>(kIdxPhi).norm() < params.eps_rotation)
+    if (dx.segment<3>(kIdxPos).norm() < params.reg.eps_translation &&
+      dx.segment<3>(kIdxPhi).norm() < params.reg.eps_rotation)
     {
       result.converged = true;
       break;
@@ -192,7 +192,7 @@ TightResult alignTightlyCoupled(
   result.state = x;
   result.gravity = g;
 
-  // DIAGNOSTIC (see TightResult::rotation_eigenvalue_ratio) -- not a gate.
+  // See TightResult::rotation_eigenvalue_ratio -- gates the deskew bias resync only.
   {
     const double trace = lidar_rotation_H.trace();
     const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(lidar_rotation_H);

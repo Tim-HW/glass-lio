@@ -31,7 +31,9 @@
     # --- Extrinsic (lidar -> IMU). GENUINELY IDENTITY here, not a placeholder: tf_static gives
     # camera_system_optical (the combined-cloud frame) -> asdt1_center_optical (the IMU frame)
     # as identity, so the fused cloud and the center IMU already share an orientation. If you
-    # ever drive from a DIFFERENT sensor's IMU (left/right), set this to that sensor's transform.
+    # ever drive from a DIFFERENT sensor's IMU (left/right), set this to that sensor's transform
+    # -- and stay LOOSE: tight coupling assumes an identity rotation and refuses to start
+    # without one.
     extrinsic:
       lidar_to_imu:
         quat_xyzw: [0.0, 0.0, 0.0, 1.0]
@@ -44,6 +46,13 @@
       # as lidar_sigma falls). Tight helps where geometry is DEGENERATE; this rig removes the
       # degeneracy. See docs/implementation/5-registration.md sec 3.13. 0 = loose.
       imu_prior_weight: 0.0
+
+      # OFF on ToF. The constant-velocity prior was silently dead here until its dt was fixed
+      # (it divided by the scan duration, which is 0 for a snapshot sensor, so v stayed 0).
+      # Live, it extrapolates through the long coasting stretches the degeneracy gate causes
+      # on this narrow FOV: tim_house loose went 1.64x -> 9.42x on the scale gate. Keeping it
+      # off preserves the behaviour these bags were tuned with.
+      use_constant_velocity: false
 
       # Point-to-plane noise. Carried over from the tuned Livox value; only bites under tight.
       lidar_sigma: 0.02
