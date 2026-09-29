@@ -45,7 +45,7 @@
 
 <h2>1 · From points to a plane</h2>
 
-<p>Each map voxel keeps up to 20 points. To fit a plane, take their centroid and covariance:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L100-L136"><code>local_map.cpp</code>,
+<p>Each map voxel keeps a capped number of points. To fit a plane, take their centroid and covariance:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L100-L136"><code>local_map.cpp</code>,
 <code>fitPlane()</code>, lines 100–136</a>.</span></p>
 
 <div class="eq">$$ \mathbf{c} = \frac{1}{n}\sum_{k}\mathbf{p}_k, \qquad \mathbf{C} = \frac{1}{n}\sum_{k}(\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top} $$</div>
@@ -70,7 +70,7 @@ v.plane.normal = es.eigenvectors().col(0).normalized();</code></pre>
 <h2>2 · The planarity gate</h2>
 
 <p>PCA hands every voxel a "normal", plane or not. So glass-lio only accepts one if
-\(\lambda_0 \le 0.1\,\lambda_1\): the thickness must be small compared with the <em>middle</em> spread.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L186-L204"><code>livox_mid_360.yaml</code>,
+\(\lambda_0 \le \rho\,\lambda_1\), for a small configurable planarity ratio \(\rho\): the thickness must be small compared with the <em>middle</em> spread.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L186-L204"><code>livox_mid_360.yaml</code>,
 lines 186–204</a>: tighten it in vegetation, where blobs sneak through; loosen it in sparse indoor
 scenes, where too few planes form. The rejecting line in <code>fitPlane()</code> is commented "a blob or an edge, not a plane -- a normal here would be noise".</span> Read the three eigenvalues and each case falls out:</p>
 
@@ -83,15 +83,14 @@ scenes, where too few planes form. The rejecting line in <code>fitPlane()</code>
 
 <p>The gate is only as good as the points it sees.<span class="sidenote">glass-lio's
 <a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/6-local-map.md"><code>docs/implementation/6-local-map.md</code></a> §6.3: keeping only the
-<em>first</em> 20 points left thin slabs that passed the gate with wrong normals, "1.2e6 of spurious
-stiffness" in a corridor test. Reservoir sampling fixed it.</span></p>
+<em>first</em> points to arrive left thin slabs that passed the gate with wrong normals, adding spurious
+stiffness in a corridor test. Reservoir sampling fixed it.</span></p>
 
 <h2>3 · Finding a plane for each point</h2>
 
 <p>For a world point \(\mathbf{q}\), glass-lio hashes \(\lfloor\mathbf{q}/\text{voxel size}\rfloor\), checks that
-voxel and its 26 neighbours, and keeps the plane whose <em>centroid</em> is nearest, within
-<code>max_correspondence_distance</code>. The 27 cells cover that radius only because the voxel size (1.0&nbsp;m)
-is at least the correspondence distance (1.0&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L138-L172"><code>local_map.cpp</code>,
+voxel and as many neighbouring voxels as the search radius needs, and keeps the plane whose <em>centroid</em>
+is nearest, within <code>max_correspondence_distance</code>.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L138-L172"><code>local_map.cpp</code>,
 <code>closestPlane()</code>, lines 138–172</a>; <code>std::floor</code>, not a cast, in <code>keyOf()</code>
 (<a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L23-L31">lines 23–31</a>). A published relative: VoxelMap keeps "one
 plane (or edge) feature" per voxel, "organized by a Hash table and octrees", inside an iterated EKF
@@ -117,9 +116,9 @@ residual at all. Try it: a scan of floor plus one wall, then add a second wall.<
 <div class="scatter-explorer" data-gate="0.05" data-init="100,0,100"></div>
 
 <p>glass-lio divides by the trace, because the raw eigenvalue "scales with correspondence count and so
-cannot tell 'under-constrained' from 'just fewer points'". It calibrated the threshold from real data:
-the indoor bag never dropped below 0.117, and the diverging Outdoor01 stretch never rose above 0.034, so
-the gate sits at 0.05, in the gap.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/registration.hpp#L25-L36"><code>registration.hpp</code>,
+cannot tell 'under-constrained' from 'just fewer points'". It calibrated the threshold from real data: the
+gate sits in the gap between the lowest ratios seen on a healthy indoor bag and the highest seen during a
+diverging outdoor stretch.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/include/glasslio/registration.hpp#L25-L36"><code>registration.hpp</code>,
 lines 25–36</a>; <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/config/livox_mid_360.yaml#L49-L61"><code>livox_mid_360.yaml</code>,
 lines 49–61</a>.</span></p>
 
@@ -131,10 +130,10 @@ result.translation_eigenvalue_ratio =
 
 <p>In the <strong>loose path</strong>, a ratio below the gate marks the scan invalid. The tight path does not reject a scan using this translation ratio: it adds IMU information in the same solve. Its separate rotation ratio gates only the gyro-bias feedback into deskew.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/registration.cpp#L72-L88"><code>registration.cpp</code>,
 lines 72–88</a>. It re-associates once at the converged pose, to test the \(\mathbf{H}\) the answer actually rests on.</span>
-Why was it needed? On M3DGR's Outdoor01, glass-lio's path came out at 38,657&nbsp;m against a true 346&nbsp;m,
-while the RMSE sat at its normal 0.10–0.16 and correspondences never fell below 300. A pose sliding along a
+Why was it needed? On M3DGR's Outdoor01, glass-lio's path came out at many times its true length,
+while the RMSE sat at its normal level and correspondences stayed plentiful. A pose sliding along a
 free direction leaves every residual small. The gate stops those scans being trusted; tight coupling, with
-the IMU in the same solve, is what carries the pose through (RPE 22.6&nbsp;m → 0.29&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a>
+the IMU in the same solve, is what carries the pose through.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/main/docs/implementation/5-registration.md"><code>docs/implementation/5-registration.md</code></a>
 §3.6.1, "a healthy RMSE can still be a lie".</span></p>
 
 <p>Zhang, Kaess &amp; Singh read degeneracy the same way, from "eigenvalues and eigenvectors of the system"
@@ -153,67 +152,52 @@ Optimization-based State Estimation Problems</em></a>, ICRA 2016.</span> This il
   information, or solve only well-constrained directions.</p>
 </div>
 
-<h2>5 · The eigenvalues of real shapes, in a 1&nbsp;m voxel</h2>
+<h2>5 · The eigenvalues of real shapes</h2>
 
-<p>“Small compared with the middle one” becomes concrete once you know what the eigenvalues of common
-shapes actually are. In glass-lio's 1&nbsp;m map voxels, a surface patch spanning the voxel has an in-plane
-variance of about \(L^2/12 = 0.083\ \mathrm{m^2}\) along each of its two directions (the variance of a
-uniform spread over 1&nbsp;m).</p>
+<p>“Small compared with the middle one” becomes concrete once you picture the eigenvalues of common
+shapes in a voxel:</p>
 
-<table>
-  <tr><th>shape in the voxel</th><th>\(\lambda_0,\ \lambda_1,\ \lambda_2\) (m²)</th><th>\(\lambda_0/\lambda_1\)</th><th>gate at 0.1</th></tr>
-  <tr><td>flat wall, 1 cm noise</td><td>1.0×10⁻⁴, 0.083, 0.083</td><td>0.0012</td><td>accept</td></tr>
-  <tr><td>flat wall, 2 cm noise (the Livox)</td><td>4.0×10⁻⁴, 0.083, 0.083</td><td>0.0048</td><td>accept</td></tr>
-  <tr><td>rough wall, 5 cm noise</td><td>2.5×10⁻³, 0.083, 0.083</td><td>0.030</td><td>accept</td></tr>
-  <tr><td>pole, 5 cm radius</td><td>1.3×10⁻³, 1.3×10⁻³, 0.083</td><td>≈ 1</td><td>reject</td></tr>
-  <tr><td>foliage filling the voxel</td><td>0.083, 0.083, 0.083</td><td>≈ 1</td><td>reject</td></tr>
-</table>
+<ul>
+  <li><strong>A flat wall</strong> spreads widely in two directions; sensor noise gives it only a thin
+  thickness, so \(\lambda_0\) is far below \(\lambda_1\). Accepted, even when the surface is somewhat
+  rough.</li>
+  <li><strong>A pole</strong> spreads along one direction only: \(\lambda_0\) and \(\lambda_1\) are both
+  small and similar. Rejected.</li>
+  <li><strong>Foliage</strong> filling the voxel spreads in every direction: all three eigenvalues are
+  similar. Rejected.</li>
+</ul>
 
-<p>Two things follow. First, the gate is <em>generous</em> about thickness: \(0.1\times0.083\) allows a
-thickness variance of 0.0083&nbsp;m², a standard deviation of about 9&nbsp;cm. The Livox's real
-noise sits at a ratio twenty times below the threshold, so the gate is not rejecting noisy surfaces at
-all. It is rejecting <em>shapes</em>: lines, blobs and balanced corners, whose ratio sits near 1. Second,
-the pole row shows why the comparison is with \(\lambda_1\) and not \(\lambda_2\). Against \(\lambda_2\), a pole's
-ratio would be a comfortable 0.015 and it would pass, handing ICP a “normal” pointing in an arbitrary
-direction around the pole.</p>
+<p>Two things follow. First, the gate is <em>generous</em> about thickness: a real sensor's noise leaves a
+flat surface far below the threshold, so the gate is not rejecting noisy surfaces at all. It is rejecting
+<em>shapes</em>: lines, blobs and balanced corners, whose ratio sits near one. Second, the pole shows why
+the comparison is with \(\lambda_1\) and not \(\lambda_2\). Against \(\lambda_2\), a pole's ratio would be
+small and it would pass, handing ICP a “normal” pointing in an arbitrary direction around the pole.</p>
 
 <h3>How good is a fitted normal?</h3>
 
 <p>With \(n\) points of noise \(\sigma\) spread over a patch whose in-plane standard deviation is
-\(\sqrt{\lambda_1}\), the normal's angular error is roughly \(\sigma/(\sqrt{\lambda_1}\sqrt{n})\). For the
-Livox's 2&nbsp;cm noise over a full voxel, that is about 0.9° with the voxel's cap of 20 points, and 1.8°
-at the minimum of 5. That is why the cap is not arbitrary: more points buy a better normal, until the
-cost of storing and refitting them outweighs the gain. It is also why the reservoir sampling of the
-map matters, since the formula assumes the points really are spread over the patch.</p>
+\(\sqrt{\lambda_1}\), the normal's angular error is roughly \(\sigma/(\sqrt{\lambda_1}\sqrt{n})\). More
+points buy a better normal, until the cost of storing and refitting them outweighs the gain, which is why
+the per-voxel cap is not arbitrary. It is also why the reservoir sampling of the map matters, since the
+formula assumes the points really are spread over the patch.</p>
 
-<details><summary>Try it: a patch only 20&nbsp;cm across fills part of a voxel. What happens to the normal's accuracy?</summary>
-<p>The in-plane variance falls to \(0.2^2/12 = 0.0033\), so \(\sqrt{\lambda_1}\) drops fivefold and the
-angular error grows fivefold, to about 4.5° with 20 points. Small patches give poorly determined
-normals, one reason thin structures help more with <em>translation</em> constraints than with precise
-orientation.</p></details>
+<details><summary>Try it: a small patch fills only part of a voxel. What happens to the normal's accuracy?</summary>
+<p>The in-plane spread \(\sqrt{\lambda_1}\) shrinks with the patch, so the angular error grows in the same
+proportion. Small patches give poorly determined normals, one reason thin structures help more with
+<em>translation</em> constraints than with precise orientation.</p></details>
 
 <h2>6 · How little geometry rescues a degenerate scan</h2>
 
-<p>The quiz's floor-plus-one-wall scan has a ratio of exactly zero. Add correspondences on a second,
-perpendicular wall, \(k\) of them, and \(\mathbf{H}_t = \mathrm{diag}(100, k, 100)\), so the ratio is
-\(k/(200+k)\):</p>
+<p>The quiz's floor-plus-one-wall scan has a ratio of exactly zero: nothing constrains sliding along the
+wall. Add \(k\) correspondences on a second, perpendicular wall and the missing direction gains
+information \(k\), while the other two keep theirs. If the floor and first wall each contribute \(W\), the
+ratio is \(k/(2W+k)\).</p>
 
-<table>
-  <tr><th>points on the second wall</th><th>ratio</th><th>verdict at 0.05</th></tr>
-  <tr><td>0</td><td>0.000</td><td>reject</td></tr>
-  <tr><td>5</td><td>0.024</td><td>reject</td></tr>
-  <tr><td>10</td><td>0.048</td><td>reject</td></tr>
-  <tr><td>11</td><td>0.052</td><td>accept</td></tr>
-  <tr><td>25</td><td>0.111</td><td>accept</td></tr>
-</table>
-
-<p>Eleven points out of about 210 move the scan across the gate. Put differently, the gate asks for
-roughly 5% of the scan's constraint to lie along its weakest direction. That seems small until you
-remember what the ratio measures: those eleven points pin the direction along which the other two
-hundred say nothing at all. It also shows why the threshold needs data behind it, as glass-lio's did
-(0.117 at the 5th percentile indoors, at most 0.034 during the Outdoor01 divergence). A gate at 0.02
-would accept the five-point scan; one at 0.1 would reject the eleven-point scan. Neither choice can be
-argued from first principles.</p>
+<p>A small number of points on the new wall is enough to move the scan across the gate. That seems small
+until you remember what the ratio measures: those few points pin the direction along which all the others
+say nothing at all. It also shows why the threshold needs data behind it, as glass-lio's did. A lower gate
+would accept scans with barely any constraint in the weak direction; a higher one would reject scans that
+are in fact adequately constrained. Neither choice can be argued from first principles.</p>
 
 <h2>7 · Rotation has degeneracies too, and \(\mathbf{H}_t\) cannot see them</h2>
 
@@ -275,7 +259,7 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
 </div>
 
 <div class="quiz" data-answer="reject">
-  <p class="q">A voxel samples a wall–floor corner with eigenvalues \((0.03,0.04,0.08)\) m². What does the 0.1 planarity gate do?</p>
+  <p class="q">A voxel samples a wall–floor corner evenly, so its points spread in three directions. What does the planarity gate do?</p>
   <ol class="options">
     <li><button class="option" data-key="floor">Accepts it, using the floor</button></li>
     <li><button class="option" data-key="reject">Rejects it: not a plane</button></li>
@@ -283,23 +267,23 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
     <li><button class="option" data-key="split">Splits it into two planes</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>The measured ratio is \(0.03/0.04=0.75\), so
-    \(\lambda_0 &gt; 0.1\,\lambda_1\) rejects it. glass-lio never splits a voxel (VoxelMap's octrees are one way to).</p>
+    <p>With a balanced spread, \(\lambda_0\) is comparable to \(\lambda_1\), so the ratio is far above the
+    gate and the voxel is rejected. glass-lio never splits a voxel (VoxelMap's octrees are one way to).</p>
   </div>
 </div>
 
 <div class="quiz" data-answer="zero">
-  <p class="q">A scan's correspondences: 100 on the floor (normal \(z\)), 100 on one wall (normal \(x\)), nothing else.
+  <p class="q">A scan's correspondences lie on the floor (normal \(z\)) and on one wall (normal \(x\)), nothing else.
   What is \(\lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t)\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="zero">0.00</button></li>
-    <li><button class="option" data-key="third">0.33</button></li>
-    <li><button class="option" data-key="half">0.50</button></li>
-    <li><button class="option" data-key="one">1.00</button></li>
+    <li><button class="option" data-key="zero">zero</button></li>
+    <li><button class="option" data-key="third">about a third</button></li>
+    <li><button class="option" data-key="half">about a half</button></li>
+    <li><button class="option" data-key="one">one</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>\(\mathbf{H}_t = \mathrm{diag}(100, 0, 100)\), so \(\lambda_{\min} = 0\), along \(y\), and the trace is 200. Ratio 0: nothing
-    stops the pose sliding along the wall, and the 0.05 gate rejects the scan.</p>
+    <p>No normal has a \(y\) component, so \(\mathbf{H}_t\) has a zero eigenvalue along \(y\) and the ratio is
+    zero: nothing stops the pose sliding along the wall, and the gate rejects the scan.</p>
   </div>
 </div>
 
@@ -347,7 +331,7 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
 </div>
 
 <div class="quiz" data-answer="lambda1">
-  <p class="q">A pole of 5&nbsp;cm radius crosses a 1&nbsp;m voxel. Why compare \(\lambda_0\) with \(\lambda_1\)
+  <p class="q">A thin pole crosses a voxel. Why compare \(\lambda_0\) with \(\lambda_1\)
   rather than with \(\lambda_2\)?</p>
   <ol class="options">
     <li><button class="option" data-key="lambda1">against \(\lambda_2\) a line would pass the gate with an arbitrary normal</button></li>
@@ -356,23 +340,24 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
     <li><button class="option" data-key="same">the two comparisons are equivalent</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>A line has \(\lambda_0 \approx \lambda_1 \ll \lambda_2\): about 0.015 against \(\lambda_2\), which would pass, but about 1
+    <p>A line has \(\lambda_0 \approx \lambda_1 \ll \lambda_2\): small against \(\lambda_2\), which would pass, but near one
     against \(\lambda_1\). A line has no single normal, and only the \(\lambda_1\) comparison notices.</p>
   </div>
 </div>
 
-<div class="quiz" data-answer="eleven">
-  <p class="q">A scan has 100 floor and 100 front-wall correspondences. Roughly how many on a perpendicular side
-  wall bring \(\lambda_{\min}/\mathrm{tr}\) above 0.05?</p>
+<div class="quiz" data-answer="few">
+  <p class="q">A scan sees only the floor and a front wall, so it is degenerate. What does adding a few
+  correspondences on a perpendicular side wall do?</p>
   <ol class="options">
-    <li><button class="option" data-key="one">1</button></li>
-    <li><button class="option" data-key="eleven">about 11</button></li>
-    <li><button class="option" data-key="hundred">about 100</button></li>
-    <li><button class="option" data-key="never">none: it can never pass</button></li>
+    <li><button class="option" data-key="nothing">nothing: they are outnumbered</button></li>
+    <li><button class="option" data-key="few">they can lift it over the gate: they are the only constraint in the missing direction</button></li>
+    <li><button class="option" data-key="match">they help only once they match the other walls in number</button></li>
+    <li><button class="option" data-key="never">nothing can rescue a degenerate scan</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>The ratio is \(k/(200+k)\), which crosses 0.05 between \(k = 10\) (0.048) and \(k = 11\) (0.052). A few
-    percent of the constraint along the missing direction is enough, because it is the only constraint there.</p>
+    <p>The ratio is \(k/(2W+k)\): a small \(k\) already makes it nonzero, and a modest one crosses the gate.
+    A few percent of the constraint along the missing direction is enough, because it is the only constraint
+    there.</p>
   </div>
 </div>
 
@@ -399,8 +384,8 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
   <div class="answer" hidden>
     <div class="eq">$$ \begin{aligned}
     \mathbf{c} &= \tfrac{1}{n}\textstyle\sum_k \mathbf{p}_k, \qquad \mathbf{C} = \tfrac{1}{n}\textstyle\sum_k (\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top}\\
-    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{accept plane if }\lambda_1\ge10^{-12}\text{ and }\lambda_0\le0.1\lambda_1\\
-    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
+    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{accept plane if }\lambda_0\le\rho\,\lambda_1\\
+    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; \tau
     \end{aligned} $$</div>
     <ul class="checklist">
       <li>The normal is the <em>smallest</em> eigenvalue's eigenvector</li>
@@ -413,7 +398,6 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
   </div>
 </div>
 
-<p><strong>Apply it:</strong> complete the <a href="../exercises.html#degeneracy">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>
@@ -426,7 +410,7 @@ into the next scan's geometry would corrupt it.<span class="sidenote"><a href="h
 
 <aside class="ask">
   <p class="label">Questions to revisit</p>
-  <p>When can the nearest plane centroid differ from the plane with the smallest point-to-plane distance? How would that affect association? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
+  <p>When can the nearest plane centroid differ from the plane with the smallest point-to-plane distance? How would that affect association? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer in your own words.</p>
 </aside>
 
 </article>

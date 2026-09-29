@@ -94,12 +94,12 @@ not requirements of tight coupling.</p>
 
 <ol>
   <li><strong>Deskew</strong> the points with the gyro, integrated on SO(3) (<a href="0002-integrating-one-imu-step.html">lesson 2</a>).</li>
-  <li><strong>Loose for the first 10 scans</strong>, to <em>measure</em> the velocity that a static init can't observe (<a href="0001-what-an-imu-actually-measures.html">lesson 1</a>).</li>
+  <li><strong>Loose for the first few scans</strong>, to <em>measure</em> the velocity that a static init can't observe (<a href="0001-what-an-imu-actually-measures.html">lesson 1</a>).</li>
   <li><strong>Preintegrate</strong> the IMU over (last scan's end, this scan's end]: the deltas and their covariance (<a href="0003-why-preintegrate.html">lessons 3</a>, <a href="0005-the-noise-preintegration-carries.html">5</a>).</li>
   <li><strong>Grow the bias covariance</strong> by its random walk over that interval.</li>
   <li><strong>Predict</strong> the new state with <code>predictState</code>, putting gravity back in the world (<a href="0002-integrating-one-imu-step.html">lesson 2</a>).</li>
   <li><strong>Iterate the solve</strong>: re-associate every point to a plane (<a href="0007-planes-and-degeneracy.html">lesson 7</a>), stack the four blocks with bias-corrected deltas (<a href="0004-the-bias-correction.html">lesson 4</a>), solve 18×18, retract.</li>
-  <li><strong>Accept or coast</strong>: too few correspondences, a non-finite solve, or RMSE above the configured 0.5&nbsp;m, commits the prediction and keeps the scan out of the map.</li>
+  <li><strong>Accept or coast</strong>: too few correspondences, a non-finite solve, or RMSE above a configured limit, commits the prediction and keeps the scan out of the map.</li>
   <li><strong>Carry the posteriors</strong>: the bias and navigation blocks of \(H_{\rm total}^{-1}\), the latter becoming the next \(\mathbf{P}_i\) (<a href="0008-filter-window-or-factor.html">lesson 8</a>).</li>
   <li><strong>Resync deskew's gyro bias</strong>, but only if the LiDAR alone constrains rotation (lesson 7's eigen-ratio, on the rotation block).</li>
   <li><strong>Insert</strong> the deskewed scan into the map, only if the pose was trusted.</li>
@@ -141,10 +141,10 @@ Now close your eyes on the list and rebuild it:</p>
 
 <table class="compact">
   <tr><th>Block</th><th>Weight</th><th>Set wrong, glass-lio measured…</th></tr>
-  <tr><td>LiDAR</td><td>\(1/\sigma^2\), \(\sigma = 0.02\)&nbsp;m (a Livox's real noise)</td><td>at 0.05, the IMU over-integrated velocity to ~40&nbsp;m/s; drift fell from 1,339&nbsp;m to 429&nbsp;m once calibrated</td></tr>
+  <tr><td>LiDAR</td><td>\(1/\sigma^2\), with \(\sigma\) the sensor's real point-to-plane noise</td><td>set larger than the real noise, the IMU over-integrated velocity and the trajectory drifted far; calibrated, it matched the loose baseline</td></tr>
   <tr><td>IMU</td><td>\(\Sigma_{\text{eff}}^{-1}\), \(\Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top}\)</td><td>with \(\mathbf{x}_i\) treated as exact, the IMU's information overruled the LiDAR and pinned the pose ("the FREEZE")</td></tr>
   <tr><td>Bias prior</td><td>\(P_b^{-1}\), the inverse carried bias covariance</td><td>a random-walk constant alone can't say how wrong the bias was <em>to begin with</em>, so the accel bias would stay frozen</td></tr>
-  <tr><td>Gravity prior</td><td>\(\mathbf{I}/\sigma_g^2\), \(\sigma_g = 0.05\), anchored to \(\mathbf{g}_{\text{init}}\)</td><td>anchored to its own estimate, \(|\mathbf{g}|\) wandered to ~25 in 200 scans and threw the pose ~500&nbsp;km</td></tr>
+  <tr><td>Gravity prior</td><td>\(\mathbf{I}/\sigma_g^2\), stiff, anchored to \(\mathbf{g}_{\text{init}}\)</td><td>anchored to its own estimate, \(\mathbf{g}\) wandered far from its true value and threw the pose off the planet</td></tr>
 </table>
 
 <p>One structural fact ties them together: a LiDAR row has zeros in the velocity, bias and gravity columns (lesson 6). The IMU couples velocity, biases, and gravity to the pose; the bias and gravity priors also constrain their own variables. LiDAR influences velocity indirectly through the joint IMU constraints, including their orientation and bias couplings. Its weight affects the estimate, but does not alone determine velocity error.</p>
@@ -169,30 +169,27 @@ lines 148–169</a>: solve, retract, and stop once both the translation and rota
 <h2>4 · Who holds what: the information budget of one scan</h2>
 
 <p>Section 3 justified each weight on its own. Put them side by side and you can see which block actually
-determines each part of the state. The table uses glass-lio's configured priors and the preintegration
-covariance of one 0.1&nbsp;s scan from lesson 5, before the previous state's inflation, which only lowers
-the IMU's numbers:</p>
+determines each part of the state over one scan:</p>
 
 <table class="compact">
   <tr><th>state</th><th>LiDAR</th><th>IMU factor (one scan)</th><th>prior</th><th>so it is held by…</th></tr>
-  <tr><td>position</td><td>up to ~10⁷ m⁻² in total, along the normals it sees</td><td>7.5×10⁶ m⁻² per axis</td><td>none</td><td>both, and they argue</td></tr>
-  <tr><td>rotation</td><td>strong where points have lever arms</td><td>very strong (0.03° per scan)</td><td>none</td><td>both</td></tr>
-  <tr><td>velocity</td><td><strong>zero</strong></td><td>≈ 2.5×10⁴ (m/s)⁻² per axis</td><td>none</td><td>the IMU, disciplined through position</td></tr>
-  <tr><td>gyro bias</td><td>zero</td><td>through rotation</td><td>10⁴ (rad/s)⁻² initially</td><td>prior, then rotation evidence</td></tr>
-  <tr><td>accel bias</td><td>zero</td><td>weakly, needs turns</td><td>11 (m/s²)⁻² initially</td><td>almost nothing, for a long time</td></tr>
-  <tr><td>gravity</td><td>zero</td><td>weakly, over one scan</td><td>400 (m/s²)⁻² per axis</td><td>the prior, on purpose</td></tr>
+  <tr><td>position</td><td>strong, along the normals it sees</td><td>strong</td><td>none</td><td>both, and they argue</td></tr>
+  <tr><td>rotation</td><td>strong where points have lever arms</td><td>very strong</td><td>none</td><td>both</td></tr>
+  <tr><td>velocity</td><td><strong>zero</strong></td><td>moderate</td><td>none</td><td>the IMU, disciplined through position</td></tr>
+  <tr><td>gyro bias</td><td>zero</td><td>through rotation</td><td>moderate initially</td><td>prior, then rotation evidence</td></tr>
+  <tr><td>accel bias</td><td>zero</td><td>weakly, needs turns</td><td>weak initially</td><td>almost nothing, for a long time</td></tr>
+  <tr><td>gravity</td><td>zero</td><td>weakly, over one scan</td><td>stiff</td><td>the prior, on purpose</td></tr>
 </table>
 
 <p>Read the right-hand column as a list of vulnerabilities. <strong>Velocity</strong> has no direct
 measurement at all: the LiDAR row has zeros there, so velocity is only as good as the IMU's integration,
-checked through the position it produces. That is why an under-trusted LiDAR let velocity run to
-40&nbsp;m/s. <strong>The accelerometer bias</strong> starts with information 11 and gains little per scan
-(lesson 4: only turns reveal it); its random walk adds a variance of just \(10^{-7}\) per scan against a
-prior variance of 0.09, so the prior dominates for a long time. That is the design working as intended:
-a weakly observable state should move slowly. <strong>Gravity</strong> is the one state where the prior is
-meant to win, because over 0.1&nbsp;s nothing else can tell a small gravity tilt from a small velocity or
-bias error. An anchor that followed its own estimate would have given it no restoring force, which is
-exactly the 500&nbsp;km failure.</p>
+checked through the position it produces. That is why an under-trusted LiDAR let velocity run away.
+<strong>The accelerometer bias</strong> starts weakly known and gains little per scan (lesson 4: only turns
+reveal it); its random walk adds only a tiny variance per scan compared with its initial uncertainty, so
+the prior dominates for a long time. That is the design working as intended: a weakly observable state
+should move slowly. <strong>Gravity</strong> is the one state where the prior is meant to win, because over
+one scan nothing else can tell a small gravity tilt from a small velocity or bias error. An anchor that
+followed its own estimate would have given it no restoring force, which is exactly the runaway failure.</p>
 
 <h2>5 · Debugging symptoms and state fingerprints</h2>
 
@@ -204,15 +201,15 @@ course has met, arranged as you would meet them:</p>
 
 <table class="compact">
   <tr><th>what you see</th><th>fingerprint in the state</th><th>cause</th><th>lesson</th></tr>
-  <tr><td>height falls, quadratically, after the first turn</td><td>constant ~0.2 m/s² fake acceleration, zero before turning</td><td>accelerometer bias baked into a world-fixed gravity</td><td><a href="0001-what-an-imu-actually-measures.html">1</a></td></tr>
+  <tr><td>height falls, quadratically, after the first turn</td><td>constant fake acceleration about the size of a sensor bias, zero before turning</td><td>accelerometer bias baked into a world-fixed gravity</td><td><a href="0001-what-an-imu-actually-measures.html">1</a></td></tr>
   <tr><td>a stationary sensor drifts</td><td>velocity grows at rest</td><td>specific-force sign, accel units, or rotated gravity</td><td><a href="0001-what-an-imu-actually-measures.html">1</a>, <a href="0002-integrating-one-imu-step.html">2</a></td></tr>
-  <tr><td>accelerates along the direction of travel</td><td>error ∝ speed, ~20% per scan</td><td>preintegration over 0.12&nbsp;s against poses 0.10&nbsp;s apart</td><td><a href="0002-integrating-one-imu-step.html">2</a></td></tr>
+  <tr><td>accelerates along the direction of travel</td><td>error ∝ speed, every scan</td><td>preintegration window longer than the interval between the poses</td><td><a href="0002-integrating-one-imu-step.html">2</a></td></tr>
   <tr><td>a snapshot sensor coasts forever</td><td>every IMU window has zero length</td><td>scan duration zero; the interval never advances</td><td><a href="0002-integrating-one-imu-step.html">2</a>, testing §12.6</td></tr>
   <tr><td>other sensors outvoted, residuals grow unrejected</td><td>IMU information dwarfs everything</td><td>previous state treated as exact</td><td><a href="0003-why-preintegrate.html">3</a>, <a href="0008-filter-window-or-factor.html">8</a></td></tr>
   <tr><td>rejections rise after “loosening” the bias</td><td>\(|\mathbf{b}^a|\) ramps, absorbing error</td><td>a free bias against an over-certain previous state</td><td><a href="0004-the-bias-correction.html">4</a>, <a href="0008-filter-window-or-factor.html">8</a></td></tr>
-  <tr><td>velocity ramps smoothly on bland stretches</td><td>\(|\mathbf{v}|\) to ~40 m/s, biases sane</td><td><code>lidar_sigma</code> larger than the real noise</td><td><a href="0005-the-noise-preintegration-carries.html">5</a></td></tr>
+  <tr><td>velocity ramps smoothly on bland stretches</td><td>\(|\mathbf{v}|\) climbs to implausible speeds, biases sane</td><td><code>lidar_sigma</code> larger than the real noise</td><td><a href="0005-the-noise-preintegration-carries.html">5</a></td></tr>
   <tr><td>trajectory far too long, RMSE healthy</td><td>small eigen-ratio of \(\mathbf{H}_t\)</td><td>degenerate geometry</td><td><a href="0007-planes-and-degeneracy.html">7</a></td></tr>
-  <tr><td>the pose leaves the planet</td><td>\(\mathbf{g}\) drifts off \([0,0,-9.8]\), \(|\mathbf{g}|\to 25\)</td><td>gravity prior anchored to its own estimate</td><td>this lesson, §3</td></tr>
+  <tr><td>the pose leaves the planet</td><td>\(\mathbf{g}\) drifts steadily away from its initial value</td><td>gravity prior anchored to its own estimate</td><td>this lesson, §3</td></tr>
 </table>
 
 <p>Notice what the second column has in common: every fingerprint is a <em>state</em> quantity, and
@@ -236,7 +233,7 @@ now have:</p>
   <li><strong>A fixed gravity anchor.</strong> Gravity can move only within its prior around the initial
   value. That is right for odometry; a system that ran for hours might re-level gravity against a longer
   history.</li>
-  <li><strong>No loop closure.</strong> The map forgets geometry beyond 100&nbsp;m, so revisiting a place
+  <li><strong>No loop closure.</strong> The map forgets geometry beyond a configured range, so revisiting a place
   corrects nothing. This is odometry, not SLAM, by choice.</li>
   <li><strong>Consistency is untested.</strong> The covariance has never been checked against ground truth
   with a statistic like NEES (lesson 8). It is plausible; it is not yet proven honest.</li>
@@ -265,7 +262,7 @@ now have:</p>
     <li><button class="option" data-key="vel">Velocity is unobservable from IMU init</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>A static window can't tell rest from constant velocity, and the test bag starts already moving at ~1.5&nbsp;m/s. Seed \(\mathbf{v} = 0\)
+    <p>A static window can't tell rest from constant velocity, and the test bag starts already moving. Seed \(\mathbf{v} = 0\)
     and the IMU factor fights the LiDAR. Loose ICP measures the velocity first; the tight solver starts from it.</p>
   </div>
 </div>
@@ -279,7 +276,7 @@ now have:</p>
     <li><button class="option" data-key="degen">The LiDAR geometry from having a nullspace</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>With \(\mathbf{x}_i\) held exact (\(\mathbf{P}_i = 0\)), the IMU's information over 0.1&nbsp;s is enormous and pins the pose. Inflating by
+    <p>With \(\mathbf{x}_i\) held exact (\(\mathbf{P}_i = 0\)), the IMU's information over one scan is enormous and pins the pose. Inflating by
     \(\mathbf{x}_i\)'s uncertainty is "the closed-form marginalization of a Gaussian x_i out of this one factor": lesson 8, applied.</p>
   </div>
 </div>
@@ -293,13 +290,13 @@ now have:</p>
     <li><button class="option" data-key="anchor">Otherwise nothing pulls it back</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>Gravity is nearly unobservable over one 0.1&nbsp;s scan. An anchor that chases the estimate has no restoring force, so every small pose
-    error is explained by tilting \(\mathbf{g}\): it reached \(|\mathbf{g}|\approx 25\) in 200 scans and threw the pose ~500&nbsp;km.</p>
+    <p>Gravity is nearly unobservable over one scan. An anchor that chases the estimate has no restoring force, so every small pose
+    error is explained by tilting \(\mathbf{g}\): it wandered far from its true value and threw the pose off the planet.</p>
   </div>
 </div>
 
 <div class="quiz" data-answer="vel">
-  <p class="q">In the historical experiment described above, what happened when <code>lidar_sigma</code> was 0.05 instead of 0.02?</p>
+  <p class="q">In the historical experiment described above, what happened when <code>lidar_sigma</code> was set larger than the sensor's real noise?</p>
   <ol class="options">
     <li><button class="option" data-key="lidar">The LiDAR overrules the IMU</button></li>
     <li><button class="option" data-key="cancel">Its scale cancels even when the IMU shares the objective</button></li>
@@ -307,8 +304,8 @@ now have:</p>
     <li><button class="option" data-key="vel">The IMU over-integrates the velocity</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>A bigger \(\sigma\) trusts the LiDAR less. In that experiment, reducing LiDAR's influence on the joint IMU constraints allowed velocity to drift: ~40&nbsp;m/s
-    on a bland stretch. A global scale only cancels in the LiDAR-only loose path, never once a second sensor shares \(\mathbf{H}\).</p>
+    <p>A bigger \(\sigma\) trusts the LiDAR less. In that experiment, reducing LiDAR's influence on the joint IMU constraints allowed velocity to drift on a
+    bland stretch. A global scale only cancels in the LiDAR-only loose path, never once a second sensor shares \(\mathbf{H}\).</p>
   </div>
 </div>
 
@@ -321,7 +318,7 @@ now have:</p>
     <li><button class="option" data-key="grav">When gravity differs from its init</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>Below a rotation eigen-ratio of 0.05, the refined bias is mostly IMU dead-reckoning the LiDAR can't verify. On Corridor02, resyncing
+    <p>Below the rotation eigen-ratio gate, the refined bias is mostly IMU dead-reckoning the LiDAR can't verify. On Corridor02, resyncing
     anyway corrupted every later scan's geometry and diverged.</p>
   </div>
 </div>
@@ -354,8 +351,8 @@ now have:</p>
 </div>
 
 <div class="quiz" data-answer="gravity">
-  <p class="q">In a log you see \(|\mathbf{v}|\) and \(|\mathbf{b}^a|\) behaving sensibly while \(\mathbf{g}\) drifts from \([0,0,-9.8]\)
-  towards a magnitude of 25. Which term do you inspect first?</p>
+  <p class="q">In a log you see \(|\mathbf{v}|\) and \(|\mathbf{b}^a|\) behaving sensibly while \(\mathbf{g}\) drifts steadily
+  away from its initial value. Which term do you inspect first?</p>
   <ol class="options">
     <li><button class="option" data-key="lidar">the LiDAR noise setting</button></li>
     <li><button class="option" data-key="gravity">the gravity prior's anchor</button></li>
@@ -378,7 +375,7 @@ now have:</p>
   </ol>
   <div class="explain" hidden>
     <p>The LiDAR has zero columns for it, and over one scan it is indistinguishable from a small gravity tilt (lesson 4).
-    Its prior information (about 11) dominates until enough turns have separated it from gravity.</p>
+    Its prior information dominates until enough turns have separated it from gravity.</p>
   </div>
 </div>
 
@@ -389,17 +386,16 @@ now have:</p>
   <button class="action reveal">Check against the answer</button>
   <div class="answer" hidden>
     <ul class="checklist">
-      <li>LiDAR: \(1/\sigma^2\) per point, \(\sigma = 0.02\)&nbsp;m, Huber; at 0.05 velocity ran away</li>
+      <li>LiDAR: \(1/\sigma^2\) per point, \(\sigma\) the real point-to-plane noise, Huber; set too large, velocity ran away</li>
       <li>IMU: \(\Sigma_{\text{eff}}^{-1} = (\Sigma_{\text{pre}} + \mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^{\top})^{-1}\); without the inflation, the freeze</li>
       <li>Bias prior: inverse of the carried bias marginal covariance; update that covariance from the bias block of \(H_{\rm total}^{-1}\) after the solve</li>
-      <li>Gravity prior: anchored to \(\mathbf{g}_{\text{init}}\), \(\sigma_g = 0.05\); anchored to itself, \(|\mathbf{g}|\to 25\)</li>
+      <li>Gravity prior: stiff, anchored to \(\mathbf{g}_{\text{init}}\); anchored to itself, gravity ran away</li>
       <li>Velocity, both biases and gravity: the LiDAR's columns there are zero</li>
     </ul>
     <p>That's the whole solve in five lines. Try this box again after a night's sleep; it's the best single check that the course has stuck.</p>
   </div>
 </div>
 
-<p><strong>Apply it:</strong> complete the <a href="../exercises.html#noise">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>
@@ -411,7 +407,7 @@ now have:</p>
 
 <aside class="ask">
   <p class="label">Questions to revisit</p>
-  <p>Which variables does each factor constrain directly? How would a filter or sliding window change the update? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
+  <p>Which variables does each factor constrain directly? How would a filter or sliding window change the update? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer in your own words.</p>
 </aside>
 
 </article>

@@ -32,8 +32,8 @@
 <p class="label">Practice</p>
 <div class="eq">$$ \begin{aligned}
     \mathbf{c} &= \tfrac{1}{n}\textstyle\sum_k \mathbf{p}_k, \qquad \mathbf{C} = \tfrac{1}{n}\textstyle\sum_k (\mathbf{p}_k - \mathbf{c})(\mathbf{p}_k - \mathbf{c})^{\top}\\
-    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{accept plane if }\lambda_1\ge10^{-12}\text{ and }\lambda_0\le0.1\lambda_1\\
-    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; 0.05
+    \mathbf{n} &= \text{eigenvector of } \lambda_0, \qquad \text{accept plane if }\lambda_0\le\rho\,\lambda_1\\
+    \mathbf{H}_t &= \textstyle\sum_i w_i\,\mathbf{n}_i\mathbf{n}_i^{\top}, \qquad \text{loose translation gate rejects if } \lambda_{\min}(\mathbf{H}_t)/\mathrm{tr}(\mathbf{H}_t) &lt; \tau
     \end{aligned} $$</div>
 
 <h2>Explain the idea</h2>

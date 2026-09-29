@@ -37,7 +37,7 @@
   <dt>\({}_{B}x,\ {}_{W}x\)</dt><dd>The frame a vector is expressed in: \(B\) is the body (IMU) frame, \(W\) the world frame.</dd>
   <dt>\(\mathbf{R}_{WB}\)</dt><dd>Rotates body-frame vectors into the world, so \(\mathbf{R}_{WB}^{\top}\) takes world vectors into the body frame.</dd>
   <dt>\({}_{W}\mathbf{a}\)</dt><dd>The sensor's true acceleration, in the world.</dd>
-  <dt>\({}_{W}\mathbf{g}\)</dt><dd>The gravity vector in the world. It points <em>down</em>: with \(z\) up, \(\mathbf{g} \approx [0,\,0,\,-9.81]^{\top}\,\mathrm{m/s^2}\).</dd>
+  <dt>\({}_{W}\mathbf{g}\)</dt><dd>The gravity vector in the world. It points <em>down</em>: with \(z\) up, \(\mathbf{g} = [0,\,0,\,-g]^{\top}\).</dd>
   <dt>\(\mathbf{b}\)</dt><dd>Bias: a slowly drifting offset, added in the <em>body</em> frame.</dd>
   <dt>\(\boldsymbol{\eta}\)</dt><dd>White noise.</dd>
 </dl>

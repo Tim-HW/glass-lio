@@ -96,7 +96,7 @@ Read off the coefficients of \(\boldsymbol{\rho}\) and \(\boldsymbol{\phi}\):</p
 lines 76–96</a>. Its warning: "(q x n), NOT (n x q): swapping them flips the sign of every rotational
 update, and the solver will then walk away from the solution while still reporting a plausible residual."
 <a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/test/test_jacobian.cpp#L58-L104"><code>test_jacobian.cpp</code></a> checks it against
-finite differences to 1e-7 over 500 trials, and proves the swapped version would be caught.</span></p>
+finite differences, and proves the swapped version would be caught.</span></p>
 
 <pre><code>J.head&lt;3&gt;() = normal.transpose();
 J.tail&lt;3&gt;() = q.cross(normal).transpose();</code></pre>
@@ -167,64 +167,51 @@ J.block&lt;1, 3&gt;(0, kIdxPos) = normal.transpose();</code></pre>
   right perturbation, whitens it by the LiDAR's noise, and its velocity and bias columns are zero."</p>
 </div>
 
-<h2>6 · Two correspondences, by hand</h2>
+<h2>6 · What one wall can and cannot see</h2>
 
-<p>Put numbers through the Jacobian before trusting it. The sensor sits at the origin with
-\(\mathbf{T} = \mathbf{I}\), facing a wall. The map's plane for that wall has normal
-\(\mathbf{n} = [1,0,0]\) and centroid \(\mathbf{c} = [10.05,\,0,\,0]\): the wall is 10.05&nbsp;m ahead.
-Two returns land on it:</p>
-
-<table>
-  <tr><th>point \(\mathbf{q}\)</th><th>residual \(r\)</th><th>\(\mathbf{J} = [\mathbf{n}^\top,\ (\mathbf{q}\times\mathbf{n})^\top]\)</th></tr>
-  <tr><td>\([10,\ 2,\ 0.5]\)</td><td>−0.05 m</td><td>\([1,0,0,\ \ 0,\ 0.5,\ -2]\)</td></tr>
-  <tr><td>\([10,\ -8,\ 0.5]\)</td><td>−0.05 m</td><td>\([1,0,0,\ \ 0,\ 0.5,\ 8]\)</td></tr>
-</table>
-
-<p>Both points say the same thing about translation: they sit 5&nbsp;cm short of the wall, so the
-sensor should move 5&nbsp;cm further along \(x\). The rotation columns carry the geometry.</p>
+<p>Read the Jacobian's columns for returns that all land on a single wall, and the geometry of
+point-to-plane appears directly.</p>
 
 <ul>
-  <li><strong>Roll (rotation about \(x\)) has a zero column.</strong> Spinning about the wall's own
-  normal slides points across the wall, never towards it. A single wall cannot see roll at all.</li>
-  <li><strong>Pitch (about \(y\)) has a lever arm of 0.5</strong>, the points' height: tilting forward
-  pushes the points at 0.5&nbsp;m up into the wall only slightly.</li>
-  <li><strong>Yaw (about \(z\)) has lever arms of −2 and +8</strong>, opposite in sign because the
-  points are on opposite sides of the sensor's heading. Yaw moves one point into the wall and the other
-  away, so together they pin yaw far better than either alone, and the far one (8&nbsp;m to the side)
-  pins it four times harder.</li>
+  <li><strong>Translation along the normal is seen by every point.</strong> Each return reports how far
+  it sits from the wall, so together they fix the sensor's distance to it.</li>
+  <li><strong>Rotation about the wall's own normal has a zero column.</strong>
+  \((\mathbf{q}\times\mathbf{n})\) is always perpendicular to \(\mathbf{n}\), so spinning about the normal
+  slides points across the wall, never towards it. A single wall cannot see that rotation at all.</li>
+  <li><strong>The other two rotations are seen through lever arms.</strong> The rotation column is the
+  point's offset from the sensor, crossed with the normal. Points on opposite sides of the sensor get
+  lever arms of opposite sign, so a rotation pushes one towards the wall and the other away, and together
+  they pin that rotation far better than either alone. The farther a point sits from the sensor, the
+  harder it pins.</li>
 </ul>
 
-<p>Add both \(\mathbf{J}^\top\mathbf{J}\) terms and \(\mathbf{H}\) has nonzero entries only in the
-\(x\)-translation, pitch and yaw rows. The other three directions, sideways (\(y\)), vertical (\(z\)) and
-roll, get <em>nothing</em> from this wall, however many points land on it. A single plane constrains
-at most three of the six degrees of freedom. That is the whole reason lesson 7 exists: the solve
-needs planes facing in different directions, and it needs a way to <em>detect</em> when it does not
-have them.</p>
+<p>Add up the \(\mathbf{J}^\top\mathbf{J}\) terms and \(\mathbf{H}\) is nonzero only in those three
+directions. Sliding along the wall in either tangent direction, and rotating about its normal, get
+<em>nothing</em> from this wall, however many points land on it. A single plane constrains at most three
+of the six degrees of freedom. That is the whole reason lesson 7 exists: the solve needs planes facing
+in different directions, and it needs a way to <em>detect</em> when it does not have them.</p>
 
-<details><summary>Try it: add a floor return \(\mathbf{q} = [5,\,1,\,0]\) on the plane \(\mathbf{n} = [0,0,1]\). Which new directions does it constrain?</summary>
-<p>\(\mathbf{q}\times\mathbf{n} = [1\cdot1 - 0\cdot0,\ 0\cdot0 - 5\cdot1,\ 0] = [1,\,-5,\,0]\), so
-\(\mathbf{J} = [0,0,1,\ 1,-5,0]\). It adds vertical translation, roll (lever 1) and pitch (lever −5).
-The floor and the wall together cover \(x\), \(z\), roll, pitch and yaw. Sideways \(y\) is still
-unconstrained: you are in a corridor.</p></details>
+<details><summary>Try it: add returns from a floor. Which new directions does it constrain, and what is still free?</summary>
+<p>The floor's normal is vertical, so it adds vertical translation, and its lever arms add the two
+rotations about horizontal axes. Floor and wall together cover everything except sliding horizontally
+along the wall. That remaining direction is exactly what a corridor fails to constrain.</p></details>
 
 <h2>7 · Finding the plane: association</h2>
 
 <p>The derivation assumed each point came with its plane. Finding that plane is association, and
 it is where most real-world failures of ICP start. glass-lio's map is a voxel hash with a plane cached
-per voxel (lesson 7 explains the planes). For each point it looks at the 27 voxels around the point's
-own voxel, fits any plane that is stale, and keeps the plane whose <em>centroid</em> is closest, provided
-it is within <code>max_correspondence_distance</code> (1&nbsp;m).<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L138-L172"><code>local_map.cpp</code>, lines 138–172</a>;
+per voxel (lesson 7 explains the planes). For each point it looks at the voxels around the point's
+own voxel, as many as the search radius needs, fits any plane that is stale, and keeps the plane whose
+<em>centroid</em> is closest, provided it is within <code>max_correspondence_distance</code>.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/local_map.cpp#L138-L172"><code>local_map.cpp</code>, lines 138–172</a>;
 the centroid distance is line 162.</span></p>
 
 <p>Two properties of that rule are worth understanding, because each explains a parameter.</p>
 
 <ul>
   <li><strong>The search radius is also a basin of attraction.</strong> A point whose true surface is
-  more than about a metre away at the current guess finds the <em>wrong</em> plane, or none. ICP is a local
+  farther than the search radius at the current guess finds the <em>wrong</em> plane, or none. ICP is a local
   method: it converges when the initial guess is already close, and confidently locks onto the wrong wall
-  when it is not. This is why glass-lio feeds the solver an IMU prediction rather than the previous pose.
-  The 27-cell search only covers the radius when <code>map.voxel_size</code> is at least
-  <code>max_correspondence_distance</code>, which is why the configuration couples them.</li>
+  when it is not. This is why glass-lio feeds the solver an IMU prediction rather than the previous pose.</li>
   <li><strong>Closest centroid is not closest surface.</strong> A point near the edge of a big voxel
   can be closer to a neighbouring voxel's centroid than to its own surface. The residual is still the
   distance to whichever plane was chosen, so an occasional wrong pick produces a large residual rather than a
@@ -235,29 +222,27 @@ the centroid distance is line 162.</span></p>
 different voxels, and some pick different planes. Re-associating every iteration is not an optimisation
 detail; it is what makes this ICP rather than a single least-squares fit.</p>
 
-<h2>8 · Robust weights, on a fit you can do by hand</h2>
+<h2>8 · Robust weights</h2>
 
-<p>Section 4 introduced the Huber weight. Its effect is easiest to see in one dimension. Estimate a
-single translation \(x\) from ten residuals \(r_i = x - z_i\): nine measurements say \(z = 0\), and one
-outlier, a moving car perhaps, says \(z = 2\).</p>
+<p>Section 4 introduced the Huber weight. Its effect is easiest to see in one dimension: estimate a
+single value from many measurements that agree, plus one outlier, a moving car perhaps.</p>
 
 <ul>
-  <li><strong>Plain least squares</strong> gives the mean, \(x = 0.20\): one bad point in ten drags the
-  answer 20&nbsp;cm.</li>
-  <li><strong>Huber with \(\delta = 0.2\)</strong>, glass-lio's <code>huber_delta</code>, solved by
-  reweighting and re-solving, settles at \(x = 0.022\) after seven iterations. The outlier's weight has
-  fallen to 0.10, and its pull on the answer is capped.</li>
+  <li><strong>Plain least squares</strong> gives the mean, and the single bad point drags the answer
+  noticeably towards itself.</li>
+  <li><strong>Huber</strong>, solved by reweighting and re-solving, settles close to the value the good
+  measurements agree on. The outlier's weight falls, and its pull on the answer is capped.</li>
 </ul>
 
 <p>The mechanism is the influence, the weight times the residual. Without robust weighting a residual
-of 1&nbsp;m pulls with strength 1; with Huber it pulls with strength \(\delta = 0.2\), and a residual of
-10&nbsp;m still pulls with only 0.2. Good correspondences, below \(\delta\), are treated exactly as in
-ordinary least squares, so nothing is lost when there are no outliers.</p>
+pulls in proportion to its size; with Huber, any residual larger than \(\delta\) pulls with the same
+capped strength \(\delta\), however large it is. Good correspondences, below \(\delta\), are treated
+exactly as in ordinary least squares, so nothing is lost when there are no outliers.</p>
 
-<p>Two limits keep this honest. Huber reduces an outlier's influence but does not remove it: the 2.2&nbsp;cm
-left in the answer above is that residual influence. And it helps only when outliers are a minority: if
-half the correspondences come from a moving truck, no weighting scheme can tell which half is the world.
-That is why glass-lio also refuses a solve whose final RMSE is too large, rather than trusting any answer the
+<p>Two limits keep this honest. Huber reduces an outlier's influence but does not remove it: a small
+shift towards the outlier remains. And it helps only when outliers are a minority: if half the
+correspondences come from a moving truck, no weighting scheme can tell which half is the world. That is
+why glass-lio also refuses a solve whose final RMSE is too large, rather than trusting any answer the
 weighting produces.</p>
 
 <h2>9 · Practice</h2>
@@ -381,11 +366,11 @@ weighting produces.</p>
 </div>
 
 <div class="quiz" data-answer="cap">
-  <p class="q">With Huber weighting at \(\delta = 0.2\), how hard does a correspondence with a 10&nbsp;m residual
-  pull on the solution, compared with plain least squares?</p>
+  <p class="q">With Huber weighting, how hard does a correspondence whose residual is far larger than
+  \(\delta\) pull on the solution, compared with plain least squares?</p>
   <ol class="options">
     <li><button class="option" data-key="zero">not at all: it is discarded</button></li>
-    <li><button class="option" data-key="cap">with strength 0.2 instead of 10</button></li>
+    <li><button class="option" data-key="cap">with capped strength \(\delta\) instead of its full residual</button></li>
     <li><button class="option" data-key="same">just as hard</button></li>
     <li><button class="option" data-key="more">harder, to correct it faster</button></li>
   </ol>
@@ -419,7 +404,6 @@ weighting produces.</p>
   </div>
 </div>
 
-<p><strong>Apply it:</strong> complete the <a href="../exercises.html#jacobian">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>
@@ -433,7 +417,7 @@ weighting produces.</p>
 
 <aside class="ask">
   <p class="label">Questions to revisit</p>
-  <p>Which frame does each Jacobian column use? How does the perturbation side change the point-to-plane derivative? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
+  <p>Which frame does each Jacobian column use? How does the perturbation side change the point-to-plane derivative? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer in your own words.</p>
 </aside>
 
 </article>

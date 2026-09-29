@@ -178,9 +178,6 @@ velocity line you already derived, with \(\Delta t_{ik} = (k-i)\,\Delta t\) the 
 “expand everything built on \(\mathbf{v}_i\) and \(\mathbf{R}_i\) and push it to the state side”. If you
 can reproduce the gravity-sum identity, you can reproduce the whole line.</p>
 
-<details><summary>Try it: check the gravity identity for \(n = 3\).</summary>
-<p>\(\sum_{m=0}^{2}(m + \tfrac12)\,\Delta t^2 = (0.5 + 1.5 + 2.5)\,\Delta t^2 = 4.5\,\Delta t^2\),
-and \(\tfrac12(3\Delta t)^2 = 4.5\,\Delta t^2\). Equal, as promised.</p></details>
 
 <h2>7 · Who preintegrates, and who does not need to</h2>
 
@@ -208,57 +205,32 @@ never looks back</strong>, forward propagation is simpler and just as exact. gla
 between: it builds a preintegrated factor per scan, and lesson 8 explains why that hybrid is a
 deliberate stepping stone rather than an accident.</p>
 
-<h2>8 · The deltas, computed by hand</h2>
+<h2>8 · The same deltas, any starting orientation</h2>
 
-<p>Take two IMU samples 5&nbsp;ms apart from the robot of lesson 2: level, yawing at
-0.5&nbsp;rad/s, reading \(\tilde{\mathbf{a}} = [0.1,\,0,\,9.81]\) with zero bias. Accumulate
-eq.&nbsp;(33) one sample at a time, updating in the order lesson 2 insisted on: position, then
-velocity, rotation last.</p>
-
-<ul>
-  <li><strong>Sample 0.</strong> \(\Delta\mathbf{R}_{i,i} = \mathbf{I}\), so the specific force is used
-  as read: \(\Delta\mathbf{v} = [0.0005,\ 0,\ 0.04905]\), \(\Delta\mathbf{p} = \tfrac12\tilde{\mathbf{a}}\Delta t^2\),
-  and the rotation advances by 0.0025&nbsp;rad about \(z\).</li>
-  <li><strong>Sample 1.</strong> The same reading is now rotated by that 0.0025&nbsp;rad before being
-  added. Its tiny sideways component is the only trace of the turn.</li>
-</ul>
-
-<p>After both samples:</p>
-
-<div class="eq">$$ \Delta\mathbf{R}_{ij} = \mathrm{Exp}([0,0,0.005]),\qquad
-\Delta\mathbf{v}_{ij} = \begin{bmatrix}0.001000\\0.000001\\0.098100\end{bmatrix}\mathrm{m/s},\qquad
-\Delta\mathbf{p}_{ij} = \begin{bmatrix}0.0000050\\0\\0.0004905\end{bmatrix}\mathrm{m}. $$</div>
-
-<p>Now the payoff. Suppose the solver is unsure which way the robot faced at keyframe \(i\) and
-tries two very different answers, with \(\mathbf{v}_i = [1.5,\,0,\,0]\) in both. Predicting
+<p>Here is the payoff made concrete. Suppose the solver is unsure which way the robot faced at
+keyframe \(i\) and tries two very different answers for \(\mathbf{R}_i\). Each trial predicts
 \(\mathbf{v}_j\) from the state side of eq.&nbsp;(33),
-\(\mathbf{v}_j = \mathbf{v}_i + \mathbf{g}\,\Delta t_{ij} + \mathbf{R}_i\,\Delta\mathbf{v}_{ij}\):</p>
+\(\mathbf{v}_j = \mathbf{v}_i + \mathbf{g}\,\Delta t_{ij} + \mathbf{R}_i\,\Delta\mathbf{v}_{ij}\).</p>
 
-<table>
-  <tr><th>trial \(\mathbf{R}_i\)</th><th>predicted \(\mathbf{v}_j\) (m/s)</th><th>IMU samples re-integrated</th></tr>
-  <tr><td>\(\mathbf{I}\), facing \(+x\)</td><td>[1.501000, 0.000001, 0]</td><td>none</td></tr>
-  <tr><td>90° about \(z\), facing \(+y\)</td><td>[1.499999, 0.001000, 0]</td><td>none</td></tr>
-</table>
-
-<p>The same three deltas served both trials. The small forward acceleration lands along \(x\) in
-one case and along \(y\) in the other, exactly as the rotation says it should, and the IMU samples
-were never touched again. Also notice the \(z\) row: \(\Delta\mathbf{v}_{ij}\) has a large
-\(+0.0981\) component, which the state side's \(\mathbf{g}\,\Delta t_{ij}\) cancels precisely. That
+<p>The same three deltas serve both trials. Whatever forward acceleration the IMU felt is sent
+along whichever world direction the trial rotation says the robot faced, exactly as it should be,
+and the IMU samples are never touched again. Changing \(\mathbf{R}_i\) costs one matrix-vector
+product per line, not a re-integration. Notice also that \(\Delta\mathbf{v}_{ij}\) carries a large
+vertical component, which the state side's \(\mathbf{g}\,\Delta t_{ij}\) cancels precisely. That
 leads straight to the most common confusion about these deltas.</p>
 
-<h2>9 · A stationary sensor with a “velocity change” of 0.98&nbsp;m/s</h2>
+<h2>9 · A stationary sensor with a large “velocity change”</h2>
 
 <p>Forster warns that \(\Delta\mathbf{v}_{ij}\) and \(\Delta\mathbf{p}_{ij}\) are not physical changes.
 The cleanest way to believe him is to preintegrate a sensor that does not move at all. A level
-IMU at rest reads \([0,0,9.81]\) every sample. Over one 0.1&nbsp;s LiDAR interval:</p>
+IMU at rest reads gravity's reaction, \(-\mathbf{g}\), every sample. Over one interval:</p>
 
-<div class="eq">$$ \Delta\mathbf{v}_{ij} = \sum_k \tilde{\mathbf{a}}_k\,\Delta t = \begin{bmatrix}0\\0\\0.981\end{bmatrix}\mathrm{m/s},
-\qquad \Delta\mathbf{p}_{ij} = \begin{bmatrix}0\\0\\0.0491\end{bmatrix}\mathrm{m}. $$</div>
+<div class="eq">$$ \Delta\mathbf{v}_{ij} = \sum_k \tilde{\mathbf{a}}_k\,\Delta t = -\mathbf{g}\,\Delta t_{ij}. $$</div>
 
-<p>Nearly a metre per second of “velocity change” for a sensor that never moved. Now evaluate the
+<p>A substantial upward “velocity change” for a sensor that never moved. Now evaluate the
 state side with the true states, \(\mathbf{v}_i = \mathbf{v}_j = 0\), \(\mathbf{R}_i = \mathbf{I}\):</p>
 
-<div class="eq">$$ \mathbf{R}_i^\top(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) = -\mathbf{g}\,\Delta t_{ij} = \begin{bmatrix}0\\0\\0.981\end{bmatrix}. $$</div>
+<div class="eq">$$ \mathbf{R}_i^\top(\mathbf{v}_j - \mathbf{v}_i - \mathbf{g}\,\Delta t_{ij}) = -\mathbf{g}\,\Delta t_{ij}. $$</div>
 
 <p>The two sides agree exactly and the residual is zero, which is what it should be for a
 correct state. The deltas are best read as <em>what a falling observer would have seen</em>: the
@@ -268,32 +240,31 @@ log \(\Delta\mathbf{v}_{ij}\) and read it as how fast the robot went.</p>
 
 <div class="callout">
   <p class="label">A test worth writing</p>
-  <p>Preintegrate a synthetic stationary sensor for 0.1&nbsp;s and assert that the residual against
+  <p>Preintegrate a synthetic stationary sensor and assert that the residual against
   a stationary state is zero, not that the deltas are. A test that asserts \(\Delta\mathbf{v}=0\) at
   rest encodes exactly the misreading this section is about, and it will fail on correct code.</p>
 </div>
 
-<h2>10 · How much it saves, counted</h2>
+<h2>10 · How much it saves</h2>
 
-<p>“Ruinous” deserves a number, and the honest number depends on how the deltas are used.</p>
+<p>The saving depends on how the deltas are used.</p>
 
-<p><strong>In glass-lio's own tight solve</strong>, one IMU factor spans one 0.1&nbsp;s scan, about 20
-samples at 200&nbsp;Hz. Without preintegration each solver iteration would re-integrate those 20
-samples. That is real work but not catastrophic; the bigger wins here are the two things the
-next lessons build on the deltas: a first-order bias correction (lesson 4) and a covariance
-computed once (lesson 5), neither of which would be possible if the deltas were rebuilt from
-scratch at every iteration.</p>
+<p><strong>In glass-lio's own tight solve</strong>, one IMU factor spans one scan, a modest
+number of samples. Without preintegration each solver iteration would re-integrate them. That is
+real work but not catastrophic; the bigger wins here are the two things the next lessons build on
+the deltas: a first-order bias correction (lesson 4) and a covariance computed once (lesson 5),
+neither of which would be possible if the deltas were rebuilt from scratch at every iteration.</p>
 
-<p><strong>In a sliding window</strong>, the saving can grow much larger. Consider an
-illustrative design with 10 keyframes, 40 IMU samples per interval, and 8 solver iterations
-per update. If a factor stays for 10 updates, repeatedly integrating its samples costs:</p>
+<p><strong>In a sliding window</strong>, the saving can grow much larger. A factor that stays in
+the window is re-linearised at every iteration of every update it survives, and without
+preintegration each re-linearisation re-integrates all of its samples:</p>
 
-<div class="eq">$$ \underbrace{10 \times 8}_{\text{re-linearisations}} \times \underbrace{40}_{\text{samples}} = 3200 \text{ sample integrations per factor, versus } 40 \text{ with preintegration.} $$</div>
+<div class="eq">$$ \underbrace{(\text{updates} \times \text{iterations})}_{\text{re-linearisations}} \times \text{samples}
+\quad\text{versus}\quad \text{samples, once, with preintegration.} $$</div>
 
-<p>An 80-fold saving in this example, and that is before counting the covariance and the bias
-Jacobians, which would otherwise be rebuilt just as often. The longer a factor lives inside an
-optimiser, the more preintegration pays. That is why it is the standard building block of
-sliding-window and smoothing estimators.</p>
+<p>And that is before counting the covariance and the bias Jacobians, which would otherwise be
+rebuilt just as often. The longer a factor lives inside an optimiser, the more preintegration pays.
+That is why it is the standard building block of sliding-window and smoothing estimators.</p>
 
 <h2>11 · What moving \(\mathbf{R}_i\) still costs: a Jacobian, in closed form</h2>
 
@@ -313,9 +284,9 @@ worth knowing before you ever write an estimator. For a long time only the Jacob
 the <em>end</em> state existed, because both front-ends solved for \(\mathbf{x}_j\) with
 \(\mathbf{x}_i\) held fixed. Holding \(\mathbf{x}_i\) fixed asserts that it is perfectly known. Over a
 short interval the IMU's information is enormous, so a perfectly known start let the IMU factor
-outvote every other measurement.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L209-L233"><code>nav_residual.hpp</code>, lines 209–233</a>:
-“Measured on EuRoC V1_01: with this missing, reprojection error grew monotonically to 643 px while
-135 landmarks sat in view, unrejected and simply outvoted.”</span> The cure is to treat
+outvote every other measurement.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/nav_residual.hpp#L209-L233"><code>nav_residual.hpp</code>, lines 209–233</a>
+records the failure measured on EuRoC: with this Jacobian missing, reprojection error grew
+monotonically while well-observed landmarks sat in view, unrejected and simply outvoted.</span> The cure is to treat
 \(\mathbf{x}_i\) as uncertain, which needs exactly the cheap Jacobian above. Lesson 8 takes this idea
 to its conclusion: filters, windows and factors differ mainly in how they treat the state at \(i\).</p>
 
@@ -388,37 +359,37 @@ to its conclusion: filters, windows and factors differ mainly in how they treat 
   <p class="q"><em>From lesson 1.</em> An IMU at rest is rolled so that its body \(y\) axis points
   straight up. Ignoring bias and noise, what does its accelerometer read, as \((x, y, z)\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="z">[0, 0, +9.81]</button></li>
-    <li><button class="option" data-key="y">[0, +9.81, 0]</button></li>
-    <li><button class="option" data-key="ny">[0, −9.81, 0]</button></li>
-    <li><button class="option" data-key="nz">[0, 0, −9.81]</button></li>
+    <li><button class="option" data-key="z">\([0, 0, +g]\)</button></li>
+    <li><button class="option" data-key="y">\([0, +g, 0]\)</button></li>
+    <li><button class="option" data-key="ny">\([0, -g, 0]\)</button></li>
+    <li><button class="option" data-key="nz">\([0, 0, -g]\)</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>At rest it reads \(-\mathbf{R}^{\top}\mathbf{g}\): +9.81 along whichever
+    <p>At rest it reads \(-\mathbf{R}^{\top}\mathbf{g}\): \(+g\) along whichever
     <a href="../glossary.html#body-frame">body-frame</a> axis points up, here \(y\).</p>
   </div>
 </div>
 
 <div class="quiz" data-answer="large">
-  <p class="q">A level IMU sits still for 0.1&nbsp;s. What is its preintegrated \(\Delta\mathbf{v}_{ij}\)?</p>
+  <p class="q">A level IMU sits still over one preintegration interval. What is its preintegrated \(\Delta\mathbf{v}_{ij}\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="zero">\([0,0,0]\): it never moved</button></li>
-    <li><button class="option" data-key="large">\([0,0,+0.981]\) m/s</button></li>
-    <li><button class="option" data-key="neg">\([0,0,-0.981]\) m/s</button></li>
-    <li><button class="option" data-key="g">\([0,0,9.81]\) m/s</button></li>
+    <li><button class="option" data-key="zero">zero: it never moved</button></li>
+    <li><button class="option" data-key="large">\(-\mathbf{g}\,\Delta t_{ij}\), pointing up</button></li>
+    <li><button class="option" data-key="neg">\(\mathbf{g}\,\Delta t_{ij}\), pointing down</button></li>
+    <li><button class="option" data-key="g">\(-\mathbf{g}\), independent of the interval</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>\(\Delta\mathbf{v}\) integrates specific force only: \(9.81 \times 0.1 = 0.981\) up. The state
-    side supplies \(-\mathbf{g}\,\Delta t_{ij}\), also \(+0.981\), so the residual is zero. The delta is
+    <p>\(\Delta\mathbf{v}\) integrates specific force only, which points up at rest. The state
+    side supplies the same \(-\mathbf{g}\,\Delta t_{ij}\), so the residual is zero. The delta is
     not a physical velocity change.</p>
   </div>
 </div>
 
 <div class="quiz" data-answer="reuse">
-  <p class="q">The solver tries a new \(\mathbf{R}_i\) rotated 90° from the last one. What happens to
+  <p class="q">The solver tries a new \(\mathbf{R}_i\) rotated far from the last one. What happens to
   \(\Delta\mathbf{v}_{ij}\)?</p>
   <ol class="options">
-    <li><button class="option" data-key="rotate">it must be rotated by 90° and re-summed</button></li>
+    <li><button class="option" data-key="rotate">it must be rotated and re-summed</button></li>
     <li><button class="option" data-key="reuse">nothing: it is reused; only the state side changes</button></li>
     <li><button class="option" data-key="redo">every IMU sample is re-integrated</button></li>
     <li><button class="option" data-key="bias">it changes because the bias changed</button></li>
@@ -431,7 +402,7 @@ to its conclusion: filters, windows and factors differ mainly in how they treat 
 </div>
 
 <div class="quiz" data-answer="fixed">
-  <p class="q">Why did an IMU factor with only a Jacobian for \(\mathbf{x}_j\) let the IMU outvote 135
+  <p class="q">Why did an IMU factor with only a Jacobian for \(\mathbf{x}_j\) let the IMU outvote many
   well-observed landmarks?</p>
   <ol class="options">
     <li><button class="option" data-key="noise">the IMU noise densities were wrong</button></li>
@@ -466,7 +437,6 @@ to its conclusion: filters, windows and factors differ mainly in how they treat 
   </div>
 </div>
 
-<p><strong>Apply it:</strong> complete the <a href="../exercises.html#imu">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>
@@ -480,7 +450,7 @@ to its conclusion: filters, windows and factors differ mainly in how they treat 
 
 <aside class="ask">
   <p class="label">Questions to revisit</p>
-  <p>Why is \(\Delta\mathbf{v}_{ij}\) not the physical velocity change? Where does \(\mathbf{v}_i\Delta t_{ij}\) enter position? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
+  <p>Why is \(\Delta\mathbf{v}_{ij}\) not the physical velocity change? Where does \(\mathbf{v}_i\Delta t_{ij}\) enter position? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer in your own words.</p>
 </aside>
 
 </article>

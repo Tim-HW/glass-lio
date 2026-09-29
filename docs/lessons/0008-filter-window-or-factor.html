@@ -21,7 +21,7 @@
 
 <article>
 
-<p class="lede">A real-time estimator must decide what information to retain from past states. Derive marginalization on a 2×2 system, then compare a filter, a sliding window, and a current-state solve. Identify which states can be relinearized and which correlations survive.</p>
+<p class="lede">A real-time estimator must decide what information to retain from past states. Derive marginalization with the Schur complement, then compare a filter, a sliding window, and a current-state solve. Identify which states can be relinearized and which correlations survive.</p>
 
 <h2>0 · Warm-up, from memory</h2>
 
@@ -51,7 +51,7 @@ past frames to process."<span class="sidenote">Strasdat, Montiel &amp; Davison,
 Image and Vision Computing, 2012 (authors' PDF), abstract.</span> Both are ways of forgetting. The difference is
 <em>how</em>, and that's where marginalization comes in.</p>
 
-<h2>2 · Marginalization, by hand</h2>
+<h2>2 · Marginalization</h2>
 
 <p>Write the normal equations in information form, split into a block \(m\) to remove and a block \(k\) to keep:</p>
 
@@ -68,20 +68,19 @@ Image and Vision Computing, 2012 (authors' PDF), abstract.</span> Both are ways 
 <p>Solving \(\mathbf{H}'\mathbf{x}_k = \mathbf{b}'\) gives <em>exactly</em> the same \(\mathbf{x}_k\) as the full system.
 \(\mathbf{H}'\) is the prior the survivors carry: glass-core calls it "the EXACT summary of every factor that touched the
 marginalized variable".<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/include/glass_core/marginalization.hpp#L9-L57"><code>marginalization.hpp</code>,
-lines 9–57</a>, which solves against \(\mathbf{H}_{mm}\) with LDLT rather than inverting it.</span> Try it on the smallest case,
-one scalar each:</p>
-
-<div class="eq">$$ \mathbf{H} = \begin{bmatrix}4 & 2\\ 2 & 3\end{bmatrix}, \qquad \mathbf{b} = \begin{bmatrix}2\\ 1\end{bmatrix} $$</div>
+lines 9–57</a>, which solves against \(\mathbf{H}_{mm}\) with LDLT rather than inverting it.</span> Compare three ways of getting rid of \(\mathbf{x}_m\):</p>
 
 <ul>
-  <li><strong>Full solve:</strong> \(\mathbf{x} = \mathbf{H}^{-1}\mathbf{b} = \tfrac{1}{8}\begin{bmatrix}3 & -2\\ -2 & 4\end{bmatrix}\begin{bmatrix}2\\ 1\end{bmatrix} = \begin{bmatrix}0.5\\ 0\end{bmatrix}\), so \(x_k = 0\).</li>
-  <li><strong>Marginalize \(m\):</strong> \(H' = 3 - 2\cdot\tfrac{1}{4}\cdot 2 = 2\) and \(b' = 1 - 2\cdot\tfrac{1}{4}\cdot 2 = 0\), so \(x_k = 0\). Exact.</li>
-  <li><strong>Hold \(x_m=0\) fixed and ignore its uncertainty:</strong> \(3x_k = 1\), so \(x_k = \tfrac{1}{3}\). Wrong, and with information 3 instead of 2: <em>overconfident</em>.</li>
+  <li><strong>Full solve:</strong> solve for both blocks and read off \(\mathbf{x}_k\). The reference answer.</li>
+  <li><strong>Marginalize \(m\):</strong> the Schur complement gives the same \(\mathbf{x}_k\). Exact.</li>
+  <li><strong>Hold \(\mathbf{x}_m\) fixed and ignore its uncertainty:</strong> solve \(\mathbf{H}_{kk}\mathbf{x}_k = \mathbf{b}_k - \mathbf{H}_{km}\mathbf{x}_m\).
+  Generally the wrong \(\mathbf{x}_k\), and with information \(\mathbf{H}_{kk}\), which exceeds \(\mathbf{H}'\) by the
+  subtracted term: <em>overconfident</em>.</li>
 </ul>
 
-<p>glass-core's test checks exactly these two claims on a 12-variable system: the Schur solve must match the full solve,
+<p>glass-core's test checks exactly these two claims: the Schur solve must match the full solve,
 and "hold-fixed (the freeze)" must not.<span class="sidenote"><a href="https://github.com/Tim-HW/glass-core/blob/9a9064a6b95ff7adc6c0b1680422528d097edc3a/test/test_marginalization.cpp#L43-L67"><code>test_marginalization.cpp</code>,
-lines 43–67</a>: match to 1e-9, and the naive solve must be off by more than 1e-2, "or the information the dropped block carried
+lines 43–67</a>: the naive solve must differ, "or the information the dropped block carried
 forward was zero".</span> One cost to know: \(\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\) couples everything the removed variable
 touched, so the prior can become dense. In a nonlinear problem this summary is exact only for the chosen linearization; discarded nonlinear factors cannot subsequently be relinearized.</p>
 
@@ -124,8 +123,8 @@ That is an example of the drop policy, not a property of every windowed estimato
 <div class="eq">$$ P\approx H_{\rm total}^{-1},\qquad
 P_{bb}=(H_{\rm total}^{-1})_{bb}
 =\big(H_{bb}-H_{bo}H_{oo}^{-1}H_{ob}\big)^{-1}. $$</div>
-<p>Here \(b\) labels bias variables and \(o\) all other variables. The block \(H_{bb}^{-1}\) is the covariance <em>conditional on the other variables being fixed</em>, not their marginal covariance. Our toy system makes the difference visible: for the first variable, the marginal variance is \(3/8\), while the conditional variance is \(1/4\).</p>
-<p>An earlier implementation added \(P_b^{-1}\) to \(H_{bb}\) even though that block already contained the bias prior, counting the prior twice. With a unit prior and no new information, that would halve the variance on every update. The revised implementation solves \(H_{\rm total}P=I\) once and extracts the nav and bias blocks from \(P\), including their coupling to gravity in this solve.</p>
+<p>Here \(b\) labels bias variables and \(o\) all other variables. The block \(H_{bb}^{-1}\) is the covariance <em>conditional on the other variables being fixed</em>, not their marginal covariance, and whenever the blocks are coupled it is smaller than the marginal.</p>
+<p>An earlier implementation added \(P_b^{-1}\) to \(H_{bb}\) even though that block already contained the bias prior, counting the prior twice. Even with no new information, that would shrink the variance on every update. The revised implementation solves \(H_{\rm total}P=I\) once and extracts the nav and bias blocks from \(P\), including their coupling to gravity in this solve.</p>
 <pre><code>Eigen::Matrix&lt;double, kTightDim, kTightDim&gt; posterior;
 if (r.posteriorCovariance(posterior)) {
   nav_cov_ = posterior.topLeftCorner&lt;kNavDim, kNavDim&gt;();
@@ -137,39 +136,29 @@ if (r.posteriorCovariance(posterior)) {
 
 <h2>4 · Two shapes of marginalization: a chain and a landmark</h2>
 
-<p>The 2×2 example proved marginalization exact. Two slightly bigger examples show the property that
+<p>Section 2 proved marginalization exact. Two slightly bigger shapes show the property that
 decides whether it is <em>cheap</em>: what happens to the sparsity of \(\mathbf{H}\).</p>
 
 <h3>A chain stays a chain</h3>
 
-<p>Take three 1-D poses linked like a trajectory: a prior on \(x_0\) with information 1, and odometry
-factors \(x_0\!\to\!x_1\) and \(x_1\!\to\!x_2\), each with information 4. The information matrix is
-tridiagonal:</p>
-
-<div class="eq">$$ \mathbf{H} = \begin{bmatrix}5 & -4 & 0\\ -4 & 8 & -4\\ 0 & -4 & 4\end{bmatrix}
-\quad\xrightarrow{\ \text{marginalize } x_0\ }\quad
-\mathbf{H}' = \begin{bmatrix}4.8 & -4\\ -4 & 4\end{bmatrix}. $$</div>
-
-<p>Only the \(x_1\) entry changed, from 8 to 4.8; the \(x_2\) row is untouched. Subtract the 4 that
-still belongs to the remaining odometry factor, and what is left is a new prior on \(x_1\) with
-information 0.8. That number has a physical reading: a variance of 1 (the prior) plus a variance of
-0.25 (the odometry) is 1.25, and \(1/1.25 = 0.8\). <strong>Marginalizing the start of a chain is just
-combining uncertainties in series.</strong> The chain stays a chain, and the cost stays constant however
-long the trajectory gets. A filter is exactly this, applied every step.</p>
+<p>Take poses linked like a trajectory: a prior on \(x_0\), then odometry factors \(x_0\!\to\!x_1\) and
+\(x_1\!\to\!x_2\). The information matrix is tridiagonal. Marginalize \(x_0\) and only the \(x_1\) entry
+changes; the \(x_2\) row is untouched. What is added is a new prior on \(x_1\), and it has a physical
+reading: its variance is the prior's variance plus the odometry's variance. <strong>Marginalizing the start
+of a chain is just combining uncertainties in series.</strong> The chain stays a chain, and the cost stays
+constant however long the trajectory gets. A filter is exactly this, applied every step.</p>
 
 <h3>A landmark fills in</h3>
 
-<p>Now marginalize a landmark \(l\) observed from three poses, each observation with information 1.
-The landmark's row connects it to all three poses, and the Schur complement adds
-\(-\mathbf{H}_{xl}\mathbf{H}_{ll}^{-1}\mathbf{H}_{lx}\) to the pose block:</p>
+<p>Now marginalize a landmark \(l\) observed from several poses. The landmark's row connects it to every
+pose that saw it, and the Schur complement adds \(-\mathbf{H}_{xl}\mathbf{H}_{ll}^{-1}\mathbf{H}_{lx}\) to the pose
+block: a dense term over all of them.</p>
 
-<div class="eq">$$ \Delta\mathbf{H}_{xx} = \begin{bmatrix}\tfrac23 & -\tfrac13 & -\tfrac13\\ -\tfrac13 & \tfrac23 & -\tfrac13\\ -\tfrac13 & -\tfrac13 & \tfrac23\end{bmatrix}. $$</div>
-
-<p>Every pose is now coupled to every other, including pairs that never shared a factor. This is
-<strong>fill-in</strong>: the removed variable's connections become a dense clique among its neighbours.
-Marginalize a few hundred landmarks from a window of ten keyframes and the keyframes' prior becomes one
-dense block, which is why VINS-Mono's marginalization is its most expensive and most delicate step, and
-why window design has to account for both computation and the resulting prior.</p>
+<p>Every one of those poses is now coupled to every other, including pairs that never shared a factor. This
+is <strong>fill-in</strong>: the removed variable's connections become a dense clique among its neighbours.
+Marginalize many landmarks from a window of keyframes and the keyframes' prior becomes one dense block,
+which is why VINS-Mono's marginalization is its most expensive and most delicate step, and why window
+design has to account for both computation and the resulting prior.</p>
 
 <details><summary>Try it: why do windowed estimators usually marginalize landmarks <em>before</em> the oldest keyframe?</summary>
 <p>A landmark seen only by the oldest keyframe can be marginalized with the keyframe at little cost. But
@@ -187,9 +176,9 @@ variance \(\sigma^2\) and a prior on \(x_i\) with variance \(p\). The joint info
 <div class="eq">$$ \mathbf{H} = \begin{bmatrix}\tfrac1p + \tfrac1{\sigma^2} & -\tfrac1{\sigma^2}\\ -\tfrac1{\sigma^2} & \tfrac1{\sigma^2}\end{bmatrix}
 \quad\Rightarrow\quad H' = \frac1{\sigma^2} - \frac{1/\sigma^4}{1/p + 1/\sigma^2} = \frac{1}{p + \sigma^2}. $$</div>
 
-<p>With \(p = 0.04\) and \(\sigma^2 = 0.01\), the marginal information is exactly \(20 = 1/0.05\): the
-variances add. That is the inflation, derived. <strong>Adding \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to the
-factor's covariance is marginalizing a Gaussian \(\mathbf{x}_i\) out of this one factor.</strong> In the glass-lio case study, this is a one-factor marginalization of
+<p>The marginal information is \(1/(p+\sigma^2)\): the variances add. That is the inflation, derived.
+<strong>Adding \(\mathbf{J}_i\mathbf{P}_i\mathbf{J}_i^\top\) to the factor's covariance is marginalizing a Gaussian
+\(\mathbf{x}_i\) out of this one factor.</strong> In the glass-lio case study, this is a one-factor marginalization of
 \(\mathbf{x}_i\); the estimator then carries forward selected covariance blocks.</p>
 
 <h3>What it would take to become a full filter</h3>
@@ -280,30 +269,18 @@ to define the reference frame is a separate operation.</p>
   </div>
 </div>
 
-<div class="quiz" data-answer="two">
-  <p class="q">Marginalize the first variable out of \(\mathbf{H} = \begin{bmatrix}4 & 2\\ 2 & 3\end{bmatrix}\). What is \(H'\)?</p>
+<div class="quiz" data-answer="less">
+  <p class="q">Marginalize \(\mathbf{x}_m\) when it is coupled to \(\mathbf{x}_k\). Compared with \(\mathbf{H}_{kk}\), the
+  survivors' information \(\mathbf{H}'\) is…</p>
   <ol class="options">
-    <li><button class="option" data-key="three">3.0</button></li>
-    <li><button class="option" data-key="one">1.0</button></li>
-    <li><button class="option" data-key="five">5.0</button></li>
-    <li><button class="option" data-key="two">2.0</button></li>
+    <li><button class="option" data-key="same">the same: the coupling cancels</button></li>
+    <li><button class="option" data-key="less">smaller, by \(\mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\)</button></li>
+    <li><button class="option" data-key="more">larger: it inherits \(\mathbf{x}_m\)'s information</button></li>
+    <li><button class="option" data-key="zero">zero</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>\(H' = H_{kk} - H_{km}H_{mm}^{-1}H_{mk} = 3 - 2\cdot\tfrac{1}{4}\cdot 2 = 2\). The 3 is what you'd get by ignoring the coupling.</p>
-  </div>
-</div>
-
-<div class="quiz" data-answer="zero">
-  <p class="q">Same system, \(\mathbf{b} = [2;\ 1]\). Holding the first variable fixed gives \(x_k = 1/3\). What does the full solve give for \(x_k\)?</p>
-  <ol class="options">
-    <li><button class="option" data-key="third">0.33</button></li>
-    <li><button class="option" data-key="zero">0.00</button></li>
-    <li><button class="option" data-key="half">0.50</button></li>
-    <li><button class="option" data-key="one">1.00</button></li>
-  </ol>
-  <div class="explain" hidden>
-    <p>\(\mathbf{x} = [0.5;\ 0]\), so \(x_k = 0\). Marginalization agrees: \(H' = 2\), \(b' = 1 - 2\cdot\tfrac{1}{4}\cdot 2 = 0\). Exact; the
-    hold-fixed answer isn't.</p>
+    <p>\(\mathbf{H}' = \mathbf{H}_{kk} - \mathbf{H}_{km}\mathbf{H}_{mm}^{-1}\mathbf{H}_{mk}\). Reading \(\mathbf{H}_{kk}\) alone is what
+    you'd get by ignoring the coupling, which overstates the information.</p>
   </div>
 </div>
 
@@ -317,7 +294,7 @@ to define the reference frame is a separate operation.</p>
   </ol>
   <div class="explain" hidden>
     <p>Fixing ignores the old state's uncertainty and its coupling to the survivors, so the answer is biased and overconfident:
-    information 3 instead of 2 in the toy example. glass-core's test calls it "the freeze".</p>
+    it keeps \(\mathbf{H}_{kk}\) where the truth is the smaller \(\mathbf{H}'\). glass-core's test calls it "the freeze".</p>
   </div>
 </div>
 
@@ -352,16 +329,16 @@ to define the reference frame is a separate operation.</p>
 </div>
 
 <div class="quiz" data-answer="series">
-  <p class="q">In a 1-D chain, \(x_0\) has a prior of information 1 and an odometry factor of information 4 to \(x_1\).
+  <p class="q">In a 1-D chain, \(x_0\) has a prior of information \(p\) and an odometry factor of information \(q\) to \(x_1\).
   Marginalizing \(x_0\) leaves a prior on \(x_1\) of information…</p>
   <ol class="options">
-    <li><button class="option" data-key="five">5: the informations add</button></li>
-    <li><button class="option" data-key="series">0.8: the variances add</button></li>
-    <li><button class="option" data-key="four">4: the prior is lost</button></li>
-    <li><button class="option" data-key="one">1: the odometry is lost</button></li>
+    <li><button class="option" data-key="sum">\(p + q\): the informations add</button></li>
+    <li><button class="option" data-key="series">\(1/(1/p + 1/q)\): the variances add</button></li>
+    <li><button class="option" data-key="q">\(q\): the prior is lost</button></li>
+    <li><button class="option" data-key="p">\(p\): the odometry is lost</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>In series, variances add: \(1 + 0.25 = 1.25\), so the information is 0.8. Information adds only for
+    <p>In series, variances add, so the resulting information is smaller than either. Information adds only for
     measurements of the <em>same</em> variable, in parallel.</p>
   </div>
 </div>
@@ -417,7 +394,6 @@ to define the reference frame is a separate operation.</p>
   </div>
 </div>
 
-<p><strong>Apply it:</strong> complete the <a href="../exercises.html#covariance">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>
@@ -430,7 +406,7 @@ to define the reference frame is a separate operation.</p>
 
 <aside class="ask">
   <p class="label">Questions to revisit</p>
-  <p>What information does a filter retain? When does marginalization create fill-in or inconsistency? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
+  <p>What information does a filter retain? When does marginalization create fill-in or inconsistency? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer in your own words.</p>
 </aside>
 
 </article>

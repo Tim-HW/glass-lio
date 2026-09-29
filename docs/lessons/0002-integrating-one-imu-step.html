@@ -155,95 +155,46 @@ lesson 3.</p>
   rotation last."</p>
 </div>
 
-<h2>6 · One step, with real numbers</h2>
+<h2>6 · The first test for any integrator</h2>
 
-<p>Symbols hide mistakes that numbers expose, so push one sample through eq.&nbsp;(31) by hand.
-Take glass-lio's test bag at the moment it starts: the robot cruising forward at 1.5&nbsp;m/s,
-level, turning gently. The IMU runs at 200&nbsp;Hz, so \(\Delta t = 0.005\)&nbsp;s. Set the biases
-to zero for now (lesson 4 puts them back) and use</p>
+<p>Symbols hide mistakes that a simple physical check exposes. Feed eq.&nbsp;(31) a level,
+stationary sensor with known biases. The accelerometer reads gravity's reaction, pointing up; rotated
+by \(\mathbf{R} = \mathbf{I}\) and added to \(\mathbf{g}\), it cancels exactly, and the velocity does not
+change. The robot does not fall through the floor.</p>
 
-<div class="eq">$$ \mathbf{R}(t)=\mathbf{I},\quad \mathbf{v}(t)=\begin{bmatrix}1.5\\0\\0\end{bmatrix},\quad
-\tilde{\boldsymbol{\omega}}=\begin{bmatrix}0\\0\\0.5\end{bmatrix}\mathrm{rad/s},\quad
-\tilde{\mathbf{a}}=\begin{bmatrix}0.1\\0\\9.81\end{bmatrix}\mathrm{m/s^2},\quad
-\mathbf{g}=\begin{bmatrix}0\\0\\-9.81\end{bmatrix}. $$</div>
+<p>This cancellation is the single best sanity check on an IMU integrator: <em>feed it a stationary
+sensor and nothing may move</em>. If your integrator drifts at rest, you have the sign of lesson 1
+wrong, or the units, or you rotated gravity. It also shows where drift comes from in general: over
+one step, position is dominated by the velocity the platform already has, and velocity by gravity
+and specific force nearly cancelling. Small errors in that near-cancellation are what grow into
+drift, which is why the next sections care about details that look negligible.</p>
 
-<p><strong>Rotation.</strong> The rotation vector for the step is
-\(\tilde{\boldsymbol{\omega}}\,\Delta t = [0,0,0.0025]\): a quarter of a milliradian about
-\(z\), 0.14°. \(\mathbf{R}(t+\Delta t) = \mathrm{Exp}([0,0,0.0025])\).</p>
-
-<p><strong>Velocity.</strong> Three contributions, added:</p>
-<div class="eq">$$ \mathbf{v}(t+\Delta t) = \underbrace{\begin{bmatrix}1.5\\0\\0\end{bmatrix}}_{\mathbf{v}(t)}
-+ \underbrace{\begin{bmatrix}0\\0\\-0.04905\end{bmatrix}}_{\mathbf{g}\,\Delta t}
-+ \underbrace{\begin{bmatrix}0.0005\\0\\0.04905\end{bmatrix}}_{\mathbf{R}\tilde{\mathbf{a}}\,\Delta t}
-= \begin{bmatrix}1.5005\\0\\0\end{bmatrix}. $$</div>
-
-<p>Look at the \(z\) components. The accelerometer's +9.81 and gravity's −9.81 cancel exactly,
-and the robot does not fall through the floor. This cancellation is the single best sanity check
-on an IMU integrator: <em>feed it a stationary sensor and nothing may move</em>. If your
-integrator drifts at rest, you have the sign of lesson 1 wrong, or the units, or you rotated
-gravity.</p>
-
-<p><strong>Position.</strong></p>
-<div class="eq">$$ \Delta\mathbf{p} = \mathbf{v}(t)\,\Delta t + \tfrac12\mathbf{g}\,\Delta t^2 + \tfrac12\mathbf{R}\tilde{\mathbf{a}}\,\Delta t^2
-= \begin{bmatrix}0.0075\\0\\0\end{bmatrix} + \begin{bmatrix}0\\0\\-0.000123\end{bmatrix} + \begin{bmatrix}0.00000125\\0\\0.000123\end{bmatrix}
-= \begin{bmatrix}0.00750125\\0\\0\end{bmatrix}\mathrm{m}. $$</div>
-
-<p>Seven and a half millimetres, almost all of it from the velocity the robot already had. The
-acceleration contributes about a micrometre. That ratio is typical: over a single IMU step,
-position is dominated by velocity, and velocity is dominated by gravity and specific force nearly
-cancelling. Small errors in that near-cancellation are what grow into drift, which is why the
-next two sections care about details that look negligible here.</p>
-
-<details><summary>Try it: redo the velocity step with the sensor tilted 7.33° about \(y\) but \(\mathbf{R}(t)\) still set to \(\mathbf{I}\).</summary>
-<p>At rest a tilted sensor reads \(\tilde{\mathbf{a}} \approx [1.25,0,9.73]\) (lesson 1). With
-\(\mathbf{R}=\mathbf{I}\), the vertical terms leave \(-0.08\times0.005\) and the horizontal reading
-is taken as a forward acceleration of 1.25&nbsp;m/s², which after one second is 1.25&nbsp;m/s of
-velocity the robot never had. Getting \(\mathbf{R}(t)\) right is not optional; this is why
-initialisation levels the world first.</p></details>
+<p>The same check shows why the initial orientation matters. Tilt the sensor but leave
+\(\mathbf{R}(t)\) at the identity, and part of gravity's reaction lands on a horizontal axis, where
+it is integrated as a forward acceleration the robot never had. Getting \(\mathbf{R}(t)\) right is not
+optional; this is why initialisation levels the world first.</p>
 
 <h2>7 · How good is “hold everything constant”?</h2>
 
 <p>Eq.&nbsp;(30) assumes \(\boldsymbol{\omega}\) and \(\mathbf{a}\) are constant across the step,
 and eq.&nbsp;(31) rotates the specific force with the orientation at the <em>start</em> of the
 step. While the sensor turns, the true orientation drifts away from \(\mathbf{R}(t)\) during the
-step, by up to \(|\boldsymbol{\omega}|\,\Delta t\), about half of that on average. So the specific
-force is applied in a direction that is off by roughly \(|\boldsymbol{\omega}|\Delta t/2\), and
-for a specific force of about \(g\) that is a sideways error of about
-\(g\,|\boldsymbol{\omega}|\,\Delta t/2\), acting like a small spurious acceleration:</p>
+step, by up to \(|\boldsymbol{\omega}|\,\Delta t\). So the specific force is applied in a direction that
+is slightly off, and for a specific force of about \(g\) that acts like a small spurious
+acceleration of roughly \(g\,|\boldsymbol{\omega}|\,\Delta t/2\).</p>
 
-<table>
-  <tr><th>IMU rate</th><th>turn rate</th><th>equivalent acceleration error</th><th>compared with accel bias σ = 0.3 m/s²</th></tr>
-  <tr><td>200 Hz</td><td>1 rad/s</td><td>0.025 m/s²</td><td>a tenth of it: negligible</td></tr>
-  <tr><td>200 Hz</td><td>3 rad/s</td><td>0.074 m/s²</td><td>still small</td></tr>
-  <tr><td>50 Hz</td><td>1 rad/s</td><td>0.098 m/s²</td><td>a third of it</td></tr>
-  <tr><td>50 Hz</td><td>3 rad/s</td><td>0.29 m/s²</td><td>as large as the bias itself</td></tr>
-</table>
+<p>The error grows with the turn rate and with the step length. For a high-rate IMU, such as the
+Mid-360's, holding everything constant is comfortably inside the noise and bias budget, so the
+simplest scheme is the right one. On a low-rate IMU mounted on something that spins, the same
+scheme would feed the bias estimator an error comparable to the bias it is trying to find, and a
+midpoint scheme (average the start and end orientations) would be worth its complexity. This is
+Forster's remark that a high-rate IMU keeps the error small and slower IMUs may need higher-order
+integration.</p>
 
-<p>This is the quantitative version of Forster's remark that a high-rate IMU keeps the error small
-and slower IMUs may need higher-order integration. At the Mid-360's 200&nbsp;Hz, holding everything
-constant is comfortably inside the noise and bias budget, so the simplest scheme is the right
-one. On a 50&nbsp;Hz IMU mounted on something that spins, the same scheme would feed the bias
-estimator an error as large as the bias it is trying to find, and a midpoint scheme (average the
-start and end orientations) would be worth its complexity.</p>
-
-<h3>Checked against an exact answer</h3>
-
-<p>The table is an estimate. You can check it on a case with a closed-form answer: a level
-platform yawing at a constant 3&nbsp;rad/s with a constant 1&nbsp;m/s² specific force along its own
-forward axis. In the world that force rotates, and one second of it integrates exactly to
-\(\mathbf{v}(1) = \big[\sin 3/3,\ (1-\cos 3)/3\big] \approx [0.0470,\ 0.6633]\)&nbsp;m/s. Integrating
-the samples instead:</p>
-
-<table>
-  <tr><th>IMU rate</th><th>start-of-step \(\mathbf{R}\), eq.&nbsp;(31)</th><th>mid-step \(\mathbf{R}\) (midpoint)</th></tr>
-  <tr><td>50 Hz</td><td>2.0×10⁻² m/s</td><td>1.0×10⁻⁴ m/s</td></tr>
-  <tr><td>200 Hz</td><td>5.0×10⁻³ m/s</td><td>6.2×10⁻⁶ m/s</td></tr>
-</table>
-
-<p>Two things to read off it. First, quadrupling the rate cuts the eq.&nbsp;(31) error by 4 and the
-midpoint error by 16: the first is a first-order method, the second second-order, exactly as the
-theory says. Second, the midpoint scheme at 50&nbsp;Hz beats eq.&nbsp;(31) at 200&nbsp;Hz by a factor of
-fifty. When the IMU rate is fixed by hardware, the integrator is the knob you actually have.</p>
+<p>The two schemes also improve differently with rate. Eq.&nbsp;(31) is a first-order method: its
+error shrinks in proportion to the step. The midpoint scheme is second-order: its error shrinks with
+the square of the step. A second-order scheme at a low rate can beat a first-order one at a much
+higher rate. When the IMU rate is fixed by hardware, the integrator is the knob you actually have.</p>
 
 <h3>Two integrators in one codebase</h3>
 
@@ -263,15 +214,15 @@ on its own.</p>
 <p>Eq.&nbsp;(31) tells you how to apply one sample. The question that actually caused a bug in
 glass-lio is which samples to apply, and over exactly how long.</p>
 
-<p>A LiDAR scan lasts 0.10&nbsp;s. To deskew it, the synchroniser deliberately hands the estimator
+<p>A LiDAR scan lasts one scan period. To deskew it, the synchroniser deliberately hands the estimator
 <em>more</em> IMU than that: one sample before the scan starts, so the gyro can be interpolated at
-the first point, and coverage past the end, about 0.12&nbsp;s in all. That extra coverage is right
+the first point, and coverage past the end. That extra coverage is right
 for deskewing. It is wrong for preintegration. The tight solve relates the pose at the end of one
-scan to the pose at the end of the next, which are 0.10&nbsp;s apart. Integrating all 0.12&nbsp;s of
-IMU tells the solver “you moved this much” over an interval 20% longer than the one the poses span.</p>
+scan to the pose at the end of the next, which are exactly one scan period apart. Integrating all of the
+IMU tells the solver “you moved this much” over an interval longer than the one the poses span.</p>
 
-<p>At the robot's 1.5&nbsp;m/s, that is 0.18&nbsp;m of claimed motion against 0.15&nbsp;m of real
-motion, <em>every scan</em>, always in the direction of travel. The estimator accelerated away, and
+<p>The result is a claim of more motion than really happened, <em>every scan</em>, always in the
+direction of travel. The estimator accelerated away, and
 because the error scaled with speed and compounded, it looked exactly like a gravity problem.
 The fix was to clip every sample's interval to the window between the previous scan's end and this
 scan's end, including partial intervals at both edges:<span class="sidenote"><a href="https://github.com/Tim-HW/glass-lio/blob/59c07b74970a95944c842241797fcb63c4836607/src/lio/lio_estimator.cpp#L237-L276"><code>lio_estimator.cpp</code>, lines 237–276</a>:
@@ -284,9 +235,9 @@ if (dt &lt;= 0.0 || dt &gt; kMaxImuGapSec) {
   continue;   // outside the window, duplicate, out of order, or a hole
 }</code></pre>
 
-<p>Notice the second condition. A gap longer than 0.1&nbsp;s between two samples is a hole in the
-stream, not a sample interval. Holding one reading constant across a hole would invent tenths of a
-second of motion, so the loop skips it and lets the preintegration's covariance, lesson 5, reflect
+<p>Notice the second condition. A gap between two samples longer than a threshold is a hole in the
+stream, not a sample interval. Holding one reading constant across a hole would invent motion, so
+the loop skips it and lets the preintegration's covariance, lesson 5, reflect
 that less was measured.</p>
 
 <div class="callout">
@@ -294,33 +245,28 @@ that less was measured.</p>
   <p>Every integrated quantity has an interval, and the interval is part of the measurement. When
   two parts of a pipeline need different windows over the same stream (here, deskew and
   preintegration), give each its own window explicitly. Sharing one because it is convenient is
-  how a 20% error hides in plain sight.</p>
+  how a systematic error hides in plain sight.</p>
 </div>
 
 <h2>9 · Why the IMU cannot hold position alone</h2>
 
 <p>Eq.&nbsp;(31) is exact about the sensor you give it and blind to the errors you do not. Iterate
-it and each error source grows at its own characteristic rate. The table uses glass-lio's
-configured accelerometer noise density, a residual accelerometer bias of 0.05&nbsp;m/s² (the size
-the tight solve settles near on the test bag), and a residual gyro bias of 0.001&nbsp;rad/s:</p>
+it and each error source grows at its own characteristic rate:</p>
 
-<table>
-  <tr><th>time</th><th>accel bias: \(\tfrac12 b_a t^2\)</th><th>accel noise: \(\sigma_a t^{3/2}/\sqrt3\)</th><th>gyro bias tilt: \(g\,b_g t^3/6\)</th></tr>
-  <tr><td>0.1 s (one scan)</td><td>0.25 mm</td><td>0.37 mm</td><td>0.002 mm</td></tr>
-  <tr><td>1 s</td><td>2.5 cm</td><td>1.2 cm</td><td>1.6 mm</td></tr>
-  <tr><td>10 s</td><td>2.5 m</td><td>0.37 m</td><td>1.6 m</td></tr>
-  <tr><td>60 s</td><td>90 m</td><td>5.4 m</td><td>353 m</td></tr>
-</table>
+<ul>
+  <li>a constant <strong>accelerometer bias</strong> is integrated twice: \(\tfrac12 b_a t^2\);</li>
+  <li><strong>accelerometer white noise</strong> is integrated twice too, but partly averages out:
+  it grows as \(t^{3/2}\);</li>
+  <li>a <strong>gyro bias</strong> is integrated once into a tilt, the tilt leaks gravity into the
+  horizontal (lesson 1's tilted-sensor case), and that is integrated twice more: \(t^3\).</li>
+</ul>
 
-<p>The exponents are the story. A constant accelerometer bias is integrated twice, so it grows
-with \(t^2\). White noise is integrated twice too, but it partly averages out, giving
-\(t^{3/2}\). A gyro bias is integrated once into a tilt, the tilt leaks gravity into the horizontal
-(lesson 1's tilted-sensor case), and that is integrated twice more: \(t^3\). It is the smallest
-term at one second and by far the largest at one minute.</p>
+<p>The exponents are the story. The gyro term is the smallest over a short interval and by far the
+largest over a long one.</p>
 
-<p>Read the first row again. Over the 0.1&nbsp;s between two LiDAR scans, every one of these errors
-is below half a millimetre, far below the centimetres a LiDAR can resolve. Over a minute they are
-tens to hundreds of metres. That asymmetry is the entire design of a LiDAR-inertial odometry:
+<p>Over the short interval between two LiDAR scans, every one of these errors is far below what a
+LiDAR can resolve. Over a minute they are enormous. That asymmetry is the entire design of a
+LiDAR-inertial odometry:
 <strong>the IMU is excellent over short intervals and useless over long ones, so let it bridge the
 gap between two scans and let the LiDAR correct it at every scan</strong>. Lesson 3 turns “bridge
 the gap between two scans” into a single reusable measurement.</p>
@@ -401,18 +347,18 @@ material is what makes it stick.</p>
 </div>
 
 <div class="quiz" data-answer="twice">
-  <p class="q"><em>From lesson 1.</em> A level IMU accelerates straight up at 1&nbsp;g. What does
+  <p class="q"><em>From lesson 1.</em> A level IMU accelerates straight up at \(g\). What does
   its \(z\) axis read?</p>
   <ol class="options">
-    <li><button class="option" data-key="up">+9.81 m/s²</button></li>
-    <li><button class="option" data-key="twice">+19.6 m/s²</button></li>
-    <li><button class="option" data-key="zero">+0.00 m/s²</button></li>
-    <li><button class="option" data-key="down">−9.81 m/s²</button></li>
+    <li><button class="option" data-key="up">\(+g\)</button></li>
+    <li><button class="option" data-key="twice">\(+2g\)</button></li>
+    <li><button class="option" data-key="zero">zero</button></li>
+    <li><button class="option" data-key="down">\(-g\)</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>\(\mathbf{a} = [0,0,+9.81]\) and \(\mathbf{g} = [0,0,-9.81]\), so
-    \(\mathbf{a} - \mathbf{g} = [0,0,+19.62]\). The sensor feels 2&nbsp;g: the floor pushing twice
-    as hard as at rest.</p>
+    <p>\(\mathbf{a} = [0,0,+g]\) and \(\mathbf{g} = [0,0,-g]\), so
+    \(\mathbf{a} - \mathbf{g} = [0,0,+2g]\). The sensor feels the floor pushing twice as hard as at
+    rest.</p>
   </div>
 </div>
 
@@ -420,13 +366,13 @@ material is what makes it stick.</p>
   <p class="q">A level, stationary IMU with perfectly known biases is pushed through one step of
   eq.&nbsp;(31). What happens to the velocity?</p>
   <ol class="options">
-    <li><button class="option" data-key="down">it gains \(-9.81\,\Delta t\) in \(z\)</button></li>
+    <li><button class="option" data-key="down">it gains \(-g\,\Delta t\) in \(z\)</button></li>
     <li><button class="option" data-key="nothing">nothing: gravity and specific force cancel</button></li>
-    <li><button class="option" data-key="up">it gains \(+9.81\,\Delta t\) in \(z\)</button></li>
-    <li><button class="option" data-key="double">it gains \(+19.62\,\Delta t\) in \(z\)</button></li>
+    <li><button class="option" data-key="up">it gains \(+g\,\Delta t\) in \(z\)</button></li>
+    <li><button class="option" data-key="double">it gains \(+2g\,\Delta t\) in \(z\)</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>The sensor reads +9.81 up, rotated by \(\mathbf{R} = \mathbf{I}\), and gravity adds −9.81:
+    <p>The sensor reads \(+g\) up, rotated by \(\mathbf{R} = \mathbf{I}\), and gravity adds \(-g\):
     they cancel. This is the first test to run on any integrator. A drift at rest means a sign,
     unit or frame mistake.</p>
   </div>
@@ -439,28 +385,27 @@ material is what makes it stick.</p>
     <li><button class="option" data-key="speed">to save computation</button></li>
     <li><button class="option" data-key="noise">the extra samples are noisier</button></li>
     <li><button class="option" data-key="poses">the factor must cover exactly the interval between its two poses</button></li>
-    <li><button class="option" data-key="gravity">gravity is only valid for 0.10&nbsp;s</button></li>
+    <li><button class="option" data-key="gravity">gravity is only valid within one scan</button></li>
   </ol>
   <div class="explain" hidden>
     <p>The IMU factor must span exactly the interval between the two poses it connects: the previous
-    scan's end to this scan's end. Integrating 0.12&nbsp;s against a 0.10&nbsp;s pose change claims 20%
-    too much motion, every scan.</p>
+    scan's end to this scan's end. Integrating a longer window claims too much motion, every scan.</p>
   </div>
 </div>
 
 <div class="quiz" data-answer="bias">
-  <p class="q">A 50&nbsp;Hz IMU on a platform spinning at 3&nbsp;rad/s is integrated with
-  eq.&nbsp;(31). The error from holding \(\mathbf{R}(t)\) fixed across each step is closest to…</p>
+  <p class="q">A low-rate IMU on a fast-spinning platform is integrated with eq.&nbsp;(31). The error
+  from holding \(\mathbf{R}(t)\) fixed across each step is…</p>
   <ol class="options">
-    <li><button class="option" data-key="tiny">\(10^{-6}\) m/s²: always negligible</button></li>
-    <li><button class="option" data-key="bias">0.3 m/s²: as large as a MEMS accelerometer bias</button></li>
-    <li><button class="option" data-key="g">9.81 m/s²</button></li>
+    <li><button class="option" data-key="tiny">always negligible</button></li>
+    <li><button class="option" data-key="bias">potentially as large as a MEMS accelerometer bias</button></li>
+    <li><button class="option" data-key="g">about \(g\)</button></li>
     <li><button class="option" data-key="zero">exactly zero, since \(\mathbf{R}\) is exact</button></li>
   </ol>
   <div class="explain" hidden>
-    <p>About \(g\,|\boldsymbol{\omega}|\,\Delta t/2 = 9.81 \times 3 \times 0.02 / 2 \approx 0.29\)&nbsp;m/s².
-    At 200&nbsp;Hz and 1&nbsp;rad/s it would be 0.025. The approximation is good because the IMU is
-    fast, not because it is exact.</p>
+    <p>The error is about \(g\,|\boldsymbol{\omega}|\,\Delta t/2\): it grows with the turn rate and the
+    step length. The approximation is good on a fast IMU because the IMU is fast, not because it is
+    exact.</p>
   </div>
 </div>
 
@@ -487,7 +432,6 @@ material is what makes it stick.</p>
   </div>
 </div>
 
-<p><strong>Apply it:</strong> complete the <a href="../exercises.html#imu">practical worksheet exercise</a> before moving on. Derive an answer and test it on the supplied inputs.</p>
 
 <aside class="source">
   <p class="label">Primary source</p>
@@ -501,7 +445,7 @@ material is what makes it stick.</p>
 
 <aside class="ask">
   <p class="label">Questions to revisit</p>
-  <p>Why is \(\boldsymbol{\omega}\Delta t\) a rotation vector? What changes under midpoint integration? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer with a small example.</p>
+  <p>Why is \(\boldsymbol{\omega}\Delta t\) a rotation vector? What changes under midpoint integration? Use the <a href="../glossary.html">glossary</a> for unfamiliar terms, then explain your answer in your own words.</p>
 </aside>
 
 </article>
