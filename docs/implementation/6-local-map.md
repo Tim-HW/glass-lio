@@ -157,8 +157,8 @@ It is the knob to reach for when the `rmse` looks fine but the pose feels mushy.
 
 The voxel **is** the neighbourhood. So:
 
-- correspondence search needs **no KD-tree** — hash the query point, look at the 27-cell
-  neighbourhood, done ([5-registration.md §3.2](5-registration.md));
+- correspondence search needs **no KD-tree** — hash the query point, look at the
+  neighbouring cells (27 when the voxel is at least the search radius), done ([5-registration.md §3.2](5-registration.md));
 - planes are refitted **only for voxels an insert actually dirtied** — and refitted
   *lazily*, on first query. Cost is **O(changed), not O(map)**.
 

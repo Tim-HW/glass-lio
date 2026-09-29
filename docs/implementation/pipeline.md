@@ -192,7 +192,7 @@ actually bite:
 | `registration.max_correspondence_distance` | Too small: fast motion never converges. Too large: matches the wrong wall, and re-opens the runaway. |
 | `registration.use_constant_velocity` | **On.** Without it the guess has no translation at all. First thing to turn off if the pose accelerates away with a healthy `rmse`. [5-registration.md §3.5](5-registration.md) |
 | `registration.max_rmse` | The coast threshold — above it we keep the prediction and refuse to insert the scan. |
-| `map.voxel_size` | Must be **coarser** than `voxel_leaf_size` (a voxel needs `map.min_points_for_plane` points — default 5 — before PCA fits a plane) **and ≥** `max_correspondence_distance` (so the 27-cell search covers the radius). |
+| `map.voxel_size` | Must be **coarser** than `voxel_leaf_size` (a voxel needs `map.min_points_for_plane` points — default 5 — before PCA fits a plane). Below `max_correspondence_distance` the search widens past 27 cells to cover the radius -- correct, just slower. |
 | `map.max_range` | Memory / prune radius. No longer the speed cliff it was under GICP. |
 | `max_queue_size` | Worker backlog. Persistent "worker behind" warnings mean registration is too slow. |
 | `scan_guard_sec` | Must exceed the scan period. [2-sync.md §2](2-sync.md) |

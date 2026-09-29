@@ -358,7 +358,9 @@ bool LioEstimator::registerScanTight(
       "tight solve rejected (%s, rmse %.3f, %d corr) -- coasting on IMU, scan NOT added",
       r.valid ? "residual too large" : "under-constrained", r.rmse, r.correspondences);
     // Coast on the IMU prediction. Note this is a REAL dead-reckon now (velocity and
-    // bias are states, driven by the accelerometer), not a constant-velocity guess.
+    // bias are states, driven by the accelerometer), not a constant-velocity guess -- and a
+    // dead-reckoned state is LESS certain than the one it came from, so say so.
+    propagateNavCovariance(pre);
     commitState(guess);
     return false;
   }
@@ -423,6 +425,35 @@ void LioEstimator::seedNavStateFromLoose()
     "tight coupling engaged after %d warm-up scans. seeded v = [%+.2f %+.2f %+.2f] m/s "
     "(|v| = %.2f) -- IMU init could not observe this.",
     p_.tight_warmup_scans, state_.v.x(), state_.v.y(), state_.v.z(), state_.v.norm());
+}
+
+
+/// Carry nav_cov_ across an IMU interval with no measurement update -- the covariance half
+/// of predictState():
+///
+///     P_j = F P_i F^T + G Sigma_pre G^T
+///
+/// F is imuStateTransition (glass_core). Sigma_pre is the preintegration noise, ordered
+/// [dphi; dv; dp] in x_i's body frame: the rotation noise is already a right perturbation of
+/// R_j, velocity and position noise rotate into the world by R_i. The bias blocks take
+/// bias_cov_, which has already grown by the random walk for this interval.
+///
+/// Without this a coasting scan kept the covariance of the last SOLVED state, so the next
+/// IMU factor treated a dead-reckoned x_i as exactly as certain as a measured one -- the
+/// longer the coast, the more overconfident, and the harder the IMU overrules the LiDAR
+/// when it comes back.
+void LioEstimator::propagateNavCovariance(const ImuPreintegration & pre)
+{
+  const Eigen::Matrix<double, kNavDim, kNavDim> F = imuStateTransition(state_, pre);
+  const Eigen::Matrix3d Ri = state_.R.matrix();
+
+  Eigen::Matrix<double, kNavDim, 9> G = Eigen::Matrix<double, kNavDim, 9>::Zero();
+  G.block<3, 3>(kIdxPhi, 0) = Eigen::Matrix3d::Identity();
+  G.block<3, 3>(kIdxVel, 3) = Ri;
+  G.block<3, 3>(kIdxPos, 6) = Ri;
+
+  nav_cov_ = F * nav_cov_ * F.transpose() + G * pre.covariance() * G.transpose();
+  nav_cov_.block<6, 6>(kIdxBg, kIdxBg) = bias_cov_;
 }
 
 

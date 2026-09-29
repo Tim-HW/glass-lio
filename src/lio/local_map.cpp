@@ -1,5 +1,6 @@
 #include "glasslio/local_map.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -143,11 +144,16 @@ bool LocalMap::closestPlane(const Eigen::Vector3d & p, double max_dist, Plane & 
   double best_sq = std::numeric_limits<double>::max();
   bool found = false;
 
-  // The 27-cell neighbourhood. With voxel_size >= max_dist this is guaranteed to
-  // contain every voxel that could hold a plane within max_dist of p.
-  for (std::int32_t dx = -1; dx <= 1; ++dx) {
-    for (std::int32_t dy = -1; dy <= 1; ++dy) {
-      for (std::int32_t dz = -1; dz <= 1; ++dz) {
+  // Enough rings of neighbours to cover max_dist, whatever the voxel size: a plane's
+  // centroid lies inside its voxel, so every centroid within max_dist of p is at most
+  // ceil(max_dist / voxel_size) cells away on each axis. That is the usual 27 cells when
+  // voxel_size >= max_dist, and 125 at the ASDT configs' 0.30 / 0.5. A fixed +/-1 silently
+  // missed valid planes two cells away -- no error, just a worse fit.
+  const std::int32_t n =
+    std::max<std::int32_t>(1, static_cast<std::int32_t>(std::ceil(max_dist / voxel_size_)));
+  for (std::int32_t dx = -n; dx <= n; ++dx) {
+    for (std::int32_t dy = -n; dy <= n; ++dy) {
+      for (std::int32_t dz = -n; dz <= n; ++dz) {
         const auto it = voxels_.find({c.x + dx, c.y + dy, c.z + dz});
         if (it == voxels_.end()) {
           continue;

@@ -130,6 +130,8 @@ public:
   /// Read-only views of the tight-path state, for offline diagnostics (tight_replay): the
   /// full nav state (velocity, gyro/accel bias) and the estimated world-frame gravity.
   const NavState & navState() const {return state_;}
+  /// The carried 15-DoF covariance of navState() -- what the next IMU factor inflates by.
+  const Eigen::Matrix<double, kNavDim, kNavDim> & navCovariance() const {return nav_cov_;}
   const Eigen::Vector3d & gravity() const {return gravity_;}
 
 private:
@@ -145,6 +147,7 @@ private:
     const MeasureGroup & meas, double t_begin, double t_end) const;
   void seedNavStateFromLoose();
   void commitState(const NavState & x);
+  void propagateNavCovariance(const ImuPreintegration & pre);
   void updatePose(const Eigen::Isometry3d & new_pose, double dt);
   void resetBiasCovariance();
   void resetPipelineState();

@@ -173,8 +173,8 @@
       # min_points_for_plane (below, default 5) points
       # before PCA can fit a plane; if the map voxel matches the downsample leaf you
       # get ~1 point per voxel, no planes ever form, and ICP is permanently
-      # under-constrained. Also keep it >= max_correspondence_distance so the
-      # 27-cell neighbourhood search actually covers that radius.
+      # under-constrained. (Smaller than max_correspondence_distance is allowed: the
+      # correspondence search then widens past 27 cells, correct but slower.)
       voxel_size: 1.0
       # Density cap per voxel. This IS the map's downsampling. A full voxel does not
       # simply drop new points -- it RESERVOIR-SAMPLES them, keeping a uniform random

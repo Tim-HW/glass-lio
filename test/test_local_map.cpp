@@ -157,6 +157,27 @@ int main()
       "a flat wall must still fit a Y-facing plane");
   }
 
+  // --- The search covers the WHOLE radius, even when voxels are smaller than it.
+  //
+  // voxel 0.3, radius 0.5 (the ASDT configs): a wall two cells from the query, centroid
+  // 0.45 m away -- inside the radius. A fixed 27-cell search never looks there.
+  {
+    LocalMap m(0.3, 100, 1000.0);
+    CloudXYZI c;
+    for (float y = 0.01f; y < 0.3f; y += 0.03f) {
+      for (float z = 0.01f; z < 0.3f; z += 0.03f) {
+        add(c, 0.65f, y, z);     // a flat wall at x = 0.65, voxel key (2, 0, 0)
+      }
+    }
+    m.insert(c);
+
+    const Eigen::Vector3d q(0.2, 0.15, 0.15);   // voxel key (0, 0, 0), 0.45 m away
+    glasslio::Plane pl;
+    assert(m.closestPlane(q, 0.5, pl) && "a plane within the radius, two cells away, missed");
+    assert(std::abs(std::abs(pl.normal.x()) - 1.0) < 1e-3);
+    assert(!m.closestPlane(q, 0.4, pl) && "and one beyond the radius must still be refused");
+  }
+
   // --- The planarity gate is a PARAMETER, and it actually gates.
   //
   // Same points both times -- a deliberately noisy, barely-planar patch. A tight gate

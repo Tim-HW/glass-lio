@@ -46,5 +46,5 @@
     voxel_leaf_size: 0.10                 # default 0.5
 
     map:
-      voxel_size: 0.30                    # must stay >= voxel_leaf_size and >= corr distance
+      voxel_size: 0.30                    # must stay coarser than voxel_leaf_size
       min_points_for_plane: 4             # default 5 -- fit planes from fewer sparse points

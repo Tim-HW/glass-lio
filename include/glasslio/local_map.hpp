@@ -45,7 +45,7 @@ struct Plane
 ///
 /// Each voxel caches a PLANE (centroid + normal, by PCA over its own points).
 /// This is what makes registration cheap: the voxel *is* the neighbourhood, so
-/// the correspondence search is a hash lookup over the 27-cell neighbourhood
+/// the correspondence search is a hash lookup over the neighbouring cells
 /// rather than a KD-tree query, and planes are refitted only for voxels an
 /// insert actually touched -- O(changed), not O(map).
 class LocalMap
@@ -75,7 +75,8 @@ public:
   /// Drop voxels further than max_range from `origin` (the current pose).
   void prune(const Eigen::Vector3d & origin);
 
-  /// Nearest valid plane to `p`, searching p's voxel and its 26 neighbours.
+  /// Nearest valid plane to `p`, searching every voxel that could hold one within
+  /// `max_dist` (the 27-cell neighbourhood when voxel_size >= max_dist, more otherwise).
   /// Returns false if no voxel within `max_dist` holds a well-conditioned plane.
   bool closestPlane(const Eigen::Vector3d & p, double max_dist, Plane & out) const;
 

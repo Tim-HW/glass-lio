@@ -92,6 +92,6 @@ The map voxel must be **comfortably coarser** than the downsample leaf, for exac
 the reason in §4 — enough points must land in a map voxel to fit a plane. Set them
 equal and you get the degenerate case above.
 
-(`map.voxel_size` has a second constraint from the other direction — it must also be
-≥ `max_correspondence_distance`, so the 27-cell neighbourhood search actually covers
-the search radius. See [registration.md](5-registration.md).)
+(`map.voxel_size` may be smaller than `max_correspondence_distance`: the correspondence
+search widens to cover the radius, at the cost of more cells per point. See
+[registration.md](5-registration.md).)

@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <stdexcept>
 
 #include <pcl_conversions/pcl_conversions.h>
@@ -53,13 +54,17 @@ static builtin_interfaces::msg::Time stamp(double t)
 
 static double sensorX(double t) {return kX0 + kV * (t - kT0);}
 
+/// `max_range` > 0 crops the scan, so a moving sensor keeps seeing NEW geometry.
 static sensor_msgs::msg::PointCloud2::ConstSharedPtr scanAt(
-  const std::vector<Eigen::Vector3d> & room, double t)
+  const std::vector<Eigen::Vector3d> & room, double t, double max_range = 0.0)
 {
   LivoxCloud c;
   const Eigen::Vector3d origin(sensorX(t), 0.0, 1.5);
   for (const auto & p : room) {
     const Eigen::Vector3d q = p - origin;   // no rotation: world -> sensor is a shift
+    if (max_range > 0.0 && q.norm() > max_range) {
+      continue;
+    }
     LivoxPoint lp;
     lp.x = static_cast<float>(q.x());
     lp.y = static_cast<float>(q.y());
@@ -148,6 +153,90 @@ static void testTightRefusesRotatedExtrinsic()
   std::printf("  tight + 10 deg extrinsic refused; loose and identity accepted\n");
 }
 
+/// Simulate `n_scans` of the synthetic room through a real MeasureSync, handing every group
+/// it releases to `on_group`, in time order.
+static void feedScans(
+  int n_scans, const std::function<void(MeasureGroup &)> & on_group, double max_range = 0.0)
+{
+  const auto room = makeRoom();
+  MeasureSync sync(0.12);
+  int scan_idx = 0;
+  const double t_stop = kT0 + kScanDt * n_scans + 0.3;   // IMU past the last scan's guard
+  for (double t = kT0 - 0.2; t < t_stop; t += 0.005) {
+    sync.pushImu(imuAt(t));
+    if (scan_idx < n_scans && t >= kT0 + kScanDt * scan_idx) {
+      sync.pushLidar(scanAt(room, kT0 + kScanDt * scan_idx, max_range));
+      ++scan_idx;
+    }
+    MeasureGroup meas;
+    while (sync.next(meas)) {
+      on_group(meas);
+      meas = MeasureGroup();
+    }
+  }
+}
+
+/// While the tight path COASTS, the carried covariance must grow: a dead-reckoned state is
+/// less certain than the solved one it came from. Every scan is forced to coast here.
+static void testCoastGrowsCovariance()
+{
+  EstimatorParams p;
+  p.use_tight = true;
+  p.tight.reg = p.reg;
+  p.tight_warmup_scans = 3;
+  p.max_rmse = 1e-9;                       // reject every solve: pure dead reckoning
+  LioEstimator est(p, rclcpp::get_logger("test_estimator"));
+  est.initialize(Eigen::Isometry3d::Identity(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d(0.0, 0.0, -kGravity));
+
+  int n = 0;
+  double prev = -1.0, first = 0.0, last = 0.0;
+  feedScans(12, [&](MeasureGroup & meas) {
+      est.processScan(meas);
+      if (++n <= p.tight_warmup_scans + 1) {
+        return;   // warm-up is loose, and the first tight scan has no IMU window yet
+      }
+      const double tr = est.navCovariance().block<3, 3>(kIdxPos, kIdxPos).trace();
+      assert(tr > prev && "position covariance must grow on every coasting scan");
+      if (prev < 0.0) {first = tr;}
+      prev = last = tr;
+    });
+  std::printf("  coasting tight: position variance trace %.2e -> %.2e over %d scans\n",
+    first, last, n - p.tight_warmup_scans - 1);
+  assert(last > 2.0 * first);
+}
+
+/// BOOTSTRAP: until one registration has actually succeeded against a non-empty map, the map
+/// must keep growing even when registration fails -- otherwise sparse map -> ICP refused ->
+/// nothing inserted -> map stays sparse, forever. The first scan used to END the bootstrap
+/// (it reports "trusted" only because an empty map has nothing to fail against), so the map
+/// froze at one scan. Here every registration is refused, so the pose stays at the origin;
+/// the map must still grow as the approaching +x wall enters the sensor's range.
+static void testBootstrapKeepsFeedingTheMap()
+{
+  EstimatorParams p;
+  p.reg.min_correspondences = 1000000000;   // every ICP refused: under-constrained
+  LioEstimator est(p, rclcpp::get_logger("test_estimator"));
+  est.initialize(Eigen::Isometry3d::Identity(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d(0.0, 0.0, -kGravity));
+
+  int n = 0, trusted = 0;
+  std::size_t after_first = 0;
+  feedScans(20, [&](MeasureGroup & meas) {
+      const ScanResult r = est.processScan(meas);
+      trusted += (n > 0 && r.pose_trusted) ? 1 : 0;
+      if (n++ == 0) {
+        after_first = est.map().num_voxels();
+      }
+    }, 11.0);   // the +x wall starts 12 m away and comes within range as we approach
+  const std::size_t final_voxels = est.map().num_voxels();
+  std::printf("  bootstrap, every ICP refused: map %zu -> %zu voxels over %d scans\n",
+    after_first, final_voxels, n);
+  std::fflush(stdout);
+  assert(trusted == 0 && "the setup must actually refuse every registration");
+  assert(final_voxels > after_first && "the map froze after the first scan");
+}
+
 /// Run the pipeline for `n_scans`. With `drop_every_other`, every second scan is dropped the
 /// way the node drops one when the worker falls behind: its IMU handed to the next group.
 static void run(bool tight, bool drop_every_other)
@@ -161,23 +250,12 @@ static void run(bool tight, bool drop_every_other)
   est.initialize(Eigen::Isometry3d::Identity(), Eigen::Vector3d::Zero(),
     Eigen::Vector3d(0.0, 0.0, -kGravity));
 
-  const auto room = makeRoom();
-  MeasureSync sync(0.12);
-  const int n_scans = 30;
-  int scan_idx = 0, processed = 0, rejected = 0;
+  int processed = 0, rejected = 0;
   double last_t = 0.0;
-  MeasureGroup meas, pending_drop;
+  MeasureGroup pending_drop;
   bool have_drop = false;
 
-  const double t_stop = kT0 + kScanDt * n_scans + 0.3;   // IMU past the last scan's guard
-  for (double t = kT0 - 0.2; t < t_stop; t += 0.005) {
-    sync.pushImu(imuAt(t));
-    const double t_scan = kT0 + kScanDt * scan_idx;
-    if (scan_idx < n_scans && t >= t_scan) {
-      sync.pushLidar(scanAt(room, t_scan));
-      ++scan_idx;
-    }
-    while (sync.next(meas)) {
+  feedScans(30, [&](MeasureGroup & meas) {
       const double ts = stamp_sec(meas.lidar);
       // Never drop the first scans: the map and the tight warm-up need them.
       const bool drop = drop_every_other && ts > kT0 + 1.0 && !have_drop &&
@@ -185,20 +263,18 @@ static void run(bool tight, bool drop_every_other)
       if (drop) {
         pending_drop = meas;
         have_drop = true;
-      } else {
-        if (have_drop) {
-          mergeDroppedImu(pending_drop, meas);
-          have_drop = false;
-        }
-        const ScanResult r = est.processScan(meas);
-        assert(r.ok);
-        rejected += r.pose_trusted ? 0 : 1;
-        ++processed;
-        last_t = ts;
+        return;
       }
-      meas = MeasureGroup();
-    }
-  }
+      if (have_drop) {
+        mergeDroppedImu(pending_drop, meas);
+        have_drop = false;
+      }
+      const ScanResult r = est.processScan(meas);
+      assert(r.ok);
+      rejected += r.pose_trusted ? 0 : 1;
+      ++processed;
+      last_t = ts;
+    });
 
   // The estimator's world origin is the first scan's pose, so compare displacements.
   const double x_est = est.pose().translation().x();
@@ -226,6 +302,8 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
   testRotationGuessSpansTheGap();
   testTightRefusesRotatedExtrinsic();
+  testCoastGrowsCovariance();
+  testBootstrapKeepsFeedingTheMap();
   run(false, false);
   run(false, true);
   run(true, false);

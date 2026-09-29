@@ -62,16 +62,18 @@ That alternation *is* the ICP loop. In this codebase it is literally the callbac
 solver invokes each iteration — see [gauss_newton.md](gauss-newton.md).
 
 **Correspondence is a hash lookup, not a KD-tree query.** The map caches one plane per
-voxel, so we hash `q` to its voxel, scan the 27-cell neighbourhood, and take the
+voxel, so we hash `q` to its voxel, scan the neighbouring cells, and take the
 nearest valid plane within `max_correspondence_distance`. **Constant work per point.**
 This is the single biggest reason registration is fast enough — see the GICP
 comparison in [pipeline.md](pipeline.md#performance-pcl-gicp--hand-rolled-point-to-plane).
 
-> **Why the 27 cells are enough:** with `map.voxel_size ≥ max_correspondence_distance`,
-> any plane within the search radius of `q` must live in `q`'s own voxel or one of its
-> 26 neighbours. Shrink `map.voxel_size` below the correspondence distance and the
-> search silently becomes incomplete — it will miss valid correspondences that lie
-> two cells away, and you will never see an error, only a worse fit.
+> **How many cells:** a plane's centroid lies inside its own voxel, so every plane within
+> the search radius of `q` is at most `n = ceil(max_correspondence_distance / map.voxel_size)`
+> cells away on each axis, and `closestPlane` searches exactly that `(2n+1)³` block. With
+> `map.voxel_size ≥ max_correspondence_distance` that is the classic 27 cells. It used to
+> be a FIXED 27 -- and shrinking `map.voxel_size` below the correspondence distance (as
+> the ASDT configs do, 0.30 vs 0.5) then silently missed valid correspondences two cells
+> away: no error, only a worse fit.
 
 ## 3.3 The residual — why point-to-plane
 
